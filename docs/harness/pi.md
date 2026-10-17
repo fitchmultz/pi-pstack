@@ -23,7 +23,7 @@ Repository `AGENTS.md` rules (including mandatory evidence and pushback gates, u
 
 | Cursor | Pi (`subagent` / `delegate`) |
 | --- | --- |
-| `subagent_type: generalPurpose` | Use the matching Pi profile (`worker` for implementation, `scout` or `researcher` for read-only recon/investigation, `reviewer-gpt` / `reviewer-claude` for review, or `delegate` for generic tasks). |
+| `subagent_type: generalPurpose` | Use the matching Pi profile (`worker` for implementation, repairs, or generic execution, `scout` or `researcher` for read-only recon/investigation, `planner` for planning, or `reviewer` / `reviewer-claude` for review). |
 | `poteto-agent`, `comment-sicko` | `agent: "poteto-agent"` or `agent: "comment-sicko"` (registered via `pi-pstack`'s `subagents.agents` manifest). |
 | `readonly: true` | Use a read-only profile (`scout`, `researcher`, `reviewer`, `comment-sicko`) and state in the task brief not to edit files. |
 | `readonly: false` | Use `poteto-agent` or `worker`. |
@@ -33,6 +33,8 @@ Repository `AGENTS.md` rules (including mandatory evidence and pushback gates, u
 | `run_in_background: true` | Default in Pi (`async: true` is the stock top-level default). Launch parallel tasks with `subagent({ tasks: [...] })` or separate `delegate` runs, then end the turn and wait for automatic completion. |
 | `resume` | `agent_runs({ action: "continue", id, message })` or `subagent({ action: "resume", id, message })`. |
 | `file_attachments` | Pass `reads: ["path/to/file"]` in `subagent` tasks or list the file paths in the task brief. |
+
+Profiles supply short role defaults. The parent supplies original requirements and settled decisions or readable references, scope, relevant evidence, authority, acceptance criteria, verification commands and execution venue, output instructions, and stop conditions. For a simplicity pass, brief `reviewer` to preserve required behavior and safety while identifying what can be removed.
 
 ## Models
 
