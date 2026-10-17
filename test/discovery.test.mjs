@@ -1,22 +1,48 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
-  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const hostIndex = process.env.PI_HOST_INDEX
-  ? pathToFileURL(process.env.PI_HOST_INDEX).href
-  : import.meta.resolve("@earendil-works/pi-coding-agent");
+function resolveHostIndex() {
+  if (process.env.PI_HOST_INDEX) {
+    return pathToFileURL(process.env.PI_HOST_INDEX).href;
+  }
+  try {
+    return import.meta.resolve("@earendil-works/pi-coding-agent");
+  } catch {
+    const candidates = [
+      process.env.PI_PACKAGE_DIR && join(process.env.PI_PACKAGE_DIR, "dist/index.js"),
+      join(
+        homedir(),
+        ".local/share/npm-global/lib/node_modules/@earendil-works/pi-coding-agent/dist/index.js",
+      ),
+    ].filter(Boolean);
+    try {
+      const globalRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8" }).trim();
+      candidates.push(join(globalRoot, "@earendil-works/pi-coding-agent/dist/index.js"));
+    } catch {
+      // Ignore npm root lookup failure.
+    }
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        return pathToFileURL(candidate).href;
+      }
+    }
+    throw new Error("Could not resolve @earendil-works/pi-coding-agent for discovery test.");
+  }
+}
+
+const hostIndex = resolveHostIndex();
 const { DefaultResourceLoader, SettingsManager } = await import(hostIndex);
 const root = fileURLToPath(new URL("..", import.meta.url));
 
