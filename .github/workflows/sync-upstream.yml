@@ -1,0 +1,75 @@
+name: Sync Upstream pstack
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream-pstack
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Clone upstream cursor/plugins
+        run: git clone --depth 50 https://github.com/cursor/plugins.git /tmp/cursor-plugins
+      - name: Check if upstream pstack tree changed
+        id: check
+        run: |
+          CURRENT_TREE="$(node -p 'require("./upstream.json").pstackTreeSha')"
+          UPSTREAM_TREE="$(git -C /tmp/cursor-plugins rev-parse HEAD:pstack)"
+          UPSTREAM_SHA="$(git -C /tmp/cursor-plugins log -1 --format=%H -- pstack)"
+          echo "current_tree=$CURRENT_TREE" >> "$GITHUB_OUTPUT"
+          echo "upstream_tree=$UPSTREAM_TREE" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          if [ "$CURRENT_TREE" = "$UPSTREAM_TREE" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Hydrate dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: npm ci --ignore-scripts
+      - name: Sync and verify pstack
+        id: sync_verify
+        if: steps.check.outputs.changed == 'true'
+        continue-on-error: true
+        run: |
+          node scripts/sync-pstack.mjs /tmp/cursor-plugins
+          npm run check:compat
+      - name: Commit and push synced update
+        if: steps.check.outputs.changed == 'true' && steps.sync_verify.outcome == 'success'
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          SHORT_SHA="$(printf '%.7s' "${{ steps.check.outputs.upstream_sha }}")"
+          VERSION="$(node -p 'require("./upstream.json").version')"
+          git add skills agents LICENSE plugin.json upstream.json package.json
+          git commit -m "chore(sync): update pstack to ${VERSION} (${SHORT_SHA})"
+          git push origin HEAD:main
+      - name: Open issue on sync failure
+        if: steps.check.outputs.changed == 'true' && steps.sync_verify.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHORT_SHA="$(printf '%.7s' "${{ steps.check.outputs.upstream_sha }}")"
+          TITLE="Upstream pstack sync failed for ${SHORT_SHA}"
+          EXISTING="$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')"
+          if [ -z "$EXISTING" ]; then
+            gh issue create --title "$TITLE" --body "Automated sync from \`cursor/plugins\` (\`${{ steps.check.outputs.upstream_sha }}\`) failed validation. See workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          exit 1
