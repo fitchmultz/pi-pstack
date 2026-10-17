@@ -8,7 +8,7 @@ disable-model-invocation: true
 ---
 # How to make a bot UI
 
-In Pi, read [the Pi adapter](../../docs/harness/pi.md) once per session before you follow this skill. It maps the Cursor names in pstack skills to Pi.
+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
 
 Build a page the user clicks. A server on this computer POSTs JSON to a webhook routine. The bot wakes with that JSON. Keep the sender key on the server. Do not put the sender key in the browser, in chat, or in this skill.
 

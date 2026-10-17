@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Automate me
 
-In Pi, read [the Pi adapter](../../docs/harness/pi.md) once per session before you follow this skill. It maps the Cursor names in pstack skills to Pi.
+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
 
 A guided flow for turning the user's working conventions into a skill agents will follow. The output is one `-mode` skill tailored to them (e.g. `jay-mode`, `priya-mode`).
 

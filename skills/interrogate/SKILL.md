@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Interrogate
 
-In Pi, read [the Pi adapter](../../docs/harness/pi.md) once per session before you follow this skill. It maps the Cursor names in pstack skills to Pi.
+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
 
 Spawn one reviewer per configured model to adversarially review code changes. The adversarial signal comes from model diversity, not assigned personas. The deliverable is a synthesized verdict. Do NOT auto-apply changes.
 

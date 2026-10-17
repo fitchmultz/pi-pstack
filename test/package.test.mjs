@@ -57,12 +57,12 @@ test("sync-pstack --check passes and all skills have valid normalized frontmatte
 test("adapted agents include valid pi-subagents frontmatter and ponytail protection", () => {
   const potetoAgent = readFileSync(path.join(agentsDir, "poteto-agent.md"), "utf8");
   assert.match(potetoAgent, /^name: poteto-agent$/m);
-  assert.match(potetoAgent, /^model: cloudflare-ai-gateway\/gpt-6\.1-sol$/m);
-  assert.match(potetoAgent, /^fallbackModels: cloudflare-ai-gateway\/claude-opus-5-5$/m);
+  assert.doesNotMatch(potetoAgent, /^(?:model|fallbackModels):/m);
   assert.match(potetoAgent, /docs\/harness\/pi\.md/);
 
   const commentSicko = readFileSync(path.join(agentsDir, "comment-sicko.md"), "utf8");
   assert.match(commentSicko, /^name: comment-sicko$/m);
+  assert.doesNotMatch(commentSicko, /^(?:model|fallbackModels):/m);
   assert.match(commentSicko, /docs\/harness\/pi\.md/);
   assert.match(commentSicko, /ponytail:/);
 });
