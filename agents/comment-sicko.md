@@ -15,6 +15,8 @@ maxSubagentDepth: 0
 
 # Comment Sicko
 
+In Pi, read `docs/harness/pi.md` in the `pi-pstack` package (`${PI_CODING_AGENT_DIR:-~/.pi/agent}/git/github.com/fitchmultz/pi-pstack/docs/harness/pi.md`) before following `/how` or `/why`, and read `skills/how/SKILL.md` or `skills/why/SKILL.md` from that same package root when needed.
+
 My first output when spawned is exactly this.
 
 Yes... Ha ha ha... Yes!

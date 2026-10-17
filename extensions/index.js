@@ -9,7 +9,13 @@ const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const API_URL = "https://api.github.com/repos/cursor/plugins/commits?path=pstack&per_page=1";
 
 function getAgentDir() {
-  return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+  const raw = process.env.PI_CODING_AGENT_DIR;
+  if (!raw) return join(homedir(), ".pi", "agent");
+  if (raw === "~") return homedir();
+  if (raw.startsWith("~/") || raw.startsWith("~\\")) {
+    return join(homedir(), raw.slice(2));
+  }
+  return raw;
 }
 
 function getCachePath() {
@@ -35,25 +41,29 @@ function writeJsonSafe(filePath, data) {
 }
 
 async function fetchLatestUpstreamCommit(signal) {
-  const response = await fetch(API_URL, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "pi-pstack-update-checker",
-    },
-    signal,
-  });
-  if (!response.ok) return undefined;
-  const commits = await response.json();
-  if (!Array.isArray(commits) || commits.length === 0) return undefined;
-  const latest = commits[0];
-  const sha = typeof latest?.sha === "string" ? latest.sha : undefined;
-  if (!sha) return undefined;
-  const subject =
-    typeof latest?.commit?.message === "string"
-      ? latest.commit.message.split(/\r?\n/, 1)[0]
-      : "upstream update";
-  const date = latest?.commit?.committer?.date ?? latest?.commit?.author?.date ?? undefined;
-  return { sha, subject, date };
+  try {
+    const response = await fetch(API_URL, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "pi-pstack-update-checker",
+      },
+      signal,
+    });
+    if (!response.ok) return undefined;
+    const commits = await response.json();
+    if (!Array.isArray(commits) || commits.length === 0) return undefined;
+    const latest = commits[0];
+    const sha = typeof latest?.sha === "string" ? latest.sha : undefined;
+    if (!sha) return undefined;
+    const subject =
+      typeof latest?.commit?.message === "string"
+        ? latest.commit.message.split(/\r?\n/, 1)[0]
+        : "upstream update";
+    const date = latest?.commit?.committer?.date ?? latest?.commit?.author?.date ?? undefined;
+    return { sha, subject, date };
+  } catch {
+    return undefined;
+  }
 }
 
 export default function piPstackExtension(pi) {

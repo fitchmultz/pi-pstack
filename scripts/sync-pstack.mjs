@@ -140,6 +140,10 @@ function adaptCommentSicko(upstreamText) {
   const bodyMatch = upstreamText.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
   let body = bodyMatch ? bodyMatch[1].trimStart() : upstreamText;
   body = body.replace(
+    /^# Comment Sicko\n+/m,
+    `# Comment Sicko\n\nIn Pi, read \`docs/harness/pi.md\` in the \`pi-pstack\` package (\`\${PI_CODING_AGENT_DIR:-~/.pi/agent}/git/github.com/fitchmultz/pi-pstack/docs/harness/pi.md\`) before following \`/how\` or \`/why\`, and read \`skills/how/SKILL.md\` or \`skills/why/SKILL.md\` from that same package root when needed.\n\n`,
+  );
+  body = body.replace(
     "- Issue or RFC links that explain a constraint code cannot express.",
     "- Issue or RFC links that explain a constraint code cannot express.\n- Deliberate-shortcut ceiling comments marked with `ponytail:` and required repository policy comments (such as issue links on regression tests).",
   );
