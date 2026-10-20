@@ -104,7 +104,7 @@ export default function piPstackExtension(pi) {
     if (
       pi.getAllTools().some(
         ({ name: toolName, exposure }) =>
-          ["delegate", "subagent", "load_subagent"].includes(toolName) &&
+          ["delegate", "subagent", "subagents_enable", "load_subagent"].includes(toolName) &&
           (active.has(toolName) ||
             (scripted && (exposure === "codemode" || exposure === "deferred"))),
       )

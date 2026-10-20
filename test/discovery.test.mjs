@@ -40,6 +40,10 @@ function resolveHostIndex() {
 const hostIndex = resolveHostIndex();
 const { DefaultResourceLoader, SettingsManager } = await import(hostIndex);
 const root = fileURLToPath(new URL("..", import.meta.url));
+const delegationSkills = [
+  "architect", "arena", "how", "interrogate", "maintain-verification-skill",
+  "no-comments", "reflect", "show-me-your-work", "swarm",
+];
 
 async function withRpc(cli, args, options, run) {
   const child = spawn(process.execPath, [cli, "--mode", "rpc", ...args], options);
@@ -150,10 +154,7 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       assert.ok(commands.data.commands.some(({ name }) => name === "pstack-status"));
       const state = await request({ type: "get_state" });
       assertNoRunnableModel(state);
-      for (const name of [
-        "architect", "arena", "how", "interrogate", "maintain-verification-skill",
-        "no-comments", "reflect", "show-me-your-work", "swarm",
-      ]) {
+      for (const name of delegationSkills) {
         const result = await request({ type: "prompt", message: `/skill:${name} audit` });
         assert.equal(result.success, true, JSON.stringify(result));
         assert.equal(result.data.disposition, "handled");
@@ -168,31 +169,93 @@ test("packed pstack loads alone and guards only its delegation workflows before 
     const registration = join(temp, "delegation-entry.mjs");
     writeFileSync(registration, `export default function(pi) {
       const mode = process.env.PSTACK_ADMISSION_FIXTURE;
+      const loader = mode.startsWith("loader") || mode === "legacy-loader";
       pi.registerTool({ name: "subagent", label: "Admission fixture", description: "Never executed in this no-model fixture", defaultActive: mode === "active",
-        ...(["deferred", "discoverable"].includes(mode) ? { exposure: "deferred" } : {}),
+        ...(loader ? { exposure: "model-only" } : ["deferred", "discoverable"].includes(mode) ? { exposure: "deferred" } : {}),
         parameters: { type: "object", properties: {} }, execute: async () => { throw new Error("Unexpected tool execution"); } });
       if (mode === "discoverable") pi.on("session_start", () => pi.setActiveTools([...pi.getActiveTools(), "tool_search"]));
-      if (mode === "loader") pi.registerTool({ name: "load_subagent", label: "Cold loader fixture", description: "Never executed", parameters: { type: "object", properties: {} },
+      if (loader) pi.registerTool({ name: mode === "legacy-loader" ? "load_subagent" : "subagents_enable", label: "Cold loader fixture", description: "Never executed",
+        exposure: "model-only", defaultActive: mode !== "loader-inactive", parameters: { type: "object", properties: {} },
         execute: async () => { throw new Error("Unexpected loader execution"); } });
     }`);
     await t.test("only reachable delegation or an advertised cold loader passes admission", async () => {
-      for (const mode of ["inactive", "deferred", "active", "discoverable", "loader"]) {
+      for (const mode of ["inactive", "deferred", "active", "discoverable", "loader", "loader-inactive", "legacy-loader"]) {
         const fixtureOptions = { ...options, env: { ...env, PSTACK_ADMISSION_FIXTURE: mode } };
         await withRpc(cli, [...args, "-e", registration], fixtureOptions, async (request) => {
           assertNoRunnableModel(await request({ type: "get_state" }));
-          const result = await request({ type: "prompt", message: "/skill:swarm audit" });
-          if (mode === "inactive" || mode === "deferred") {
-            assert.equal(result.success, true, `${mode}: ${JSON.stringify(result)}`);
-            assert.equal(result.data.disposition, "handled", mode);
-          } else assertModelValidation(result);
+          for (const name of mode === "loader" ? delegationSkills : ["swarm"]) {
+            const result = await request({ type: "prompt", message: `/skill:${name} audit` });
+            if (["inactive", "deferred", "loader-inactive"].includes(mode)) {
+              assert.equal(result.success, true, `${mode}: ${JSON.stringify(result)}`);
+              assert.equal(result.data.disposition, "handled", mode);
+            } else assertModelValidation(result);
+          }
         });
       }
       const loaderOptions = { ...options, env: { ...env, PSTACK_ADMISSION_FIXTURE: "loader" } };
-      await withRpc(cli, [...args, "-e", registration, "--exclude-tools", "subagent,load_subagent"], loaderOptions, async (request) => {
-        const result = await request({ type: "prompt", message: "/skill:swarm audit" });
-        assert.equal(result.success, true, JSON.stringify(result));
-        assert.equal(result.data.disposition, "handled");
-      });
+      for (const excluded of ["subagents_enable", "subagent,subagents_enable"]) {
+        await withRpc(cli, [...args, "-e", registration, "--exclude-tools", excluded], loaderOptions, async (request) => {
+          const result = await request({ type: "prompt", message: "/skill:swarm audit" });
+          assert.equal(result.success, true, JSON.stringify(result));
+          assert.equal(result.data.disposition, "handled");
+        });
+      }
+    });
+
+    await t.test("real pi-subagents admits its dynamic loader and eager tools", {
+      skip: !process.env.PI_SUBAGENTS_INDEX && "Set PI_SUBAGENTS_INDEX to qualify the optional provider",
+    }, async () => {
+      const provider = process.env.PI_SUBAGENTS_INDEX;
+      assert.ok(existsSync(provider), `Missing pi-subagents extension: ${provider}`);
+      const configDir = join(agentDir, "extensions", "subagent");
+      mkdirSync(configDir, { recursive: true });
+      const probe = join(temp, "tool-state.mjs");
+      writeFileSync(probe, `export default function(pi) {
+        pi.registerCommand("pstack-test-tools", { handler: async (_args, ctx) => {
+          ctx.ui.notify("pstack-test-tools:" + JSON.stringify({ active: pi.getActiveTools(),
+            tools: pi.getAllTools().map(({ name, exposure }) => ({ name, exposure })) }), "info");
+        } });
+      }`);
+      for (const mode of ["dynamic", "dynamic-codemode", "eager", "excluded"]) {
+        writeFileSync(join(configDir, "config.json"), JSON.stringify({
+          toolActivation: mode === "eager" ? "eager" : "dynamic",
+        }));
+        const providerArgs = [...args.filter((arg) => arg !== "--no-session"), "-e", provider, "-e", probe];
+        if (mode === "dynamic-codemode") providerArgs.push("--tools", "read,bash,edit,write,codemode,subagent,subagents_enable");
+        if (mode === "excluded") providerArgs.push("--exclude-tools", "subagent,subagents_enable");
+        await withRpc(cli, providerArgs, options, async (request, events) => {
+          assertNoRunnableModel(await request({ type: "get_state" }));
+          const probeResult = await request({ type: "prompt", message: "/pstack-test-tools" });
+          assert.equal(probeResult.success, true, JSON.stringify(probeResult));
+          const notification = events.find((event) => event.message?.startsWith("pstack-test-tools:"));
+          assert.ok(notification, `Missing tool-state probe in ${mode}`);
+          const { active, tools } = JSON.parse(notification.message.slice("pstack-test-tools:".length));
+          if (mode.startsWith("dynamic")) {
+            assert.ok(active.includes("subagents_enable"), mode);
+            assert.ok(!active.includes("subagent"), mode);
+            for (const name of ["subagent", "subagents_enable"]) {
+              assert.equal(tools.find((tool) => tool.name === name)?.exposure, "model-only", name);
+            }
+            if (mode === "dynamic-codemode") assert.ok(active.includes("codemode"));
+          } else if (mode === "eager") {
+            assert.ok(active.includes("subagent"));
+            assert.ok(!tools.some(({ name }) => name === "subagents_enable"));
+          } else {
+            assert.ok(!tools.some(({ name }) => ["subagent", "subagents_enable"].includes(name)));
+          }
+          for (const name of delegationSkills) {
+            const result = await request({ type: "prompt", message: `/skill:${name} audit` });
+            if (mode === "excluded") {
+              assert.equal(result.success, true, JSON.stringify(result));
+              assert.equal(result.data.disposition, "handled");
+              assert.ok(events.some((event) => event.notifyType === "error" && event.message?.includes(`pi-pstack: /skill:${name}`)));
+            } else assertModelValidation(result);
+          }
+          assertModelValidation(await request({ type: "prompt", message: "/skill:tdd text" }));
+          assert.ok(!events.some(({ type }) => type === "agent_start" || type === "tool_execution_start"));
+          if (mode !== "excluded") assert.ok(!events.some((event) => event.message?.includes("pi-pstack:")));
+        });
+      }
     });
 
     await t.test("a different package's namesake is not intercepted", async () => {

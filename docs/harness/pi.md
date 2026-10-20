@@ -19,7 +19,7 @@ The extension rejects explicit invocations of bundled skills whose deliverable u
 
 | Cursor | Pi |
 | --- | --- |
-| `Task` | Use an available delegation provider's actual schema. With pi-subagents, use `delegate` or `subagent`; call `load_subagent` only if advertised, then discover profiles and controls before launching. If absent, stop any step requiring delegation. |
+| `Task` | Use an available delegation provider's actual schema. With pi-subagents, call `subagents_enable` first if advertised, then use `subagent` and discover profiles and controls before launching. Other providers may expose `delegate` or `load_subagent`; use only advertised entry points. If none is reachable, stop any step requiring delegation. |
 | `AskQuestion` | Use an available question tool, or ask in conversation and wait. With `ask_question`, order options from most recommended to least; Pi adds its own custom-answer option. |
 | Open a todolist | Keep a concise checklist in the reply or a task-owned file. Use `notes` only if available. |
 | Run another pstack skill (`/name` or "the **name** skill") | Read `<pstack>/skills/<name>/SKILL.md` in full and check its prerequisites before following it. User-facing invocations are `/skill:<name>`. |
