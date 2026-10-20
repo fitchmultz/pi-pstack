@@ -5,7 +5,7 @@ Pi package adapter for [Cursor's `pstack`](https://github.com/cursor/plugins/tre
 ## What this package provides
 
 - **All 54 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`.
-- **Optional delegation profiles** (`./agents`): `poteto-agent` and `comment-sicko`. `pi-subagents` can discover them through the `"subagents": { "agents": ["./agents"] }` manifest. Native Pi does not consume that manifest. No sibling's generic profiles are assumed or copied.
+- **Optional delegation profiles** (`./agents`): `poteto-agent` and `comment-sicko`. `pi-subagents` discovers them through `pi.subagents.agents` in the manifest. The top-level `subagents.agents` alias is retained for older adapters; native Pi does not consume either profile-metadata key. No sibling's generic profiles are assumed or copied.
 - **Pi harness adapter** ([`docs/harness/pi.md`](./docs/harness/pi.md)): defines native tool/path mappings, capability checks, standalone code cleanup, model inheritance, and `ponytail:` / `AGENTS.md` protections. Its Pi rules override Cursor assumptions in the bundled upstream skills and playbooks.
 - **Automated upstream sync & notifications**:
   - `.github/workflows/sync-upstream.yml` polls `cursor/plugins` (`pstack/`) every 6 hours, runs `scripts/sync-pstack.mjs` + `npm run check:compat`, and commits updates to `main`.
@@ -39,7 +39,7 @@ npm run check:compat  # Validate sync invariants, skill/extension discovery, and
 
 Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference.
 
-CI also qualifies the real optional pi-subagents **0.79.1** loader in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, only the real-provider subtest is skipped; the standalone and loader-fixture checks still run. The integration checks dynamic and eager admission, including missing-tool rejection, without launching workers.
+CI also qualifies the real optional pi-subagents **0.79.1** loader in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, only the real-provider subtest is skipped; the standalone and loader-fixture checks still run. The integration checks packed-profile discovery and dynamic/eager admission, including missing-tool rejection, without launching workers. Profile discovery uses that pinned provider's internal scanner because its public API does not expose package discovery.
 
 ## License
 

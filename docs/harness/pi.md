@@ -4,7 +4,7 @@ Read this adapter before following a pstack skill. `<pstack>` is the package dir
 
 ## Standalone use and prerequisites
 
-Pi natively loads this package's skills and update/status extension. Writing, principles, TDD, local analysis, and other inline work need no sibling extension. The `subagents.agents` manifest is an **optional pi-subagents integration**, not a native Pi profile registry.
+Pi natively loads this package's skills and update/status extension. Writing, principles, TDD, local analysis, and other inline work need no sibling extension. The `pi.subagents.agents` manifest metadata is an **optional pi-subagents integration**, not a native Pi profile registry. The top-level `subagents.agents` alias is retained for older adapters.
 
 Before starting a routed workflow, check its required capabilities against the tools and resources actually available in this session. Consult an advertised discovery catalog when a needed tool is inactive. Call loaders only when they are advertised; an installed package or a familiar profile name does not establish availability. Recheck before delegation and after a failed discovery or reload.
 

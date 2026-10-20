@@ -21,7 +21,8 @@ test("package manifest exposes skills, extension, and subagent profiles", () => 
   const upstream = JSON.parse(readFileSync(path.join(root, "upstream.json"), "utf8"));
   assert.deepEqual(manifest.pi.skills, ["./skills"]);
   assert.deepEqual(manifest.pi.extensions, ["./extensions/index.js"]);
-  assert.deepEqual(manifest.subagents.agents, ["./agents"]);
+  assert.deepEqual(manifest.pi.subagents.agents, ["./agents"]);
+  assert.deepEqual(manifest.subagents, manifest.pi.subagents);
   assert.equal(manifest.version, upstream.version);
   assert.match(upstream.pstackCommitSha, /^[0-9a-f]{40}$/);
   assert.match(upstream.pstackTreeSha, /^[0-9a-f]{40}$/);

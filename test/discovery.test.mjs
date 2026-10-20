@@ -202,11 +202,23 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       }
     });
 
-    await t.test("real pi-subagents admits its dynamic loader and eager tools", {
+    await t.test("real pi-subagents discovers profiles and admits dynamic and eager tools", {
       skip: !process.env.PI_SUBAGENTS_INDEX && "Set PI_SUBAGENTS_INDEX to qualify the optional provider",
     }, async () => {
       const provider = process.env.PI_SUBAGENTS_INDEX;
       assert.ok(existsSync(provider), `Missing pi-subagents extension: ${provider}`);
+      // This scanner is internal to the CI-pinned provider; its public API has no package-discovery seam.
+      const scanner = pathToFileURL(join(dirname(provider), "src", "agents", "agents.js")).href;
+      const discovered = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
+        const { discoverAgents } = await import(${JSON.stringify(scanner)});
+        const { agents, agentDiagnostics: diagnostics } = discoverAgents(process.cwd(), "both", undefined, { globalNpmRoot: null });
+        console.log(JSON.stringify({ agents: agents.filter(({ source }) => source === "package"), diagnostics }));
+      `], { cwd, env, encoding: "utf8" }));
+      assert.deepEqual(discovered.diagnostics, []);
+      assert.deepEqual(discovered.agents.map(({ name }) => name).sort(), ["comment-sicko", "poteto-agent"]);
+      for (const agent of discovered.agents) {
+        assert.equal(realpathSync(agent.filePath), realpathSync(join(packedRoot, "agents", `${agent.name}.md`)));
+      }
       const configDir = join(agentDir, "extensions", "subagent");
       mkdirSync(configDir, { recursive: true });
       const probe = join(temp, "tool-state.mjs");
