@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,29 @@ const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const UPSTREAM_FILE = join(PACKAGE_ROOT, "upstream.json");
 const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const API_URL = "https://api.github.com/repos/cursor/plugins/commits?path=pstack&per_page=1";
+const DELEGATION_SKILLS = new Set([
+  "architect",
+  "arena",
+  "how",
+  "interrogate",
+  "maintain-verification-skill",
+  "no-comments",
+  "reflect",
+  "show-me-your-work",
+  "swarm",
+]);
+
+function ownsSkill(command, name) {
+  try {
+    return (
+      command?.source === "skill" &&
+      realpathSync(command.sourceInfo.path) ===
+        realpathSync(join(PACKAGE_ROOT, "skills", name, "SKILL.md"))
+    );
+  } catch {
+    return false;
+  }
+}
 
 function getAgentDir() {
   const raw = process.env.PI_CODING_AGENT_DIR;
@@ -68,6 +91,37 @@ async function fetchLatestUpstreamCommit(signal) {
 
 export default function piPstackExtension(pi) {
   let activeController;
+
+  pi.on("input", (event, ctx) => {
+    const name = /^\/skill:([a-z0-9-]+)(?: |$)/.exec(event.text)?.[1];
+    if (!DELEGATION_SKILLS.has(name)) return;
+    const command = pi.getCommands().find((entry) => entry.name === `skill:${name}`);
+    if (!ownsSkill(command, name)) return;
+    const active = new Set(pi.getActiveTools());
+    const scripted = active.has("codemode") || active.has("tool_search");
+    // ponytail: group-only deferred delegation stays blocked; revisit when a provider
+    // advertises such a group or Pi exposes synchronous group reachability.
+    if (
+      pi.getAllTools().some(
+        ({ name: toolName, exposure }) =>
+          ["delegate", "subagent", "subagents_enable", "load_subagent"].includes(toolName) &&
+          (active.has(toolName) ||
+            (scripted && (exposure === "codemode" || exposure === "deferred"))),
+      )
+    ) return;
+    const message =
+      `pi-pstack: /skill:${name} requires independent delegated work. ` +
+      "No supported delegation tool or loader is available in this session. " +
+      "Enable a delegation provider such as pi-subagents and discover its profiles and run controls. " +
+      "No workers were launched. Inline pstack skills such as /skill:unslop and /skill:tdd remain available.";
+    if (ctx.hasUI) ctx.ui.notify(message, "error");
+    else {
+      console.error(message);
+      // ponytail: the native SDK shares print mode; embedders must consume the diagnostic and reset exitCode if they continue.
+      process.exitCode = 1;
+    }
+    return { action: "handled" };
+  });
 
   pi.on("session_shutdown", () => {
     activeController?.abort();

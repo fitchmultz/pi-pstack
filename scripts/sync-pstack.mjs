@@ -21,8 +21,9 @@ const ADAPTER = "docs/harness/pi.md";
 const GITHUB = "https://github.com/cursor/plugins";
 const LINK = /\]\(([^)\s]+)\)/g;
 const ADAPTER_LINE =
-  `In Pi, read [the Pi adapter](../../${ADAPTER}) once per session before you follow this skill. ` +
-  "It maps the Cursor names in pstack skills to Pi.";
+  `In Pi, read [the Pi adapter](../../${ADAPTER}) before you follow this skill. ` +
+  "Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. " +
+  "If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.";
 
 const ADVERTISED_SKILLS = new Set(["poteto-mode", "tdd"]);
 const DESCRIPTION_IN_BODY_SKILLS = new Set([
@@ -115,8 +116,6 @@ function adaptPotetoAgent() {
   return `---
 name: poteto-agent
 description: Delegate subagent for code-writing and helper tasks spawned during a /skill:poteto-mode run. Reads poteto-mode SKILL.md and the Pi harness adapter in full before any work.
-model: cloudflare-ai-gateway/gpt-6.1-sol
-fallbackModels: cloudflare-ai-gateway/claude-opus-5-5
 thinking: xhigh
 systemPromptMode: append
 inheritProjectContext: true
@@ -130,7 +129,7 @@ maxSubagentDepth: 0
 
 You are operating as poteto-mode's full agent style inside Pi. The parent session that receives \`/skill:poteto-mode\` owns the playbook, the checklist, and every subagent spawn. You are one of its delegates.
 
-1. Read the \`poteto-mode\` skill's \`SKILL.md\` in full before doing any work, including its inline Principles index, and read \`docs/harness/pi.md\` in the same \`pi-pstack\` package. Use the absolute path your parent gave you, or locate \`poteto-mode\` from \`<available_skills>\` in your system prompt (installed at \`\${PI_CODING_AGENT_DIR:-~/.pi/agent}/git/github.com/fitchmultz/pi-pstack/skills/poteto-mode/SKILL.md\`).
+1. Read the \`poteto-mode\` skill's \`SKILL.md\` in full before doing any work, including its inline Principles index, and read \`docs/harness/pi.md\` in the same \`pi-pstack\` package. Use the absolute path your parent gave you, or derive the package root from \`poteto-mode\` in \`<available_skills>\`. If neither identifies the resource, ask the parent for its path rather than assuming a git install location.
 2. Navigate to a leaf \`principle-*\` skill in sibling \`../principle-*/SKILL.md\` whenever you apply that principle.
 3. Follow project \`AGENTS.md\` and Ponytail constraints (including preserving \`ponytail:\` ceiling comments and mandatory evidence/pushback gates).
 `;
@@ -141,7 +140,7 @@ function adaptCommentSicko(upstreamText) {
   let body = bodyMatch ? bodyMatch[1].trimStart() : upstreamText;
   body = body.replace(
     /^# Comment Sicko\n+/m,
-    `# Comment Sicko\n\nIn Pi, read \`docs/harness/pi.md\` in the \`pi-pstack\` package (\`\${PI_CODING_AGENT_DIR:-~/.pi/agent}/git/github.com/fitchmultz/pi-pstack/docs/harness/pi.md\`) before following \`/how\` or \`/why\`, and read \`skills/how/SKILL.md\` or \`skills/why/SKILL.md\` from that same package root when needed.\n\n`,
+    `# Comment Sicko\n\nIn Pi, use the absolute package root supplied by the parent, or derive it from the loaded \`poteto-mode\` skill's location. Ask the parent if it cannot be resolved; do not assume a git install path. Read \`docs/harness/pi.md\` there before following \`/how\` or \`/why\`, and read \`skills/how/SKILL.md\` or \`skills/why/SKILL.md\` from that same package root when needed.\n\n`,
   );
   body = body.replace(
     "- Issue or RFC links that explain a constraint code cannot express.",
@@ -154,8 +153,6 @@ function adaptCommentSicko(upstreamText) {
   return `---
 name: comment-sicko
 description: A deranged comment-hater that savors deletion and condemns workaround code (report-only).
-model: cloudflare-ai-gateway/gpt-6.1-sol
-fallbackModels: cloudflare-ai-gateway/claude-opus-5-5
 thinking: xhigh
 systemPromptMode: append
 inheritProjectContext: true

@@ -21,7 +21,8 @@ test("package manifest exposes skills, extension, and subagent profiles", () => 
   const upstream = JSON.parse(readFileSync(path.join(root, "upstream.json"), "utf8"));
   assert.deepEqual(manifest.pi.skills, ["./skills"]);
   assert.deepEqual(manifest.pi.extensions, ["./extensions/index.js"]);
-  assert.deepEqual(manifest.subagents.agents, ["./agents"]);
+  assert.deepEqual(manifest.pi.subagents.agents, ["./agents"]);
+  assert.deepEqual(manifest.subagents, manifest.pi.subagents);
   assert.equal(manifest.version, upstream.version);
   assert.match(upstream.pstackCommitSha, /^[0-9a-f]{40}$/);
   assert.match(upstream.pstackTreeSha, /^[0-9a-f]{40}$/);
@@ -57,12 +58,12 @@ test("sync-pstack --check passes and all skills have valid normalized frontmatte
 test("adapted agents include valid pi-subagents frontmatter and ponytail protection", () => {
   const potetoAgent = readFileSync(path.join(agentsDir, "poteto-agent.md"), "utf8");
   assert.match(potetoAgent, /^name: poteto-agent$/m);
-  assert.match(potetoAgent, /^model: cloudflare-ai-gateway\/gpt-6\.1-sol$/m);
-  assert.match(potetoAgent, /^fallbackModels: cloudflare-ai-gateway\/claude-opus-5-5$/m);
+  assert.doesNotMatch(potetoAgent, /^(?:model|fallbackModels):/m);
   assert.match(potetoAgent, /docs\/harness\/pi\.md/);
 
   const commentSicko = readFileSync(path.join(agentsDir, "comment-sicko.md"), "utf8");
   assert.match(commentSicko, /^name: comment-sicko$/m);
+  assert.doesNotMatch(commentSicko, /^(?:model|fallbackModels):/m);
   assert.match(commentSicko, /docs\/harness\/pi\.md/);
   assert.match(commentSicko, /ponytail:/);
 });
