@@ -440,6 +440,16 @@ function checkOnDiskInvariants(sourceRepoRoot) {
 
 function writeSyncedTree(sourceRepoRoot) {
   const { files, skills, classes, upstreamMeta } = renderFromUpstream(sourceRepoRoot);
+  // The checked-out skills tree is the persistent inventory, including additions
+  // shipped by earlier automatic syncs. Reject removals before any generated write.
+  const skillsRoot = join(ROOT, "skills");
+  const removed = existsSync(skillsRoot)
+    ? readdirSync(skillsRoot).filter((name) =>
+      existsSync(join(skillsRoot, name, "SKILL.md")) && !skills.includes(name))
+    : [];
+  if (removed.length > 0) {
+    throw new Error(`Refusing upstream sync: would remove shipped skills: ${removed.join(", ")}. Review removals or renames as an explicit local change.`);
+  }
   rmSync(join(ROOT, "skills"), { recursive: true, force: true });
   rmSync(join(ROOT, "agents"), { recursive: true, force: true });
 

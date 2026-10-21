@@ -1,6 +1,7 @@
 // Issue #7: additive upstream syncs must not trip a frozen skill count.
-// This reviewed baseline guards against losing shipped commands; new skills are
-// allowed, but must also pass native discovery and frontmatter checks.
+// This reviewed baseline protects the initial commands in package/discovery tests.
+// The sync generator also protects every checked-out skill before rewriting the
+// tree, including later automatic additions not listed here.
 export const requiredSkills = [
   "architect", "arena", "automate-me", "benchmark-checklist", "blast-radius",
   "bro", "correct", "create-formal-verification-skill", "create-verification-skill",
