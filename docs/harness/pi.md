@@ -1,6 +1,16 @@
 # pstack in Pi
 
-Read this adapter before following a pstack skill. `<pstack>` is the package directory containing `skills/`, `agents/`, and `docs/`. These Pi instructions override Cursor-specific tool, profile, model, and path assumptions in the upstream text, including its references and playbooks. Repository `AGENTS.md`, user authority, and safety requirements still take precedence.
+Read this adapter before following a pstack skill. `<pstack>` is the package directory containing `skills/`, `agents/`, and `docs/`. These Pi instructions override automatic workflow triggers and Cursor-specific tool, profile, model, and path assumptions in the upstream text, including its references and playbooks. Repository `AGENTS.md`, user authority, and safety requirements still take precedence.
+
+## Task scope and workflow selection
+
+These rules override broader triggers in the bundled skills and playbooks.
+
+- Investigate the facts needed to complete and verify the requested outcome. Stop expanding research once the relevant decisions are supported. Do not turn a specific request into a general policy.
+- Select specialist workflows for an explicit request or a concrete task need. A nontrivial change, a function boundary, or a review alone does not require `how`, `architect`, `arena`, or `no-comments`. Use independent delegates where their coverage helps. An explicitly selected workflow retains its required panels and checks.
+- Keep the existing design when it covers the required behavior. First-principles reasoning does not authorize a rewrite. Compare whole-design alternatives when an unresolved architectural tradeoff warrants them, not when a sufficient local change is already supported.
+- Build a script or prototype when it resolves a concrete uncertainty or makes repeated work safer. Nontrivial work alone does not require a new tool.
+- Reviews, comment cleanup, and broken skills do not authorize unrelated refactors or side PRs. Report out-of-scope findings without expanding the task. Preserve repository evidence requirements and explicit approval gates.
 
 ## Standalone use and prerequisites
 
@@ -32,7 +42,7 @@ The extension rejects explicit invocations of bundled skills whose deliverable u
 
 ### Code cleanup
 
-Inspect the changed diff and surrounding contracts. Remove redundant narration, speculative scaffolding, forwarding-only helpers, unjustified casts or suppressions, and catches that hide failures. Preserve behavior, validation, error identity, cleanup, accessibility, and necessary comments, including `ponytail:` ceilings and repository-required evidence. Use the repository's formatter and required checks, then inspect the resulting diff. This cleanup is not an independent review and does not replace `/no-comments` or another required reviewer.
+Inspect the changed diff and surrounding contracts. Remove redundant narration, speculative scaffolding, forwarding-only helpers, unjustified casts or suppressions, and catches that hide failures. Preserve behavior, validation, error identity, cleanup, accessibility, and necessary comments, including `ponytail:` ceilings and repository-required evidence. Use the repository's formatter and required checks, then inspect the resulting diff. This cleanup is not an independent review and does not replace a reviewer required by the task.
 
 ## Delegation fields and profiles
 
