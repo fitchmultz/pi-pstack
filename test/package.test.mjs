@@ -4,6 +4,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { requiredSkills } from "./required-skills.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillsDir = path.join(root, "skills");
@@ -26,7 +27,10 @@ test("package manifest exposes skills, extension, and subagent profiles", () => 
   assert.equal(manifest.version, upstream.version);
   assert.match(upstream.pstackCommitSha, /^[0-9a-f]{40}$/);
   assert.match(upstream.pstackTreeSha, /^[0-9a-f]{40}$/);
-  assert.equal(readdirSync(skillsDir).length, 54);
+  const skills = readdirSync(skillsDir);
+  for (const name of requiredSkills) {
+    assert.ok(skills.includes(name), `Missing shipped skill: ${name}`);
+  }
   assert.deepEqual(readdirSync(agentsDir).sort(), ["comment-sicko.md", "poteto-agent.md"]);
 });
 
