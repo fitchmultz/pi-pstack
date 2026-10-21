@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -14,6 +15,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { requiredSkills } from "./required-skills.mjs";
 
 function resolveHostIndex() {
   if (process.env.PI_HOST_INDEX) return pathToFileURL(process.env.PI_HOST_INDEX).href;
@@ -40,6 +42,7 @@ function resolveHostIndex() {
 const hostIndex = resolveHostIndex();
 const { DefaultResourceLoader, SettingsManager } = await import(hostIndex);
 const root = fileURLToPath(new URL("..", import.meta.url));
+const upstream = JSON.parse(readFileSync(join(root, "upstream.json"), "utf8"));
 const delegationSkills = [
   "architect", "arena", "how", "interrogate", "maintain-verification-skill",
   "no-comments", "reflect", "show-me-your-work", "swarm",
@@ -128,8 +131,12 @@ test("packed pstack loads alone and guards only its delegation workflows before 
     const { skills, diagnostics } = loader.getSkills();
     assert.deepEqual(diagnostics, []);
     const expected = readdirSync(join(root, "skills")).sort();
-    assert.equal(expected.length, 54);
+    for (const name of requiredSkills) {
+      assert.ok(expected.includes(name), `Missing shipped skill: ${name}`);
+    }
     assert.deepEqual(skills.map(({ name }) => name).sort(), expected);
+    assert.deepEqual(skills.filter(({ disableModelInvocation }) => !disableModelInvocation)
+      .map(({ name }) => name).sort(), ["poteto-mode", "tdd"]);
     for (const skill of skills) {
       assert.equal(realpathSync(skill.sourceInfo.path), realpathSync(join(packedRoot, "skills", skill.name, "SKILL.md")));
     }
@@ -147,11 +154,46 @@ test("packed pstack loads alone and guards only its delegation workflows before 
     const cli = join(packageDir, "dist/bundle/cli.js");
     const args = ["--offline", "--no-session", "--no-approve", "-np", "-nc", "--no-themes"];
     const options = { cwd, env, stdio: ["pipe", "pipe", "pipe"] };
+    // Issue #7: exercise the real native command expander, not source-text equality
+    // or a paid model. Public followUp queues expanded input without inference.
+    await t.test("native SDK expands synced formal skills and sharpen without inference", () => {
+      execFileSync(process.execPath, ["--input-type=module", "-e", `
+        import assert from "node:assert/strict";
+        const { createAgentSession, DefaultResourceLoader, SessionManager, SettingsManager } = await import(${JSON.stringify(hostIndex)});
+        const settingsManager = SettingsManager.inMemory({ packages: [${JSON.stringify(packedRoot)}] });
+        const loader = new DefaultResourceLoader({ cwd: process.cwd(), agentDir: process.env.PI_CODING_AGENT_DIR,
+          settingsManager, noContextFiles: true });
+        await loader.reload();
+        const { session } = await createAgentSession({ cwd: process.cwd(), agentDir: process.env.PI_CODING_AGENT_DIR,
+          settingsManager, resourceLoader: loader, sessionManager: SessionManager.inMemory() });
+        try {
+          const cases = [
+            ["create-formal-verification-skill", "TLA+ is the default", "Pi adapter"],
+            ["maintain-formal-verification-skill", "Do not move the sync commit for a blocked check", "Pi adapter"],
+            ["sharpen", "Then rewrite my prompt", "Leave choices that are mine to make open"],
+          ];
+          for (const [name, ...markers] of cases) {
+            assert.equal(await session.followUp("/skill:" + name + " issue7-input"), "queued");
+            const [expanded] = session.getFollowUpMessages();
+            assert.ok(expanded.startsWith('<skill name="' + name + '" location="'));
+            assert.ok(expanded.includes(${JSON.stringify(packedRoot)} + "/skills/" + name + "/SKILL.md"));
+            for (const marker of markers) assert.ok(expanded.includes(marker), name + ": " + marker);
+            assert.ok(expanded.endsWith("</skill>\\n\\nissue7-input"));
+            session.clearQueue();
+          }
+          assert.deepEqual(session.messages, []);
+        } finally { session.dispose(); }
+      `], { cwd, env, encoding: "utf8", timeout: 30000 });
+    });
     await withRpc(cli, args, options, async (request, events) => {
       const commands = await request({ type: "get_commands" });
       assert.equal(commands.success, true, JSON.stringify(commands));
       assert.deepEqual(commands.data.commands.filter(({ source }) => source === "skill").map(({ name }) => name).sort(), expected.map((name) => `skill:${name}`).sort());
       assert.ok(commands.data.commands.some(({ name }) => name === "pstack-status"));
+      assert.equal((await request({ type: "prompt", message: "/pstack-status" })).success, true);
+      assert.ok(events.some((event) => event.method === "notify" &&
+        event.message?.includes(`v${upstream.version}`) && event.message.includes(upstream.pstackCommitSha.slice(0, 7)) &&
+        event.message.includes("Offline mode active")));
       const state = await request({ type: "get_state" });
       assertNoRunnableModel(state);
       for (const name of delegationSkills) {
@@ -160,7 +202,7 @@ test("packed pstack loads alone and guards only its delegation workflows before 
         assert.equal(result.data.disposition, "handled");
         assert.ok(events.some((event) => event.type === "extension_ui_request" && event.method === "notify" && event.notifyType === "error" && event.message.includes(`/skill:${name}`) && event.message.includes("pi-subagents")));
       }
-      for (const name of ["unslop", "tdd", "poteto-mode"]) {
+      for (const name of ["unslop", "tdd", "poteto-mode", "create-formal-verification-skill", "maintain-formal-verification-skill", "sharpen"]) {
         assertModelValidation(await request({ type: "prompt", message: `/skill:${name} text` }));
       }
       assert.ok(!events.some(({ type }) => type === "agent_start" || type === "tool_execution_start"));

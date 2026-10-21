@@ -4,7 +4,7 @@ Pi package adapter for [Cursor's `pstack`](https://github.com/cursor/plugins/tre
 
 ## What this package provides
 
-- **All 54 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`.
+- **All 56 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:create-formal-verification-skill`, `/skill:maintain-formal-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`.
 - **Optional delegation profiles** (`./agents`): `poteto-agent` and `comment-sicko`. `pi-subagents` discovers them through `pi.subagents.agents` in the manifest. The top-level `subagents.agents` alias is retained for older adapters; native Pi does not consume either profile-metadata key. No sibling's generic profiles are assumed or copied.
 - **Pi harness adapter** ([`docs/harness/pi.md`](./docs/harness/pi.md)): defines task scope, workflow selection, native tool/path mappings, capability checks, standalone code cleanup, model inheritance, and `ponytail:` / `AGENTS.md` protections. Ordinary changes do not require architecture competitions or new tools. Explicitly selected workflows retain their required panels and checks. Its Pi rules override broader workflow triggers and Cursor assumptions in the bundled upstream skills and playbooks.
 - **Automated upstream sync & notifications**:
@@ -30,6 +30,12 @@ Optional providers include `pi-subagents` for delegation, `pi-ask-question` for 
 
 The bundled profiles inherit the session model instead of pinning a credentialed provider. Existing explicit choices in `~/.pi/agent/pstack-models.md` still take precedence. Diverse-model panels require actual available models; they do not invent routes or silently collapse to one family.
 
+## Synced workflow changes in 0.15.29
+
+- `/skill:create-formal-verification-skill` creates a project-local verification skill; `/skill:maintain-formal-verification-skill` checks for drift after code changes. Both can run without delegation. Actual verifier tooling must be available separately; this package does not bundle a model checker or prover. Generated-input testing is not an exhaustive proof.
+- `/skill:sharpen` now rewrites the prompt for a deeper task instead of executing the task. `/skill:ketchup` keeps every waiting item individually decidable.
+- `/skill:setup-pstack` offers formal-verification setup only on acceptance. Pi's adapter and existing approval gates still apply.
+
 ## Maintenance
 
 ```bash
@@ -37,7 +43,7 @@ npm run sync          # Fetch latest cursor/plugins main and regenerate tree
 npm run check:compat  # Validate sync invariants, skill/extension discovery, and pack
 ```
 
-Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference.
+Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference. Before writing any generated files or advancing provenance, the sync generator compares the checked-out skill inventory with the rendered upstream inventory and rejects removals or renames. Thus every automatic addition becomes protected on the next sync through the shipped skills tree itself, without a separate receipt or staging change. Removals or renames require an explicitly reviewed local change. The named test baseline also protects the initially reviewed commands; native discovery must expose every bundled skill. SDK queue checks exercise expansion of the synced formal-verification and sharpen commands without launching a model.
 
 CI also qualifies the real optional pi-subagents **0.79.1** loader in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, only the real-provider subtest is skipped; the standalone and loader-fixture checks still run. The integration checks packed-profile discovery and dynamic/eager admission, including missing-tool rejection, without launching workers. Profile discovery uses that pinned provider's internal scanner because its public API does not expose package discovery.
 
