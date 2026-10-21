@@ -4,10 +4,10 @@ Read this adapter before following a pstack skill. `<pstack>` is the package dir
 
 ## Task scope and workflow selection
 
-These rules override broader triggers in the bundled skills and playbooks.
+These rules override poteto-mode's Non-negotiables triggers and automatic specialist steps in its playbooks.
 
 - Investigate the facts needed to complete and verify the requested outcome. Stop expanding research once the relevant decisions are supported. Do not turn a specific request into a general policy.
-- Select specialist workflows for an explicit request or a concrete task need. A nontrivial change, a function boundary, or a review alone does not require `how`, `architect`, `arena`, or `no-comments`. Use independent delegates where their coverage helps. An explicitly selected workflow retains its required panels and checks.
+- Select specialist workflows when the user names them, the repository requires them, or a concrete task need justifies them. A nontrivial change, a function boundary, or a review alone does not require `how`, `architect`, `arena`, or `no-comments`. When poteto-mode matches a playbook, select its specialist steps by this rule and mark unused steps `skip: <reason>`. Once a specialist workflow is selected, retain its required panels and checks. Use independent delegates where their coverage helps.
 - Keep the existing design when it covers the required behavior. First-principles reasoning does not authorize a rewrite. Compare whole-design alternatives when an unresolved architectural tradeoff warrants them, not when a sufficient local change is already supported.
 - Build a script or prototype when it resolves a concrete uncertainty or makes repeated work safer. Nontrivial work alone does not require a new tool.
 - Reviews, comment cleanup, and broken skills do not authorize unrelated refactors or side PRs. Report out-of-scope findings without expanding the task. Preserve repository evidence requirements and explicit approval gates.
