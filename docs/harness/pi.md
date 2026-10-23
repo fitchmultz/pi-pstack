@@ -57,7 +57,7 @@ The following examples cover current pi-subagents and older profile-based provid
 | `environment: "cloud"` | Use `worktree: true` when supported for isolated parallel writers, or prepare separate worktrees and pass each provider's supported cwd. Pi does not supply Cursor cloud VMs. If required isolation is unavailable, stop. |
 | `environment: "local"` | Run in the intended local cwd, preserving shared-worktree safety. |
 | `cloud_base_branch: <b>` | Name branch `<b>` and the exact starting revision in the isolated worker's brief. |
-| `run_in_background: true` | Current pi-subagents launches asynchronously and rejects `async` fields and `agent_runs.wait`. Launch required parallel seats, continue independent work, then read their results after completion notifications. Keep the main session alive for those notifications. |
+| `run_in_background: true` | Current pi-subagents launches asynchronously and rejects `async` fields and `agent_runs.wait`. Completion notifications require a persistent main. If only one-shot print is available, stop before launch and report that missing capability; print exits stop remaining children. Otherwise launch required parallel seats, continue independent work, then read their results after completion notifications. |
 | `resume` | Current pi-subagents uses `agent_runs({ action: "continue", id, prompt })` and returns a receipt. Older profile-based providers may use `subagent({ action: "resume", id, message })`. |
 | `file_attachments` | With advanced `subagent`, use `reads: ["path/to/file"]`; otherwise put readable paths and required original instructions in the task brief. |
 
