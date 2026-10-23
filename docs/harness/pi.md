@@ -29,7 +29,7 @@ The extension rejects explicit invocations of bundled skills whose deliverable u
 
 | Cursor | Pi |
 | --- | --- |
-| `Task` | Use an available delegation provider's actual schema. With pi-subagents, call `subagents_enable` first if advertised, then use `subagent` and discover profiles and controls before launching. Other providers may expose `delegate` or `load_subagent`; use only advertised entry points. If none is reachable, stop any step requiring delegation. |
+| `Task` | Use an available delegation provider's actual schema. Current pi-subagents exposes `delegate` and `agent_runs`. Older profile-based providers may advertise `subagents_enable` and `subagent`; call their loader and discover profiles when available. Use only advertised entry points. If none is reachable, stop any step requiring delegation. |
 | `AskQuestion` | Use an available question tool, or ask in conversation and wait. With `ask_question`, order options from most recommended to least; Pi adds its own custom-answer option. |
 | Open a todolist | Keep a concise checklist in the reply or a task-owned file. Use `notes` only if available. |
 | Run another pstack skill (`/name` or "the **name** skill") | Read `<pstack>/skills/<name>/SKILL.md` in full and check its prerequisites before following it. User-facing invocations are `/skill:<name>`. |
@@ -46,19 +46,19 @@ Inspect the changed diff and surrounding contracts. Remove redundant narration, 
 
 ## Delegation fields and profiles
 
-The following are pi-subagents examples, not native Pi APIs. Other providers must supply the same required semantics through their real schemas. Do not pass unsupported fields or silently discard a required capability.
+The following examples cover current pi-subagents and older profile-based providers, not native Pi APIs. Use the selected provider's actual schema. Do not pass unsupported fields or silently discard a required capability.
 
-| Cursor | Pi with pi-subagents |
+| Cursor | Pi with a delegation provider |
 | --- | --- |
-| `subagent_type: generalPurpose` | Discover profiles and choose one that fits the task. This describes a role, not a guaranteed profile name. Put the requirements and authority in the task brief. |
-| `poteto-agent`, `comment-sicko` | Use these package-owned profiles only if the provider actually discovers them. Otherwise a compatible discovered profile may receive the corresponding `<pstack>/agents/*.md` instructions in its task brief. Preserve an independent session and Comment Sicko's report-only boundary. If that cannot be supplied, stop. |
-| `readonly: true` | Select a suitable discovered profile and explicitly forbid edits in the brief. Pi does not have Cursor's readonly/Ask mode or its claimed automatic MCP removal. Honor the provider's actual tool restrictions. |
-| `readonly: false` | Choose a discovered execution profile and state its write authority. This does not grant unrelated writes. |
+| `subagent_type: generalPurpose` | With `delegate`, put role requirements and authority in the complete assignment. With a profile-based provider, discover a suitable profile. This describes a role, not a guaranteed profile name. |
+| `poteto-agent`, `comment-sicko` | Use these package-owned profiles only if the provider discovers them. With `delegate`, put the corresponding `<pstack>/agents/*.md` instructions or readable paths in the assignment. Preserve an independent session and Comment Sicko's report-only boundary. If that cannot be supplied, stop. |
+| `readonly: true` | Explicitly forbid edits in the assignment. Use a read-only profile if the provider supplies one. Pi does not have Cursor's readonly/Ask mode or its claimed automatic MCP removal. Honor the provider's actual tool restrictions. |
+| `readonly: false` | State the assignment's write authority. Choose an execution profile only if the provider uses profiles. This does not grant unrelated writes. |
 | `environment: "cloud"` | Use `worktree: true` when supported for isolated parallel writers, or prepare separate worktrees and pass each provider's supported cwd. Pi does not supply Cursor cloud VMs. If required isolation is unavailable, stop. |
 | `environment: "local"` | Run in the intended local cwd, preserving shared-worktree safety. |
 | `cloud_base_branch: <b>` | Name branch `<b>` and the exact starting revision in the isolated worker's brief. |
-| `run_in_background: true` | Use actual asynchronous run controls. With pi-subagents, `async: true` is the default. Launch required parallel seats before waiting, then consume their real terminal results. |
-| `resume` | With pi-subagents, `agent_runs({ action: "continue", id, message })` or `subagent({ action: "resume", id, message })`. |
+| `run_in_background: true` | Current pi-subagents launches asynchronously and rejects `async` fields and `agent_runs.wait`. Launch required parallel seats, continue independent work, then read their results after completion notifications. Keep the main session alive for those notifications. |
+| `resume` | Current pi-subagents uses `agent_runs({ action: "continue", id, prompt })` and returns a receipt. Older profile-based providers may use `subagent({ action: "resume", id, message })`. |
 | `file_attachments` | With advanced `subagent`, use `reads: ["path/to/file"]`; otherwise put readable paths and required original instructions in the task brief. |
 
 Profiles supply defaults, not the original task. The parent supplies requirements, settled decisions, scope, evidence, authority, acceptance, verification venue, output paths, and stop conditions. The parent reviews and integrates results. Never assume a generic profile exists, or count the parent's own second pass as an independent agent.
