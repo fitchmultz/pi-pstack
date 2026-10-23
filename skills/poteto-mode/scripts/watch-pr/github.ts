@@ -31,7 +31,8 @@ const firstLine = (value: string): string =>
   value.trim().split(/\r?\n/, 1)[0]?.slice(0, 240) ?? "";
 function run(argv: readonly [string, ...string[]]): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(argv[0], argv.slice(1), {
+    const executable = argv[0] === "gh" ? process.env.WATCH_PR_GH || "gh" : argv[0];
+    const child = spawn(executable, argv.slice(1), {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

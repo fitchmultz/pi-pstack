@@ -30,6 +30,17 @@ Optional providers include `pi-subagents` for delegation, `pi-ask-question` for 
 
 The bundled profiles inherit the session model instead of pinning a credentialed provider. Existing explicit choices in `~/.pi/agent/pstack-models.md` still take precedence. Diverse-model panels require actual available models; they do not invent routes or silently collapse to one family.
 
+## GitHub CLI selection for watch-pr
+
+The bundled `skills/poteto-mode/scripts/watch-pr/watch-pr` helper uses `gh` by default. On hosts with account-routing wrappers, explicitly select the appropriate executable for the repository:
+
+```bash
+WATCH_PR_GH=gh-personal /path/to/pi-pstack/skills/poteto-mode/scripts/watch-pr/watch-pr --owner OWNER --repo REPO --pr 123 --status-only
+# Use WATCH_PR_GH=gh-work for a work-account repository.
+```
+
+`WATCH_PR_GH` is one executable name on `PATH` or an executable path (quote paths containing spaces), not a shell command or a place for extra arguments. Unset or empty means `gh`. The selection applies to every watcher GitHub read, including context/stack discovery, checks, GraphQL rollups, and paginated review threads; git commands are unchanged. Select the wrapper authorized for the repository rather than bypassing its router or changing credentials. Omit `--status-only` for normal polling; review/merge gates and retry behavior are unchanged.
+
 ## Synced workflow changes in 0.15.29
 
 - `/skill:create-formal-verification-skill` creates a project-local verification skill; `/skill:maintain-formal-verification-skill` checks for drift after code changes. Both can run without delegation. Actual verifier tooling must be available separately; this package does not bundle a model checker or prover. Generated-input testing is not an exhaustive proof.
