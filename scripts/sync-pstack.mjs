@@ -180,6 +180,16 @@ function adaptCheckPlan(text) {
   );
 }
 
+function adaptWatchPrGitHub(text) {
+  const runner = '    const child = spawn(argv[0], argv.slice(1), {';
+  if (!text.includes(runner)) {
+    throw new Error("watch-pr command runner changed upstream; review the WATCH_PR_GH adaptation.");
+  }
+  return text.replace(runner,
+    '    const executable = argv[0] === "gh" ? process.env.WATCH_PR_GH || "gh" : argv[0];\n' +
+    '    const child = spawn(executable, argv.slice(1), {');
+}
+
 function adaptWorktreeAudit(text) {
   const oldBlock = `# Transcripts dir: ~/.cursor/projects/<slugified-repo-path>/agent-transcripts.
 slug=$(printf '%s' "$main_wt" | sed 's#^/##; s#/#-#g')
@@ -320,6 +330,13 @@ function renderFromUpstream(sourceRepoRoot) {
   if (files.has(checkPlanKey)) {
     files.get(checkPlanKey).bytes = Buffer.from(
       adaptCheckPlan(files.get(checkPlanKey).bytes.toString("utf8")),
+      "utf8",
+    );
+  }
+  const watchPrGitHubKey = "skills/poteto-mode/scripts/watch-pr/github.ts";
+  if (files.has(watchPrGitHubKey)) {
+    files.get(watchPrGitHubKey).bytes = Buffer.from(
+      adaptWatchPrGitHub(files.get(watchPrGitHubKey).bytes.toString("utf8")),
       "utf8",
     );
   }
