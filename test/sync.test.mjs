@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -133,6 +133,69 @@ test("sync remembers later-shipped skills and rejects removals before any genera
     assert.equal(provenance.pstackTreeSha, git(source, "rev-parse", "HEAD:pstack"));
     assert.equal(provenance.version, "1.0.3");
     assert.match(readFileSync(join(shipped, "skills/fixture-added/SKILL.md"), "utf8"), /Restored upstream instructions/);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+// Issue #13: execute the generated audit against public synthetic sessions, not
+// a source-text assertion. Resolve temp paths before Git records the worktrees.
+test("generated worktree audit uses the newest Pi or Cursor session", async (t) => {
+  const temp = realpathSync(mkdtempSync(join(tmpdir(), "pi-pstack-recency-")));
+  const repo = join(temp, "repo");
+  const candidate = join(temp, "candidate");
+  const bin = join(temp, "bin");
+  const script = join(root, "skills/poteto-mode/scripts/worktree-audit.sh");
+  const recent = new Date(Date.now() - 60 * 60 * 1000);
+  const old = new Date(recent.getTime() - 30 * 24 * 60 * 60 * 1000);
+  try {
+    mkdirSync(repo);
+    git(repo, "init", "--initial-branch=main");
+    put(join(repo, "README.md"), "Synthetic worktree audit input\n");
+    commit(repo, ["README.md"], "Synthetic merged base");
+    git(repo, "worktree", "add", "-b", "candidate", candidate);
+    assert.equal(realpathSync(candidate), candidate);
+    for (const name of ["origin", "gh"]) {
+      const wrapper = join(bin, name);
+      put(wrapper, "#!/bin/sh\nprintf '%s\\n' '[]'\n");
+      chmodSync(wrapper, 0o755);
+    }
+    for (const [name, sessions] of [
+      ["recent Pi only", [["pi", recent]]],
+      ["newer Pi than Cursor", [["pi", recent], ["cursor", old]]],
+      ["recent Cursor control", [["cursor", recent]]],
+    ]) {
+      await t.test(name, () => {
+        const caseDir = join(temp, name.replaceAll(" ", "-"));
+        const home = join(caseDir, "home");
+        const agentDir = join(caseDir, "agent");
+        mkdirSync(home, { recursive: true });
+        mkdirSync(agentDir, { recursive: true });
+        const records = [];
+        for (const [kind, mtime] of sessions) {
+          const file = kind === "pi"
+            ? join(agentDir, "sessions", "folder with spaces", "pi session.jsonl")
+            : join(home, ".cursor", "projects", repo.slice(1).replaceAll("/", "-"), "agent-transcripts", "cursor.jsonl");
+          put(file, JSON.stringify({ cwd: candidate }) + "\n");
+          utimesSync(file, mtime, mtime);
+          records.push({ file, mtime: statSync(file).mtime.toISOString(), body: readFileSync(file, "utf8") });
+        }
+        const args = [script, "-b", "main", repo];
+        const result = spawnSync("bash", args, { encoding: "utf8", timeout: 10000,
+          env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, PI_CODING_AGENT_DIR: agentDir,
+            TMPDIR: caseDir, TZ: "UTC", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+        t.diagnostic(JSON.stringify({ command: ["bash", ...args], records,
+          status: result.status, stdout: result.stdout, stderr: result.stderr }));
+        assertSuccess(result);
+        const fields = result.stdout.trim().split("\n").at(-1).split("\t");
+        assert.equal(fields.length, 9, result.stdout);
+        assert.deepEqual({ merged: fields[2], dirty: fields[3], pr: fields[5],
+          lastChat: fields[6], bucket: fields[7], worktree: fields[8] }, {
+          merged: "YES", dirty: "clean", pr: "-", lastChat: recent.toISOString().slice(0, 10),
+          bucket: "verify-recent-chat", worktree: candidate,
+        });
+      });
+    }
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
