@@ -19,11 +19,16 @@ if (argv[0] === "pr" && argv[1] === "view") {
   if (argv.at(-1) === "number,url") json({ number: 42, url: "https://github.com/owner/repo/pull/42" });
   else json({
     mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED", reviewDecision: "APPROVED",
-    headRefOid: "head", headRefName: "feature", baseRefName: "main",
+    headRefOid: "head", headRefName: "feature", baseRefName: "base-feature",
     state: "OPEN", mergedAt: null, isDraft: false,
   });
 } else if (argv[0] === "pr" && argv[1] === "list") {
-  json([{ number: 42, headRefName: "feature", baseRefName: "main" }]);
+  json([
+    { number: 41, headRefName: "base-feature", baseRefName: "main", isCrossRepository: false },
+    { number: 42, headRefName: "feature", baseRefName: "base-feature", isCrossRepository: false },
+    { number: 43, headRefName: "upstack", baseRefName: "feature", isCrossRepository: false },
+    { number: 44, headRefName: "base-feature", baseRefName: "main", isCrossRepository: true },
+  ]);
 } else if (argv[0] === "pr" && argv[1] === "checks") {
   json([]); // Force the real GraphQL fallback, not just the fast path.
 } else if (argv[0] === "api" && argv[1] === "graphql") {

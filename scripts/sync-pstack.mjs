@@ -202,9 +202,9 @@ pi_sessions="\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/sessions"`;
   const oldStatBlock = `\tlast="-"; last_ts=0
 \tif [ -d "$transcripts" ]; then
 \t\tf=$(rg -l -e "\${wt}/" -e "\${wt}\\"" "$transcripts" 2>/dev/null \\
-\t\t\t| xargs stat -f '%m %N' 2>/dev/null | sort -rn | head -1)
+\t\t\t| xargs stat "\${stat_fmt[@]}" 2>/dev/null | sort -rn | head -1)
 \t\tif [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-\t\t\tlast=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
+\t\t\tlast=$(fmt_day "$last_ts" 2>/dev/null); fi
 \tfi`;
   const newStatBlock = `\tlast="-"; last_ts=0
 \tsearch_dirs=()
@@ -213,12 +213,15 @@ pi_sessions="\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/sessions"`;
 \tif [ "\${#search_dirs[@]}" -gt 0 ]; then
 \t\tf=$(rg -l -e "\${wt}/" -e "\${wt}\\"" "\${search_dirs[@]}" 2>/dev/null \\
 \t\t\t| while IFS= read -r match; do
-\t\t\t\tstat -f '%m %N' "$match" 2>/dev/null || stat -c '%Y %n' "$match" 2>/dev/null
+\t\t\t\tstat "\${stat_fmt[@]}" "$match" 2>/dev/null
 \t\t\tdone | sort -rn | head -1)
 \t\tif [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-\t\t\tlast=$(date -r "$last_ts" '+%Y-%m-%d' 2>/dev/null || date -d "@$last_ts" '+%Y-%m-%d' 2>/dev/null); fi
+\t\t\tlast=$(fmt_day "$last_ts" 2>/dev/null); fi
 \tfi`;
 
+  if (!text.includes(oldBlock) || !text.includes(oldStatBlock)) {
+    throw new Error("worktree-audit transcript lookup changed upstream; review the Pi session adaptation.");
+  }
   return text.replace(oldBlock, newBlock).replace(oldStatBlock, newStatBlock);
 }
 

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
   GhGitHubReader, PR_CHECK_ROLLUP_QUERY, PR_COMMIT_STATUS_QUERY,
-  REVIEW_THREADS_QUERY, WatcherQueryError,
+  REVIEW_THREADS_QUERY, WatcherQueryError, orderStack,
 } from "../skills/poteto-mode/scripts/watch-pr/github.ts";
 import { classifyPr, runSimple } from "../skills/poteto-mode/scripts/watch-pr/policy.ts";
 
@@ -100,7 +100,17 @@ test("selected wrapper handles every GitHub read and preserves pagination, revie
     const reader = new GhGitHubReader();
     assert.deepEqual(await reader.currentPr(null), context);
     assert.deepEqual(await reader.currentPr(42), context);
-    assert.deepEqual(await reader.openPullRequests(context), [{ number: 42, headRefName: "feature", baseRefName: "main" }]);
+    // https://github.com/fitchmultz/pi-pstack/issues/13: preserve fork identity
+    // across the executable GitHub boundary and the native stack policy.
+    const open = await reader.openPullRequests(context);
+    assert.deepEqual(open, [
+      { number: 41, headRefName: "base-feature", baseRefName: "main", isCrossRepository: false },
+      { number: 42, headRefName: "feature", baseRefName: "base-feature", isCrossRepository: false },
+      { number: 43, headRefName: "upstack", baseRefName: "feature", isCrossRepository: false },
+      { number: 44, headRefName: "base-feature", baseRefName: "main", isCrossRepository: true },
+    ]);
+    assert.deepEqual(orderStack(context, open).map(({ number }) => number), [41, 42, 43]);
+    assert.deepEqual(orderStack({ ...context, number: 44 }, open).map(({ number }) => number), [44]);
     const watched = watch(reader, true);
     const result = await watched.verdict;
     assert.equal(result.kind, "STATUS");
@@ -123,7 +133,7 @@ test("selected wrapper handles every GitHub read and preserves pagination, revie
     assert.deepEqual(calls(), [
       ["pr", "view", "--json", "number,url"],
       ["pr", "view", "42", "--json", "number,url"],
-      ["pr", "list", "--repo", "owner/repo", "--state", "open", "--limit", "300", "--json", "number,headRefName,baseRefName"],
+      ["pr", "list", "--repo", "owner/repo", "--state", "open", "--limit", "300", "--json", "number,headRefName,baseRefName,isCrossRepository"],
       factsArgv,
       graphql(REVIEW_THREADS_QUERY), graphql(REVIEW_THREADS_QUERY, "threads-next"),
       checksArgv,

@@ -38,6 +38,9 @@ jobs:
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+      - name: Install worktree audit prerequisite
+        if: steps.check.outputs.changed == 'true'
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - name: Install host runtime for discovery checks
         if: steps.check.outputs.changed == 'true'
         run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.3.0
