@@ -1,6 +1,6 @@
 {
   "name": "@fitch/pi-pstack",
-  "version": "0.15.34",
+  "version": "0.15.35",
   "private": true,
   "description": "Pi package adapter for Cursor pstack skills, playbooks, principles, and subagent profiles with automated upstream drift notifications.",
   "type": "module",

@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/cursor/plugins",
   "subpath": "pstack",
-  "version": "0.15.34",
-  "repoCommitSha": "519d36aa98955bf680db01bcde5fdfba686dc901",
-  "pstackCommitSha": "519d36aa98955bf680db01bcde5fdfba686dc901",
-  "pstackTreeSha": "c2b5691947671f644078192b7dab87f19740ecb1"
+  "version": "0.15.35",
+  "repoCommitSha": "9f844cdaac06aeaa1b2d17fbcb57e078979c6f99",
+  "pstackCommitSha": "ab1f702ce8e8b6557edb56b09f52cde8bfb83f17",
+  "pstackTreeSha": "4d455910a64194c2dc027ce4ed0a0ae5a9988de7"
 }
