@@ -11,8 +11,9 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { findPackageJSON } from "node:module";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { requiredSkills } from "./required-skills.mjs";
@@ -53,6 +54,7 @@ async function withRpc(cli, args, options, run) {
   const closed = once(child, "close");
   const events = [];
   const waiting = new Map();
+  const watchers = new Set();
   let buffer = "";
   let stderr = "";
   let sequence = 0;
@@ -66,6 +68,7 @@ async function withRpc(cli, args, options, run) {
       if (!line) continue;
       const event = JSON.parse(line);
       events.push(event);
+      for (const watch of watchers) watch(event);
       const resolve = waiting.get(event.id);
       if (resolve) {
         waiting.delete(event.id);
@@ -73,22 +76,32 @@ async function withRpc(cli, args, options, run) {
       }
     }
   });
-  const timeout = setTimeout(() => child.kill("SIGKILL"), 30000);
   child.once("close", () => {
     for (const resolve of waiting.values()) resolve({ success: false, error: `RPC exited: ${stderr}` });
     waiting.clear();
+    for (const watch of watchers) watch();
   });
   const request = (command) => new Promise((resolve) => {
     const id = `request-${++sequence}`;
     waiting.set(id, resolve);
     child.stdin.write(`${JSON.stringify({ ...command, id })}\n`);
   });
+  // Resolves with the first matching event, including one already received, or undefined if Pi exits first.
+  const waitForEvent = (matches) => new Promise((resolve) => {
+    const seen = events.find(matches);
+    if (seen) return resolve(seen);
+    const watch = (event) => {
+      if (event && !matches(event)) return;
+      watchers.delete(watch);
+      resolve(event);
+    };
+    watchers.add(watch);
+  });
   try {
-    await run(request, events);
+    await run(request, events, waitForEvent);
   } finally {
     child.stdin.end();
     const [code, signal] = await closed;
-    clearTimeout(timeout);
     assert.equal(signal, null, stderr);
     assert.equal(code, 0, stderr);
   }
@@ -105,6 +118,14 @@ function assertModelValidation(response) {
   assert.equal(response.success, false, JSON.stringify(response));
   assert.match(response.error, /No model|No API key|Authentication/i);
   assert.doesNotMatch(response.error, /pi-pstack:/);
+}
+
+async function readToolState(request, events) {
+  const result = await request({ type: "prompt", message: "/pstack-test-tools" });
+  assert.equal(result.success, true, JSON.stringify(result));
+  const notification = events.findLast((event) => event.message?.startsWith("pstack-test-tools:"));
+  assert.ok(notification, "Missing tool-state probe");
+  return JSON.parse(notification.message.slice("pstack-test-tools:".length));
 }
 
 test("packed pstack loads alone and guards only its delegation workflows before inference", async (t) => {
@@ -154,6 +175,13 @@ test("packed pstack loads alone and guards only its delegation workflows before 
     const cli = join(packageDir, "dist/bundle/cli.js");
     const args = ["--offline", "--no-session", "--no-approve", "-np", "-nc", "--no-themes"];
     const options = { cwd, env, stdio: ["pipe", "pipe", "pipe"] };
+    const probe = join(temp, "tool-state.mjs");
+    writeFileSync(probe, `export default function(pi) {
+      pi.registerCommand("pstack-test-tools", { handler: async (_args, ctx) => {
+        ctx.ui.notify("pstack-test-tools:" + JSON.stringify({ active: pi.getActiveTools(),
+          tools: pi.getAllTools().map(({ name, exposure, sourceInfo }) => ({ name, exposure, path: sourceInfo.path })) }), "info");
+      } });
+    }`);
     // Issue #7: exercise the real native command expander, not source-text equality
     // or a paid model. Public followUp queues expanded input without inference.
     await t.test("native SDK expands synced formal skills and sharpen without inference", () => {
@@ -263,13 +291,6 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       }
       const configDir = join(agentDir, "extensions", "subagent");
       mkdirSync(configDir, { recursive: true });
-      const probe = join(temp, "tool-state.mjs");
-      writeFileSync(probe, `export default function(pi) {
-        pi.registerCommand("pstack-test-tools", { handler: async (_args, ctx) => {
-          ctx.ui.notify("pstack-test-tools:" + JSON.stringify({ active: pi.getActiveTools(),
-            tools: pi.getAllTools().map(({ name, exposure }) => ({ name, exposure })) }), "info");
-        } });
-      }`);
       for (const mode of ["dynamic", "dynamic-codemode", "eager", "excluded"]) {
         writeFileSync(join(configDir, "config.json"), JSON.stringify({
           toolActivation: mode === "eager" ? "eager" : "dynamic",
@@ -279,11 +300,7 @@ test("packed pstack loads alone and guards only its delegation workflows before 
         if (mode === "excluded") providerArgs.push("--exclude-tools", "subagent,subagents_enable");
         await withRpc(cli, providerArgs, options, async (request, events) => {
           assertNoRunnableModel(await request({ type: "get_state" }));
-          const probeResult = await request({ type: "prompt", message: "/pstack-test-tools" });
-          assert.equal(probeResult.success, true, JSON.stringify(probeResult));
-          const notification = events.find((event) => event.message?.startsWith("pstack-test-tools:"));
-          assert.ok(notification, `Missing tool-state probe in ${mode}`);
-          const { active, tools } = JSON.parse(notification.message.slice("pstack-test-tools:".length));
+          const { active, tools } = await readToolState(request, events);
           if (mode.startsWith("dynamic")) {
             assert.ok(active.includes("subagents_enable"), mode);
             assert.ok(!active.includes("subagent"), mode);
@@ -309,6 +326,79 @@ test("packed pstack loads alone and guards only its delegation workflows before 
           assert.ok(!events.some(({ type }) => type === "agent_start" || type === "tool_execution_start"));
           if (mode !== "excluded") assert.ok(!events.some((event) => event.message?.includes("pi-pstack:")));
         });
+      }
+    });
+
+    await t.test("configured fitchmultz pi-subagents package admits delegation and completes a delegated run", {
+      skip: !process.env.PI_FITCH_SUBAGENTS_INDEX && "Set PI_FITCH_SUBAGENTS_INDEX to qualify the configured provider",
+    }, async () => {
+      const entry = realpathSync(process.env.PI_FITCH_SUBAGENTS_INDEX);
+      // Without an owning package.json, Node 24.22 returns the queried path instead of the documented undefined.
+      const packageJson = findPackageJSON(pathToFileURL(entry));
+      assert.equal(basename(packageJson ?? ""), "package.json", `No package.json owns ${entry}`);
+      const providerRoot = dirname(packageJson);
+      // Private broker and provider temp roots keep these sessions out of the user's live state.
+      const broker = mkdtempSync(join(tmpdir(), "psic-"));
+      const agentFor = (name) => {
+        const dir = join(temp, name);
+        mkdirSync(join(dir, "extensions"), { recursive: true });
+        writeFileSync(join(dir, "settings.json"), JSON.stringify({ packages: [packedRoot, providerRoot] }));
+        return { ...options, env: { ...env, PI_CODING_AGENT_DIR: dir, PI_INTERCOM_RUNTIME_DIR: join(broker, "i"),
+          PI_SUBAGENT_TEMP_ROOT: join(broker, "pi-subagents-runtime") } };
+      };
+      try {
+        const noModel = agentFor("provider-agent");
+        await withRpc(cli, [...args, "-e", probe], noModel, async (request, events) => {
+          assertNoRunnableModel(await request({ type: "get_state" }));
+          const { active, tools } = await readToolState(request, events);
+          for (const name of ["delegate", "agent_runs"]) {
+            assert.ok(active.includes(name), name);
+            assert.equal(realpathSync(tools.find((tool) => tool.name === name).path), entry, `${name} comes from another provider`);
+          }
+          assertModelValidation(await request({ type: "prompt", message: "/skill:how audit" }));
+        });
+        await withRpc(cli, [...args, "--exclude-tools", "delegate,agent_runs"], noModel, async (request, events) => {
+          const result = await request({ type: "prompt", message: "/skill:how audit" });
+          assert.equal(result.success, true, JSON.stringify(result));
+          assert.equal(result.data.disposition, "handled");
+          assert.ok(events.some((event) => event.notifyType === "error" && event.message.startsWith("pi-pstack: /skill:how")));
+        });
+
+        // Pi's built-in faux model answers offline, both here and in the provider's real child process.
+        const scripted = agentFor("faux-agent");
+        writeFileSync(join(scripted.env.PI_CODING_AGENT_DIR, "extensions", "faux.js"), `
+          import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+          const text = ({ content }) => typeof content === "string" ? content : content.map((part) => part.text ?? "").join("");
+          function reply({ messages }) {
+            const last = text(messages.at(-1));
+            if (last === "pstack-child-assignment") return fauxAssistantMessage("PSTACK_CHILD_RESULT");
+            if (last.startsWith('<skill name="how"')) {
+              return fauxAssistantMessage(fauxToolCall("delegate", { prompt: "pstack-child-assignment" }), { stopReason: "toolUse" });
+            }
+            return fauxAssistantMessage(last.includes("PSTACK_CHILD_RESULT") ? "PSTACK_PARENT_DONE" : "PSTACK_PARENT_WAITING");
+          }
+          export default function (pi) {
+            const model = fauxProvider({ provider: "pstack-faux", models: [{ id: "native" }] });
+            model.setResponses([reply, reply, reply]);
+            pi.registerProvider(model.provider);
+          }
+        `);
+        await withRpc(cli, [...args, "--provider", "pstack-faux", "--model", "native"], scripted, async (request, _events, waitForEvent) => {
+          const started = await request({ type: "prompt", message: "/skill:how audit" });
+          assert.equal(started.success, true, JSON.stringify(started));
+          assert.equal(started.data.disposition, "started");
+          // agent_end ends every run, including a failed one. Pi steers the provider's completion notice into
+          // the prompt's run while it is still streaming; otherwise the notice starts the next run.
+          const launched = await waitForEvent((event) => event.type === "agent_end");
+          assert.ok(launched?.messages.some(({ role, toolName, isError }) => role === "toolResult" && toolName === "delegate" && !isError),
+            `delegate did not launch the child: ${JSON.stringify(launched?.messages.slice(-2))}`);
+          const notified = launched.messages.some(({ role, customType }) => role === "custom" && customType === "agent-completion");
+          const relayed = notified ? launched : await waitForEvent((event) => event.type === "agent_end" && event !== launched);
+          assert.ok(relayed?.messages.some(({ role, content }) => role === "assistant" && content.some((part) => part.text === "PSTACK_PARENT_DONE")),
+            `The parent did not relay its delegated child's result: ${JSON.stringify(relayed?.messages.slice(-2))}`);
+        });
+      } finally {
+        rmSync(broker, { recursive: true, force: true });
       }
     });
 
