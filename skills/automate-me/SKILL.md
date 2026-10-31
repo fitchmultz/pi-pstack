@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Automate me
 
-In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
+Read [the Pi execution contract](../../docs/harness/pi.md).
 
 A guided flow for turning the user's working conventions into a skill agents will follow. The output is one `-mode` skill tailored to them (e.g. `jay-mode`, `priya-mode`).
 

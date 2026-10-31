@@ -128,7 +128,7 @@ async function readToolState(request, events) {
   return JSON.parse(notification.message.slice("pstack-test-tools:".length));
 }
 
-test("packed pstack loads alone and guards only its delegation workflows before inference", async (t) => {
+test("packed pstack loads and routes workflows with or without delegation", async (t) => {
   const packageDir = fileURLToPath(new URL("..", hostIndex));
   const temp = mkdtempSync(join(tmpdir(), "pi-pstack-discovery-"));
   const previousHome = process.env.HOME;
@@ -341,6 +341,41 @@ test("packed pstack loads alone and guards only its delegation workflows before 
         assert.match(await command("/pstack-mode status"), /mode is on/);
       });
     });
+    await t.test("each routed skill reaches Pi directly and through a nested read without delegation", async () => {
+      const inlineProbe = join(temp, "inline-probe.mjs");
+      writeFileSync(inlineProbe, `
+        import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          const model = fauxProvider({ provider: "pstack-inline-probe", models: [{ id: "native" }] });
+          model.setResponses(${JSON.stringify(delegationSkills)}.flatMap((name) => [
+            fauxAssistantMessage(fauxToolCall("read", { path: ${JSON.stringify(packedRoot)} + "/skills/" + name + "/SKILL.md" },
+              { id: "nested-" + name }), { stopReason: "toolUse" }),
+            fauxAssistantMessage("Inline route available.")
+          ]));
+          pi.registerProvider(model.provider);
+        }
+      `);
+      await withRpc(cli, [...args, "-e", inlineProbe, "--provider", "pstack-inline-probe", "--model", "native"],
+        options, async (request, events, waitForEvent) => {
+          for (const name of delegationSkills) {
+            const before = events.length;
+            const started = await request({ type: "prompt", message: `/skill:${name} inspect` });
+            assert.equal(started.success, true, JSON.stringify(started));
+            assert.equal(started.data.disposition, "started");
+            assert.ok(await waitForEvent((event) => event.type === "agent_settled" && events.indexOf(event) >= before));
+            const current = events.slice(before);
+            const user = current.find((event) => event.type === "message_end" && event.message.role === "user")?.message;
+            const userText = typeof user?.content === "string" ? user.content :
+              user?.content?.map((part) => part.text ?? "").join("") ?? "";
+            assert.ok(userText.includes(`<skill name="${name}"`), name);
+            const read = current.find((event) => event.type === "tool_execution_end" && event.toolCallId === `nested-${name}`);
+            assert.ok(read && !read.isError, JSON.stringify(read));
+            const content = read.result.content.map((part) => part.text ?? "").join("\n");
+            assert.match(content, /Pi execution contract/);
+            assert.match(content, /inline route/);
+          }
+        });
+    });
     // Issue #7: exercise the real native command expander, not source-text equality
     // or a paid model. Public followUp queues expanded input without inference.
     await t.test("native SDK expands synced formal skills and sharpen without inference", () => {
@@ -355,8 +390,8 @@ test("packed pstack loads alone and guards only its delegation workflows before 
           settingsManager, resourceLoader: loader, sessionManager: SessionManager.inMemory() });
         try {
           const cases = [
-            ["create-formal-verification-skill", "TLA+ is the default", "Pi adapter"],
-            ["maintain-formal-verification-skill", "Do not move the sync commit for a blocked check", "Pi adapter"],
+            ["create-formal-verification-skill", "TLA+ is the default", "Pi execution contract"],
+            ["maintain-formal-verification-skill", "Do not move the sync commit for a blocked check", "Pi execution contract"],
             ["sharpen", "Then rewrite my prompt", "Leave choices that are mine to make open"],
           ];
           for (const [name, ...markers] of cases) {
@@ -384,10 +419,7 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       const state = await request({ type: "get_state" });
       assertNoRunnableModel(state);
       for (const name of delegationSkills) {
-        const result = await request({ type: "prompt", message: `/skill:${name} audit` });
-        assert.equal(result.success, true, JSON.stringify(result));
-        assert.equal(result.data.disposition, "handled");
-        assert.ok(events.some((event) => event.type === "extension_ui_request" && event.method === "notify" && event.notifyType === "error" && event.message.includes(`/skill:${name}`) && event.message.includes("pi-subagents")));
+        assertModelValidation(await request({ type: "prompt", message: `/skill:${name} audit` }));
       }
       for (const name of ["unslop", "tdd", "poteto-mode", "create-formal-verification-skill", "maintain-formal-verification-skill", "sharpen"]) {
         assertModelValidation(await request({ type: "prompt", message: `/skill:${name} text` }));
@@ -395,43 +427,7 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       assert.ok(!events.some(({ type }) => type === "agent_start" || type === "tool_execution_start"));
     });
 
-    const registration = join(temp, "delegation-entry.mjs");
-    writeFileSync(registration, `export default function(pi) {
-      const mode = process.env.PSTACK_ADMISSION_FIXTURE;
-      const loader = mode.startsWith("loader") || mode === "legacy-loader";
-      pi.registerTool({ name: "subagent", label: "Admission fixture", description: "Never executed in this no-model fixture", defaultActive: mode === "active",
-        ...(loader ? { exposure: "model-only" } : ["deferred", "discoverable"].includes(mode) ? { exposure: "deferred" } : {}),
-        parameters: { type: "object", properties: {} }, execute: async () => { throw new Error("Unexpected tool execution"); } });
-      if (mode === "discoverable") pi.on("session_start", () => pi.setActiveTools([...pi.getActiveTools(), "tool_search"]));
-      if (loader) pi.registerTool({ name: mode === "legacy-loader" ? "load_subagent" : "subagents_enable", label: "Cold loader fixture", description: "Never executed",
-        exposure: "model-only", defaultActive: mode !== "loader-inactive", parameters: { type: "object", properties: {} },
-        execute: async () => { throw new Error("Unexpected loader execution"); } });
-    }`);
-    await t.test("only reachable delegation or an advertised cold loader passes admission", async () => {
-      for (const mode of ["inactive", "deferred", "active", "discoverable", "loader", "loader-inactive", "legacy-loader"]) {
-        const fixtureOptions = { ...options, env: { ...env, PSTACK_ADMISSION_FIXTURE: mode } };
-        await withRpc(cli, [...args, "-e", registration], fixtureOptions, async (request) => {
-          assertNoRunnableModel(await request({ type: "get_state" }));
-          for (const name of mode === "loader" ? delegationSkills : ["swarm"]) {
-            const result = await request({ type: "prompt", message: `/skill:${name} audit` });
-            if (["inactive", "deferred", "loader-inactive"].includes(mode)) {
-              assert.equal(result.success, true, `${mode}: ${JSON.stringify(result)}`);
-              assert.equal(result.data.disposition, "handled", mode);
-            } else assertModelValidation(result);
-          }
-        });
-      }
-      const loaderOptions = { ...options, env: { ...env, PSTACK_ADMISSION_FIXTURE: "loader" } };
-      for (const excluded of ["subagents_enable", "subagent,subagents_enable"]) {
-        await withRpc(cli, [...args, "-e", registration, "--exclude-tools", excluded], loaderOptions, async (request) => {
-          const result = await request({ type: "prompt", message: "/skill:swarm audit" });
-          assert.equal(result.success, true, JSON.stringify(result));
-          assert.equal(result.data.disposition, "handled");
-        });
-      }
-    });
-
-    await t.test("real pi-subagents discovers profiles and admits dynamic and eager tools", {
+    await t.test("real pi-subagents discovers profiles and exposes dynamic and eager tools", {
       skip: !process.env.PI_SUBAGENTS_INDEX && "Set PI_SUBAGENTS_INDEX to qualify the optional provider",
     }, async () => {
       const provider = process.env.PI_SUBAGENTS_INDEX;
@@ -495,16 +491,11 @@ test("packed pstack loads alone and guards only its delegation workflows before 
             assert.ok(!tools.some(({ name }) => ["subagent", "subagents_enable"].includes(name)));
           }
           for (const name of delegationSkills) {
-            const result = await request({ type: "prompt", message: `/skill:${name} audit` });
-            if (mode === "excluded") {
-              assert.equal(result.success, true, JSON.stringify(result));
-              assert.equal(result.data.disposition, "handled");
-              assert.ok(events.some((event) => event.notifyType === "error" && event.message?.includes(`pi-pstack: /skill:${name}`)));
-            } else assertModelValidation(result);
+            assertModelValidation(await request({ type: "prompt", message: `/skill:${name} audit` }));
           }
           assertModelValidation(await request({ type: "prompt", message: "/skill:tdd text" }));
           assert.ok(!events.some(({ type }) => type === "agent_start" || type === "tool_execution_start"));
-          if (mode !== "excluded") assert.ok(!events.some((event) => event.message?.includes("pi-pstack:")));
+          assert.ok(!events.some((event) => event.message?.includes("pi-pstack:")));
         });
       }
     });
@@ -537,11 +528,8 @@ test("packed pstack loads alone and guards only its delegation workflows before 
           }
           assertModelValidation(await request({ type: "prompt", message: "/skill:how audit" }));
         });
-        await withRpc(cli, [...args, "--exclude-tools", "delegate,agent_runs"], noModel, async (request, events) => {
-          const result = await request({ type: "prompt", message: "/skill:how audit" });
-          assert.equal(result.success, true, JSON.stringify(result));
-          assert.equal(result.data.disposition, "handled");
-          assert.ok(events.some((event) => event.notifyType === "error" && event.message.startsWith("pi-pstack: /skill:how")));
+        await withRpc(cli, [...args, "--exclude-tools", "delegate,agent_runs"], noModel, async (request) => {
+          assertModelValidation(await request({ type: "prompt", message: "/skill:how audit" }));
         });
 
         // Pi's built-in faux model answers offline, both here and in the provider's real child process.
@@ -582,7 +570,7 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       }
     });
 
-    await t.test("a different package's namesake is not intercepted", async () => {
+    await t.test("a different package's namesake remains runnable", async () => {
       const otherSkill = join(temp, "other-swarm", "SKILL.md");
       mkdirSync(dirname(otherSkill));
       writeFileSync(otherSkill, "---\nname: swarm\ndescription: An unrelated inline skill\n---\nWrite one sentence.\n");
@@ -594,13 +582,22 @@ test("packed pstack loads alone and guards only its delegation workflows before 
       });
     });
 
-    await t.test("print mode reports the missing capability and exits unsuccessfully", () => {
-      const result = spawnSync(process.execPath, [cli, ...args, "-p", "/skill:swarm audit"], { cwd, env, encoding: "utf8", timeout: 30000 });
+    await t.test("print mode can run the inline route without a delegation provider", () => {
+      const printProbe = join(temp, "print-probe.mjs");
+      writeFileSync(printProbe, `
+        import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          const model = fauxProvider({ provider: "pstack-print-probe", models: [{ id: "native" }] });
+          model.setResponses([fauxAssistantMessage("PSTACK_PRINT_INLINE")]);
+          pi.registerProvider(model.provider);
+        }
+      `);
+      const result = spawnSync(process.execPath, [cli, ...args, "-e", printProbe,
+        "--provider", "pstack-print-probe", "--model", "native", "-p", "/skill:swarm audit"],
+      { cwd, env, encoding: "utf8", timeout: 30000 });
       assert.equal(result.error, undefined);
-      assert.equal(result.status, 1, result.stderr);
-      assert.match(result.stderr, /pi-pstack: \/skill:swarm requires independent delegated work/);
-      assert.match(result.stderr, /pi-subagents/);
-      assert.doesNotMatch(result.stderr, /No model|No API key/);
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /PSTACK_PRINT_INLINE/);
     });
     t.diagnostic(`Selected native host: ${packageDir}`);
   } finally {
