@@ -5,74 +5,142 @@ on:
     - cron: "0 */6 * * *"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  issues: write
+permissions: {}
 
 concurrency:
   group: sync-upstream-pstack
   cancel-in-progress: false
 
 jobs:
-  sync:
+  prepare:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      upstream_sha: ${{ steps.check.outputs.upstream_sha }}
+      validation: ${{ steps.verify.outcome }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24"
       - name: Clone upstream cursor/plugins
-        run: git clone --depth 50 https://github.com/cursor/plugins.git /tmp/cursor-plugins
-      - name: Check if upstream pstack tree changed
+        run: git clone --filter=blob:none --no-checkout https://github.com/cursor/plugins.git "$RUNNER_TEMP/cursor-plugins"
+      - name: Check whether the upstream pstack tree changed
         id: check
         run: |
           CURRENT_TREE="$(node -p 'require("./upstream.json").pstackTreeSha')"
-          UPSTREAM_TREE="$(git -C /tmp/cursor-plugins rev-parse HEAD:pstack)"
-          UPSTREAM_SHA="$(git -C /tmp/cursor-plugins log -1 --format=%H -- pstack)"
-          echo "current_tree=$CURRENT_TREE" >> "$GITHUB_OUTPUT"
-          echo "upstream_tree=$UPSTREAM_TREE" >> "$GITHUB_OUTPUT"
+          UPSTREAM_TREE="$(git -C "$RUNNER_TEMP/cursor-plugins" rev-parse HEAD:pstack)"
+          UPSTREAM_SHA="$(git -C "$RUNNER_TEMP/cursor-plugins" log -1 --format=%H HEAD -- pstack)"
           echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
           if [ "$CURRENT_TREE" = "$UPSTREAM_TREE" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Install worktree audit and fork release test prerequisites
+      - name: Install verification prerequisites
         if: steps.check.outputs.changed == 'true'
-        run: sudo apt-get update && sudo apt-get install --yes ripgrep tmux
-      - name: Install host runtime for discovery checks
-        if: steps.check.outputs.changed == 'true'
-        run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
-      - name: Sync and verify pstack
-        id: sync_verify
+        run: |
+          sudo apt-get update && sudo apt-get install --yes ripgrep tmux
+          npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
+      - name: Stage and validate candidate without write credentials
+        id: verify
         if: steps.check.outputs.changed == 'true'
         continue-on-error: true
         run: |
-          node scripts/sync-pstack.mjs /tmp/cursor-plugins
+          set -eu
+          node scripts/sync-pstack.mjs "$RUNNER_TEMP/cursor-plugins"
+          cp .pstack-sync/review.json "$RUNNER_TEMP/pstack-review.json"
+          node scripts/sync-pstack.mjs --continue
           npm run check:compat
           node scripts/qualify-hosts.mjs
-      - name: Commit and push synced update
-        if: steps.check.outputs.changed == 'true' && steps.sync_verify.outcome == 'success'
+          git reset
+          git add --all --force -- skills agents LICENSE plugin.json vendor/pstack pi/overlays upstream.json package.json
+          git diff --cached --binary --full-index > "$RUNNER_TEMP/pstack-candidate.patch"
+      - name: Save candidate and upstream review inventory
+        if: steps.check.outputs.changed == 'true' && steps.verify.outcome == 'success'
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: pstack-candidate
+          path: |
+            ${{ runner.temp }}/pstack-candidate.patch
+            ${{ runner.temp }}/pstack-review.json
+          if-no-files-found: error
+
+  publish-pr:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true' && needs.prepare.outputs.validation == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: pstack-candidate
+          path: ${{ runner.temp }}/pstack-candidate
+      - name: Open a reviewable pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
         run: |
-          if [ -z "$(git status --porcelain)" ]; then
+          set -eu
+          SHORT_SHA="$(printf '%.7s' "$UPSTREAM_SHA")"
+          TITLE="chore(sync): update pstack from ${SHORT_SHA}"
+          EXISTING="$(gh pr list --state open --json title,url --jq ".[] | select(.title == \"$TITLE\") | .url")"
+          if [ -n "$EXISTING" ]; then
+            echo "Existing pull request: $EXISTING"
+            exit 0
+          fi
+          git apply --index --binary "$RUNNER_TEMP/pstack-candidate/pstack-candidate.patch"
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              skills/*|agents/*|vendor/pstack/*|pi/overlays/*|LICENSE|plugin.json|upstream.json|package.json) ;;
+              *) echo "Candidate changes an unexpected path: $path" >&2; exit 1 ;;
+            esac
+          done < <(git diff --cached --name-only -z)
+          if git diff --cached --quiet; then
+            echo "No candidate changes to publish."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          SHORT_SHA="$(printf '%.7s' "${{ steps.check.outputs.upstream_sha }}")"
-          VERSION="$(node -p 'require("./upstream.json").version')"
-          git add skills agents LICENSE plugin.json upstream.json package.json
-          git commit -m "chore(sync): update pstack to ${VERSION} (${SHORT_SHA})"
-          git push origin HEAD:main
-      - name: Open issue on sync failure
-        if: steps.check.outputs.changed == 'true' && steps.sync_verify.outcome != 'success'
+          BRANCH="sync/pstack-${SHORT_SHA}-${GITHUB_RUN_ID}"
+          git switch -c "$BRANCH"
+          git commit -m "$TITLE"
+          git push origin "$BRANCH"
+          {
+            echo "Upstream pstack commit: \`$UPSTREAM_SHA\`."
+            echo
+            echo "Review every upstream change and each adapted section, including clean merges."
+            echo "The candidate was validated in a separate read-only job."
+            echo
+            echo "### Upstream changes"
+            jq -r '.changes[] | "- \(.status) \(if .oldPath then .oldPath + " -> " else "" end)\(.path) [\(.classification)\(if .adapted then ", adapted" else "" end)]"' "$RUNNER_TEMP/pstack-candidate/pstack-review.json"
+          } > "$RUNNER_TEMP/pstack-pr.md"
+          gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/pstack-pr.md"
+
+  report-failure:
+    needs: prepare
+    if: always() && needs.prepare.outputs.changed == 'true' && needs.prepare.outputs.validation != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Report a sync that needs human review
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream_sha }}
         run: |
-          SHORT_SHA="$(printf '%.7s' "${{ steps.check.outputs.upstream_sha }}")"
-          TITLE="Upstream pstack sync failed for ${SHORT_SHA}"
+          SHORT_SHA="$(printf '%.7s' "$UPSTREAM_SHA")"
+          TITLE="Upstream pstack sync needs review for ${SHORT_SHA}"
           EXISTING="$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')"
           if [ -z "$EXISTING" ]; then
-            gh issue create --title "$TITLE" --body "Automated sync from \`cursor/plugins\` (\`${{ steps.check.outputs.upstream_sha }}\`) failed validation. See workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            gh issue create --title "$TITLE" --body "The staged sync from \`cursor/plugins\` (\`$UPSTREAM_SHA\`) needs review or failed validation. See ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
           fi
           exit 1

@@ -4,11 +4,11 @@ Pi package adapter for [Cursor's `pstack`](https://github.com/cursor/plugins/tre
 
 ## What this package provides
 
-- **All 56 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:create-formal-verification-skill`, `/skill:maintain-formal-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`.
+- **All 58 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:create-formal-verification-skill`, `/skill:maintain-formal-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`.
 - **Optional delegation profiles** (`./agents`): `poteto-agent` and `comment-sicko`. The profile-based `pi-subagents` npm package discovers them through `pi.subagents.agents` in the manifest. The top-level `subagents.agents` alias is retained for older adapters; native Pi does not consume either profile-metadata key. `@fitchmultz/pi-subagents` does not read profiles: its `delegate` tool takes the complete assignment, so include a profile's instructions or readable path as [`docs/harness/pi.md`](./docs/harness/pi.md) describes. No sibling's generic profiles are assumed or copied.
 - **Pi harness adapter** ([`docs/harness/pi.md`](./docs/harness/pi.md)): defines task scope, workflow selection, native tool/path mappings, capability checks, standalone code cleanup, model inheritance, and `ponytail:` / `AGENTS.md` protections. Ordinary changes do not require architecture competitions or new tools. Explicitly selected workflows retain their required panels and checks. Its Pi rules override broader workflow triggers and Cursor assumptions in the bundled upstream skills and playbooks.
 - **Automated upstream sync & notifications**:
-  - `.github/workflows/sync-upstream.yml` polls `cursor/plugins` (`pstack/`) every 6 hours, runs `scripts/sync-pstack.mjs`, `npm run check:compat`, and the exact-host qualification in `scripts/qualify-hosts.mjs`, and commits updates to `main` only when all of them pass.
+  - `.github/workflows/sync-upstream.yml` polls `cursor/plugins` (`pstack/`) every 6 hours. It validates a candidate without write credentials, then opens a PR for review instead of pushing to `main`. Conflicts or failed checks open an issue.
   - Pi's built-in interactive startup package checker detects new commits on `fitchmultz/pi-pstack` and displays the native `Package Updates Available` banner (`pi update --extensions`).
   - `extensions/index.js` also performs a non-blocking, cached (6h TTL) check against `cursor/plugins/pstack` on interactive startup and provides `/pstack-status` so upstream commits are surfaced immediately even between scheduled sync runs.
 
@@ -52,17 +52,27 @@ WATCH_PR_GH=gh-personal /path/to/pi-pstack/skills/poteto-mode/scripts/watch-pr/w
 ## Maintenance
 
 ```bash
-npm run sync          # Fetch latest cursor/plugins main and regenerate tree
-npm run check:compat  # Validate sync invariants, skill/extension discovery, and pack
+npm run sync                   # Fetch upstream and stage a three-way merge
+npm run sync -- --continue     # Publish the reviewed candidate locally
+npm run check:compat            # Check offline rendering, discovery, and pack
+node scripts/qualify-hosts.mjs  # Qualify both supported Pi hosts and providers
 ```
 
-Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference. Before writing any generated files or advancing provenance, the sync generator compares the checked-out skill inventory with the rendered upstream inventory and rejects removals or renames. Thus every automatic addition becomes protected on the next sync through the shipped skills tree itself, without a separate receipt or staging change. Removals or renames require an explicitly reviewed local change. The named test baseline also protects the initially reviewed commands; native discovery must expose every bundled skill. SDK queue checks exercise expansion of the synced formal-verification and sharpen commands without launching a model.
+`vendor/pstack/` contains the exact source tree recorded in `upstream.json`; `pi/overlays/pstack.patch` holds Pi-owned changes. `check:sync` renders them offline and compares the complete generated inventory, file contents, and executable modes. To change Pi instructions, edit the generated resources, run `npm run record:overlay`, and review the resulting patch and generated diff.
+
+Npm omits `.gitignore` files from packages. Their upstream bytes and modes are recorded in `upstream.json` so an unpacked package can reconstruct the same source tree offline; a Git checkout must contain the original files.
+
+`npm run sync` prints the upstream change inventory and commands for inspecting both the upstream diff and the staged Pi rendering in `.pstack-sync/worktree`. Review every upstream change and every changed adapted section, including clean merges. Resolve conflicts there and `git add` the resolutions. Classify unknown additions in `.pstack-sync/review.json`; preserve removed skills in the staged worktree unless their removal is explicitly approved in that file. `--continue` validates the complete candidate before replacing generated paths and restores the previous files if publication fails. It never advances provenance on an unresolved conflict or unapproved removal.
+
+The scheduled PR includes the change inventory for the same review. GitHub may require a maintainer to approve the PR's workflow runs because the PR is created with `GITHUB_TOKEN`; the preparation job already runs the compatibility and exact-host checks with read-only permissions.
+
+Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference. The named test baseline protects the initially reviewed commands; native discovery must expose every bundled skill. SDK queue checks exercise expansion of the synced formal-verification and sharpen commands without launching a model.
 
 CI also qualifies the profile-based `pi-subagents` npm package's **0.84.0** loader on official Pi 1.4.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone and loader-fixture checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and dynamic/eager admission, including missing-tool rejection, without launching workers.
 
 ### Exact hosts and the configured provider
 
-CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on generated output before committing, so a failure opens its sync-failure issue instead. The script pins these sources in one place:
+CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on the candidate before opening a PR, so a failure opens its sync-failure issue instead. The script pins these sources in one place:
 
 - official Pi **1.4.0** from npm;
 - `fitchmultz/pi` commit `9e0674e`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;

@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmodSync,
+  cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -17,14 +22,13 @@ import { dirname, join, posix, relative, resolve as resolvePath } from "node:pat
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const REPOSITORY = "https://github.com/cursor/plugins";
+const VENDOR = "vendor/pstack";
+const OVERLAY = "pi/overlays/pstack.patch";
 const ADAPTER = "docs/harness/pi.md";
-const GITHUB = "https://github.com/cursor/plugins";
+const OUTPUTS = ["skills", "agents", "LICENSE", "plugin.json"];
+const STAGE = join(ROOT, ".pstack-sync");
 const LINK = /\]\(([^)\s]+)\)/g;
-const ADAPTER_LINE =
-  `In Pi, read [the Pi adapter](../../${ADAPTER}) before you follow this skill. ` +
-  "Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. " +
-  "If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.";
-
 const ADVERTISED_SKILLS = new Set(["poteto-mode", "tdd"]);
 const DESCRIPTION_IN_BODY_SKILLS = new Set([
   "principle-exhaust-the-design-space",
@@ -32,6 +36,10 @@ const DESCRIPTION_IN_BODY_SKILLS = new Set([
   "principle-migrate-callers-then-delete-legacy-apis",
   "principle-guard-the-context-window",
 ]);
+const ADAPTER_LINE =
+  `In Pi, read [the Pi adapter](../../${ADAPTER}) before you follow this skill. ` +
+  "Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. " +
+  "If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.";
 
 const TERMS = [
   { key: "`Task`", re: /`Task`|\bTask (tool|subagent|call)/ },
@@ -55,476 +63,483 @@ const TERMS = [
   { key: "~/.cursor/plugins/", re: /\.cursor\/plugins|\.cursor-plugin/ },
   { key: ".cursor/rules/", re: /\.cursor\/rules|always-applied rule/ },
   { key: "agent-transcripts", re: /agent-transcripts|\.cursor\/projects/ },
-  {
-    key: "Cursor-only features",
-    re: /Bugbot|Cursor [Aa]utomation|cursor\.(sh|com)\/automations|[Cc]loud [Aa]gent/,
-  },
+  { key: "Cursor-only features", re: /Bugbot|Cursor [Aa]utomation|cursor\.(sh|com)\/automations|[Cc]loud [Aa]gent/ },
 ];
 const ROUTE_KEY = "Run another pstack skill";
 
+function git(cwd, args, options = {}) {
+  const result = spawnSync("git", ["-C", cwd, "-c", "core.autocrlf=false", "-c", "core.filemode=true",
+    "-c", "user.name=pstack sync", "-c", "user.email=pstack-sync@example.invalid",
+    "-c", "commit.gpgsign=false", ...args], {
+    encoding: options.binary ? null : "utf8", maxBuffer: Infinity, env: { ...process.env, ...options.env },
+  });
+  if (result.error) throw result.error;
+  if (!(options.allow ?? [0]).includes(result.status)) {
+    throw new Error(`git ${args.join(" ")} failed (${result.status}):\n${result.stderr || result.stdout}`);
+  }
+  return result;
+}
+
+function gitText(cwd, ...args) {
+  return git(cwd, args).stdout.trim();
+}
+
+function copyChildren(source, destination) {
+  mkdirSync(destination, { recursive: true });
+  for (const name of readdirSync(source)) {
+    cpSync(join(source, name), join(destination, name), { recursive: true, verbatimSymlinks: true });
+  }
+}
+
+function npmGitignores(repo, tree) {
+  return git(repo, ["ls-tree", "-r", "-z", tree]).stdout.split("\0").filter(Boolean).flatMap((entry) => {
+    const [metadata, path] = entry.split("\t");
+    if (path !== ".gitignore" && !path.endsWith("/.gitignore")) return [];
+    const [mode, , object] = metadata.split(" ");
+    return [{ path, mode, content: git(repo, ["cat-file", "blob", object], { binary: true }).stdout.toString("base64") }];
+  });
+}
+
+function makeRepository(destination, source, provenance, allowPackagedSource) {
+  mkdirSync(destination, { recursive: true });
+  git(destination, ["init", "--quiet"]);
+  copyChildren(source, destination);
+  if (!Array.isArray(provenance.npmGitignoreFiles)) {
+    throw new Error("Missing npm Git-ignore transport metadata in upstream.json.");
+  }
+  // npm omits .gitignore files from packages. Restore their recorded bytes only
+  // for an unpacked package; a Git checkout must still contain the real source.
+  for (const { path, mode, content } of provenance.npmGitignoreFiles) {
+    const file = join(destination, path);
+    if (existsSync(file)) continue;
+    if (!allowPackagedSource) throw new Error(`Vendored source is missing ${path}.`);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, Buffer.from(content, "base64"));
+    chmodSync(file, mode === "100755" ? 0o755 : 0o644);
+  }
+  git(destination, ["add", "--force", "--all"]);
+  const tree = gitText(destination, "write-tree");
+  if (JSON.stringify(npmGitignores(destination, tree)) !== JSON.stringify(provenance.npmGitignoreFiles)) {
+    throw new Error("Vendored .gitignore files do not match the npm transport metadata.");
+  }
+  return tree;
+}
+
+function commitIndex(repo, message) {
+  git(repo, ["commit", "--quiet", "--allow-empty", "-m", message]);
+  return gitText(repo, "rev-parse", "HEAD");
+}
+
+function applyOverlay(repo, path) {
+  if (readFileSync(path).length) git(repo, ["apply", "--index", "--whitespace=nowarn", path]);
+}
+
+function inventory(root, paths) {
+  const entries = new Map();
+  function visit(rel) {
+    const path = join(root, rel);
+    let stat;
+    try { stat = lstatSync(path); } catch (error) {
+      if (error.code === "ENOENT") return;
+      throw error;
+    }
+    if (stat.isDirectory()) {
+      entries.set(rel, { type: "directory" });
+      for (const name of readdirSync(path).sort()) visit(join(rel, name));
+    } else if (stat.isSymbolicLink()) {
+      entries.set(rel, { type: "link", target: readlinkSync(path) });
+    } else {
+      entries.set(rel, { type: "file", bytes: readFileSync(path), executable: (stat.mode & 0o111) !== 0 });
+    }
+  }
+  for (const path of paths) visit(path);
+  return entries;
+}
+
+function compareTrees(expected, actual, paths) {
+  const want = inventory(expected, paths);
+  const have = inventory(actual, paths);
+  const problems = [];
+  for (const [path, entry] of want) {
+    const other = have.get(path);
+    if (!other) problems.push(`Missing generated path: ${path}`);
+    else if (entry.type !== other.type || entry.target !== other.target ||
+      entry.executable !== other.executable || (entry.bytes && !entry.bytes.equals(other.bytes))) {
+      problems.push(`Drifted generated path: ${path}`);
+    }
+  }
+  for (const path of have.keys()) if (!want.has(path)) problems.push(`Unexpected generated path: ${path}`);
+  return problems;
+}
+
 function walk(dir) {
   return readdirSync(dir).flatMap((name) => {
-    if (name === ".DS_Store" || name === "node_modules") return [];
     const full = join(dir, name);
     return statSync(full).isDirectory() ? walk(full) : [full];
   });
 }
 
-function readFileEntry(fullPath) {
-  return {
-    bytes: readFileSync(fullPath),
-    executable: (statSync(fullPath).mode & 0o111) !== 0,
-  };
-}
-
-function normalizeFrontmatter(skillName, rawText) {
-  const match = rawText.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return rawText;
-  let [, fm, body] = match;
-
-  // Normalize `name:` to match directory name (fixes `Poteto Mode` and `Make Bot UI`).
-  fm = fm.replace(/^name:\s*.+$/m, `name: ${skillName}`);
-
-  // Advertise only selected entry-point skills; hide the rest so startup prompt stays tiny.
-  const shouldAdvertise = ADVERTISED_SKILLS.has(skillName);
-  const hasDisable = /^disable-model-invocation:\s*(true|false)\s*$/m.test(fm);
-  if (shouldAdvertise) {
-    fm = fm.replace(/\n?^disable-model-invocation:\s*(true|false)\s*$/m, "");
-  } else if (hasDisable) {
-    fm = fm.replace(
-      /^disable-model-invocation:\s*(true|false)\s*$/m,
-      "disable-model-invocation: true",
-    );
-  } else {
-    fm = `${fm}\ndisable-model-invocation: true`;
-  }
-
-  // Strip non-portable Cursor UI frontmatter keys (`icon`, `color`).
-  fm = fm.replace(/\n?^(?:icon|color):\s*.+$/gm, "");
-
-  // Extract description for principles whose primary rule is only in frontmatter.
-  const descMatch = fm.match(/^description:\s*(.+)$/m);
-  const rawDesc = descMatch ? descMatch[1].trim().replace(/^["']|["']$/g, "") : "";
-  if (DESCRIPTION_IN_BODY_SKILLS.has(skillName) && rawDesc && !body.includes(rawDesc)) {
-    body = body.replace(/^(# .+)\n+/m, `$1\n\n${rawDesc}\n\n`);
-  }
-
-  return `---\n${fm.trim()}\n---\n${body}`;
-}
-
-function adaptPotetoAgent() {
-  return `---
-name: poteto-agent
-description: Delegate subagent for code-writing and helper tasks spawned during a /skill:poteto-mode run. Reads poteto-mode SKILL.md and the Pi harness adapter in full before any work.
-thinking: xhigh
-systemPromptMode: append
-inheritProjectContext: true
-inheritSkills: true
-defaultContext: fresh
-allowSubagents: false
-maxSubagentDepth: 0
----
-
-# Poteto subagent
-
-You are operating as poteto-mode's full agent style inside Pi. The parent session that receives \`/skill:poteto-mode\` owns the playbook, the checklist, and every subagent spawn. You are one of its delegates.
-
-1. Read the \`poteto-mode\` skill's \`SKILL.md\` in full before doing any work, including its inline Principles index, and read \`docs/harness/pi.md\` in the same \`pi-pstack\` package. Use the absolute path your parent gave you, or derive the package root from \`poteto-mode\` in \`<available_skills>\`. If neither identifies the resource, ask the parent for its path rather than assuming a git install location.
-2. Navigate to a leaf \`principle-*\` skill in sibling \`../principle-*/SKILL.md\` whenever you apply that principle.
-3. Follow project \`AGENTS.md\` and Ponytail constraints (including preserving \`ponytail:\` ceiling comments and mandatory evidence/pushback gates).
-`;
-}
-
-function adaptCommentSicko(upstreamText) {
-  const bodyMatch = upstreamText.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
-  let body = bodyMatch ? bodyMatch[1].trimStart() : upstreamText;
-  body = body.replace(
-    /^# Comment Sicko\n+/m,
-    `# Comment Sicko\n\nIn Pi, use the absolute package root supplied by the parent, or derive it from the loaded \`poteto-mode\` skill's location. Ask the parent if it cannot be resolved; do not assume a git install path. Read \`docs/harness/pi.md\` there before following \`/how\` or \`/why\`, and read \`skills/how/SKILL.md\` or \`skills/why/SKILL.md\` from that same package root when needed.\n\n`,
-  );
-  body = body.replace(
-    "- Issue or RFC links that explain a constraint code cannot express.",
-    "- Issue or RFC links that explain a constraint code cannot express.\n- Deliberate-shortcut ceiling comments marked with `ponytail:` and required repository policy comments (such as issue links on regression tests).",
-  );
-  body = body.replace(
-    "I touch comments and identify refactor targets. I never write application code.",
-    "I identify comments to delete and refactor targets. I never mutate files or write application code; the parent or worker applies accepted deletions.",
-  );
-  return `---
-name: comment-sicko
-description: A deranged comment-hater that savors deletion and condemns workaround code (report-only).
-thinking: xhigh
-systemPromptMode: append
-inheritProjectContext: true
-inheritSkills: true
-defaultContext: fresh
-output: false
-allowSubagents: false
-maxSubagentDepth: 0
----
-
-${body}`;
-}
-
-function adaptNoCommentsSkill(text) {
-  return text.replace(
-    "Restore deletions only with exact exceptions and scoped proof.",
-    "Restore deletions only with exact exceptions (including `ponytail:` ceiling comments and required project policy comments) and scoped proof.",
-  );
-}
-
-function adaptCheckPlan(text) {
-  return text.replace(
-    'for (const marker of PROGRAM_MARKERS) {\n\t\tif (!bodyText(program).includes(marker)) fail(program.n, `Program checklist lacks "${marker}"`);\n\t}',
-    'for (const marker of PROGRAM_MARKERS) {\n\t\tconst text = bodyText(program);\n\t\tconst ok = marker === "/loop 1h" ? (text.includes("/loop 1h") || text.includes("background_command") || text.includes("watch-pr")) : text.includes(marker);\n\t\tif (!ok) fail(program.n, `Program checklist lacks "${marker}"`);\n\t}',
-  );
-}
-
-function adaptWatchPrGitHub(text) {
-  const runner = '    const child = spawn(argv[0], argv.slice(1), {';
-  if (!text.includes(runner)) {
-    throw new Error("watch-pr command runner changed upstream; review the WATCH_PR_GH adaptation.");
-  }
-  return text.replace(runner,
-    '    const executable = argv[0] === "gh" ? process.env.WATCH_PR_GH || "gh" : argv[0];\n' +
-    '    const child = spawn(executable, argv.slice(1), {');
-}
-
-function adaptWorktreeAudit(text) {
-  const oldBlock = `# Transcripts dir: ~/.cursor/projects/<slugified-repo-path>/agent-transcripts.
-slug=$(printf '%s' "$main_wt" | sed 's#^/##; s#/#-#g')
-transcripts="$HOME/.cursor/projects/$slug/agent-transcripts"`;
-  const newBlock = `# Transcripts dirs: Cursor workspace transcripts and Pi sessions.
-slug=$(printf '%s' "$main_wt" | sed 's#^/##; s#/#-#g')
-transcripts="$HOME/.cursor/projects/$slug/agent-transcripts"
-pi_sessions="\${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/sessions"`;
-
-  const oldStatBlock = `\tlast="-"; last_ts=0
-\tif [ -d "$transcripts" ]; then
-\t\tf=$(rg -l -e "\${wt}/" -e "\${wt}\\"" "$transcripts" 2>/dev/null \\
-\t\t\t| xargs stat "\${stat_fmt[@]}" 2>/dev/null | sort -rn | head -1)
-\t\tif [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-\t\t\tlast=$(fmt_day "$last_ts" 2>/dev/null); fi
-\tfi`;
-  const newStatBlock = `\tlast="-"; last_ts=0
-\tsearch_dirs=()
-\t[ -d "$transcripts" ] && search_dirs+=("$transcripts")
-\t[ -d "$pi_sessions" ] && search_dirs+=("$pi_sessions")
-\tif [ "\${#search_dirs[@]}" -gt 0 ]; then
-\t\tf=$(rg -l -e "\${wt}/" -e "\${wt}\\"" "\${search_dirs[@]}" 2>/dev/null \\
-\t\t\t| while IFS= read -r match; do
-\t\t\t\tstat "\${stat_fmt[@]}" "$match" 2>/dev/null
-\t\t\tdone | sort -rn | head -1)
-\t\tif [ -n "$f" ]; then last_ts=$(echo "$f" | awk '{print $1}')
-\t\t\tlast=$(fmt_day "$last_ts" 2>/dev/null); fi
-\tfi`;
-
-  if (!text.includes(oldBlock) || !text.includes(oldStatBlock)) {
-    throw new Error("worktree-audit transcript lookup changed upstream; review the Pi session adaptation.");
-  }
-  return text.replace(oldBlock, newBlock).replace(oldStatBlock, newStatBlock);
-}
-
 function classifySkills(skillsRoot) {
-  const skills = readdirSync(skillsRoot).filter((name) =>
-    existsSync(join(skillsRoot, name, "SKILL.md")),
-  );
+  const skills = readdirSync(skillsRoot).filter((name) => existsSync(join(skillsRoot, name, "SKILL.md")));
   const classes = new Map();
   for (const skill of skills) {
-    const dir = join(skillsRoot, skill);
     const others = skills.filter((name) => name !== skill).join("|");
     const route = new RegExp(`the \\*\\*(?<bold>${others})\\*\\* skill|\`/(?<command>${others})\``, "g");
-    const linksToSkill = (line, name) => line.includes(`(../${name}/`);
-    const namesBareSkill = (line) =>
-      [...line.matchAll(route)].some(
-        ({ groups }) => !linksToSkill(line, groups.bold ?? groups.command),
-      );
     const usesCursorNames = new Set();
-    for (const filePath of walk(dir).filter((p) => p.endsWith(".md"))) {
+    for (const filePath of walk(join(skillsRoot, skill)).filter((path) => path.endsWith(".md"))) {
       const text = readFileSync(filePath, "utf8");
-      for (const term of TERMS) {
-        if (term.re.test(text)) usesCursorNames.add(term.key);
-      }
-      if (text.split("\n").some(namesBareSkill)) usesCursorNames.add(ROUTE_KEY);
+      for (const term of TERMS) if (term.re.test(text)) usesCursorNames.add(term.key);
+      if (text.split("\n").some((line) => [...line.matchAll(route)].some(
+        ({ groups }) => !line.includes(`(../${groups.bold ?? groups.command}/`),
+      ))) usesCursorNames.add(ROUTE_KEY);
     }
-    const text = readFileSync(join(dir, "SKILL.md"), "utf8");
-    const wrap = usesCursorNames.size > 0 && /^# /m.test(text);
-    classes.set(skill, { usesCursorNames, wrap });
+    const text = readFileSync(join(skillsRoot, skill, "SKILL.md"), "utf8");
+    classes.set(skill, { usesCursorNames, wrap: usesCursorNames.size > 0 && /^# /m.test(text) });
   }
   return { skills, classes };
 }
 
-function validateAdapterCoverage(classes, adapterText) {
+function adaptSkillEntries(repo) {
+  const { classes } = classifySkills(join(repo, "skills"));
+  for (const [skill, { wrap }] of classes) {
+    const path = join(repo, "skills", skill, "SKILL.md");
+    let text = readFileSync(path, "utf8");
+    const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!match) continue;
+    let [, frontmatter, body] = match;
+    frontmatter = frontmatter.replace(/^name:\s*.+$/m, `name: ${skill}`);
+    if (ADVERTISED_SKILLS.has(skill)) {
+      frontmatter = frontmatter.replace(/\n?^disable-model-invocation:\s*(true|false)\s*$/m, "");
+    } else if (/^disable-model-invocation:\s*(true|false)\s*$/m.test(frontmatter)) {
+      frontmatter = frontmatter.replace(/^disable-model-invocation:\s*(true|false)\s*$/m, "disable-model-invocation: true");
+    } else {
+      frontmatter += "\ndisable-model-invocation: true";
+    }
+    frontmatter = frontmatter.replace(/\n?^(?:icon|color):\s*.+$/gm, "");
+    const description = frontmatter.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^["']|["']$/g, "");
+    if (DESCRIPTION_IN_BODY_SKILLS.has(skill) && description && !body.includes(description)) {
+      body = body.replace(/^(# .+)\n+/m, `$1\n\n${description}\n\n`);
+    }
+    text = `---\n${frontmatter.trim()}\n---\n${body}`;
+    if (wrap && !text.includes(ADAPTER_LINE)) text = text.replace(/^(# .+)\n+/m, `$1\n\n${ADAPTER_LINE}\n\n`);
+    writeFileSync(path, text);
+  }
+}
+
+function generatedProblems(root, source, provenance) {
   const problems = [];
+  const skillsRoot = join(root, "skills");
+  if (!existsSync(skillsRoot)) return ["Missing generated skills/ directory"];
+  const adapter = readFileSync(join(ROOT, ADAPTER), "utf8");
+  const { skills, classes } = classifySkills(skillsRoot);
   const users = new Map();
   for (const [skill, { usesCursorNames, wrap }] of classes) {
-    if (usesCursorNames.size > 0 && !wrap) {
-      problems.push(`skills/${skill}/SKILL.md uses Cursor names but has no H1`);
+    const text = readFileSync(join(skillsRoot, skill, "SKILL.md"), "utf8");
+    if (!new RegExp(`^---\\n[\\s\\S]*?^name: ${skill}$[\\s\\S]*?\\n---\\n`, "m").test(text)) {
+      problems.push(`skills/${skill}/SKILL.md frontmatter name does not match '${skill}'`);
     }
-    for (const key of usesCursorNames) {
-      users.set(key, [...(users.get(key) ?? []), skill]);
-    }
+    if (usesCursorNames.size && !wrap) problems.push(`skills/${skill}/SKILL.md uses Cursor names but has no H1`);
+    if (wrap && !text.includes(ADAPTER_LINE)) problems.push(`skills/${skill}/SKILL.md is missing the Pi adapter instruction line`);
+    for (const key of usesCursorNames) users.set(key, [...(users.get(key) ?? []), skill]);
   }
-  for (const [key, using] of users) {
-    if (!adapterText.includes(key)) {
-      problems.push(`Pi adapter (${ADAPTER}) has no row for ${key}, used by ${using.join(", ")}`);
+  for (const [key, using] of users) if (!adapter.includes(key)) {
+    problems.push(`Pi adapter (${ADAPTER}) has no row for ${key}, used by ${using.join(", ")}`);
+  }
+  for (const agent of ["poteto-agent.md", "comment-sicko.md"]) {
+    if (!existsSync(join(root, "agents", agent))) problems.push(`Missing agents/${agent}`);
+  }
+  for (const path of OUTPUTS.slice(0, 2).flatMap((dir) => existsSync(join(root, dir)) ? walk(join(root, dir)) : [])) {
+    if (!path.endsWith(".md")) continue;
+    const rel = relative(root, path).split("\\").join("/");
+    const text = readFileSync(path, "utf8");
+    for (const [, href] of text.matchAll(LINK)) {
+      const external = href.match(/^https:\/\/github\.com\/cursor\/plugins\/(?:blob|tree)\/([^/]+)\/pstack\//);
+      if (external && external[1] !== provenance.pstackCommitSha) {
+        problems.push(`${rel} links to unpinned upstream source: ${href}`);
+      }
+      const target = relativeSourceTarget(source, rel, href);
+      if (target && !isShipped(root, target)) problems.push(`${rel} links to omitted upstream path: ${href}`);
     }
   }
   return problems;
 }
 
-function resolvePstackLink(pstackRoot, from, href) {
-  const target = href.replace(/[#?].*/, "");
-  if (!target || /^[a-z][a-z0-9+.-]*:/i.test(target)) return undefined;
-  const normalized = posix.join(posix.dirname(from), target).replace(/\/$/, "");
-  return existsSync(join(pstackRoot, normalized)) ? normalized : undefined;
+function relativeSourceTarget(source, from, href) {
+  const path = href.replace(/[#?].*/, "");
+  if (!path || /^[a-z][a-z0-9+.-]*:/i.test(path) || path.startsWith("/")) return undefined;
+  const target = posix.normalize(posix.join(posix.dirname(from), path)).replace(/\/$/, "");
+  if (target === ".." || target.startsWith("../")) return undefined;
+  return existsSync(join(source, target)) ? target : undefined;
 }
 
-function hasPath(files, relPath) {
-  return files.has(relPath) || [...files.keys()].some((key) => key.startsWith(`${relPath}/`));
+function isShipped(root, target) {
+  return (target === ADAPTER || OUTPUTS.some((path) => target === path || target.startsWith(`${path}/`))) &&
+    (target === ADAPTER || existsSync(join(root, target)));
 }
 
-function renderFromUpstream(sourceRepoRoot) {
-  const pstackRoot = join(sourceRepoRoot, "pstack");
-  const skillsRoot = join(pstackRoot, "skills");
-  const adapterText = readFileSync(join(ROOT, ADAPTER), "utf8");
-  const { skills, classes } = classifySkills(skillsRoot);
-  const problems = validateAdapterCoverage(classes, adapterText);
-  if (problems.length > 0) {
-    throw new Error(problems.join("\n"));
-  }
-
-  const files = new Map();
-  for (const fullPath of walk(skillsRoot)) {
-    const rel = relative(pstackRoot, fullPath);
-    files.set(rel, readFileEntry(fullPath));
-  }
-  files.set(ADAPTER, readFileEntry(join(ROOT, ADAPTER)));
-  files.set("LICENSE", readFileEntry(join(pstackRoot, "LICENSE")));
-  files.set("plugin.json", readFileEntry(join(pstackRoot, "plugin.json")));
-
-  // Adapt agents for pi-subagents.
-  files.set("agents/poteto-agent.md", {
-    bytes: Buffer.from(adaptPotetoAgent(), "utf8"),
-    executable: false,
-  });
-  const upstreamSicko = readFileSync(join(pstackRoot, "agents", "comment-sicko.md"), "utf8");
-  files.set("agents/comment-sicko.md", {
-    bytes: Buffer.from(adaptCommentSicko(upstreamSicko), "utf8"),
-    executable: false,
-  });
-
-  // Normalize frontmatter and inject Pi adapter line into skills.
-  for (const [skill, { wrap }] of classes) {
-    const rel = `skills/${skill}/SKILL.md`;
-    let text = files.get(rel).bytes.toString("utf8");
-    text = normalizeFrontmatter(skill, text);
-    if (skill === "no-comments") {
-      text = adaptNoCommentsSkill(text);
+function checkTree(root, sourceRepo) {
+  const provenance = JSON.parse(readFileSync(join(root, "upstream.json"), "utf8"));
+  const source = join(root, VENDOR);
+  const temp = mkdtempSync(join(tmpdir(), "pi-pstack-render-"));
+  try {
+    const tree = makeRepository(temp, source, provenance, !existsSync(join(root, ".git")));
+    const problems = [];
+    if (tree !== provenance.pstackTreeSha) problems.push(`Vendored pstack tree ${tree} != upstream.json ${provenance.pstackTreeSha}`);
+    if (sourceRepo) {
+      const upstreamTree = gitText(sourceRepo, "rev-parse", "HEAD:pstack");
+      if (tree !== upstreamTree) problems.push(`Vendored pstack tree ${tree} != source ${upstreamTree}`);
     }
-    if (wrap && !text.includes(ADAPTER_LINE)) {
-      text = text.replace(/^(# .+)\n+/m, `$1\n\n${ADAPTER_LINE}\n\n`);
+    const plugin = JSON.parse(readFileSync(join(source, "plugin.json"), "utf8"));
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+    if (plugin.version !== provenance.version || pkg.version !== provenance.version) {
+      problems.push("package.json, vendored plugin.json, and upstream.json versions differ");
     }
-    files.get(rel).bytes = Buffer.from(text, "utf8");
+    applyOverlay(temp, join(root, OVERLAY));
+    problems.push(...compareTrees(temp, root, OUTPUTS));
+    problems.push(...generatedProblems(root, source, provenance));
+    if (problems.length) throw new Error(problems.join("\n"));
+    return { provenance, skills: classifySkills(join(root, "skills")).skills.length };
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
   }
+}
 
-  // Adapt helper scripts for Pi.
-  const checkPlanKey = "skills/poteto-mode/scripts/check-plan.mjs";
-  if (files.has(checkPlanKey)) {
-    files.get(checkPlanKey).bytes = Buffer.from(
-      adaptCheckPlan(files.get(checkPlanKey).bytes.toString("utf8")),
-      "utf8",
-    );
+function recordOverlay() {
+  const temp = mkdtempSync(join(tmpdir(), "pi-pstack-record-"));
+  try {
+    const provenance = JSON.parse(readFileSync(join(ROOT, "upstream.json"), "utf8"));
+    const tree = makeRepository(temp, join(ROOT, VENDOR), provenance, !existsSync(join(ROOT, ".git")));
+    if (tree !== provenance.pstackTreeSha) throw new Error("Vendored source does not match upstream.json; do not record an overlay against it.");
+    commitIndex(temp, "Pinned upstream");
+    for (const path of OUTPUTS) {
+      rmSync(join(temp, path), { recursive: true, force: true });
+      cpSync(join(ROOT, path), join(temp, path), { recursive: true, verbatimSymlinks: true });
+    }
+    git(temp, ["add", "--force", "--all"]);
+    const patch = git(temp, ["diff", "--cached", "--binary", "--full-index", "HEAD"]).stdout;
+    const path = join(ROOT, OVERLAY);
+    const pending = `${path}.new`;
+    writeFileSync(pending, patch);
+    renameSync(pending, path);
+    console.log(`Recorded Pi changes in ${OVERLAY}. Review the generated diff and run npm run check:sync.`);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
   }
-  const watchPrGitHubKey = "skills/poteto-mode/scripts/watch-pr/github.ts";
-  if (files.has(watchPrGitHubKey)) {
-    files.get(watchPrGitHubKey).bytes = Buffer.from(
-      adaptWatchPrGitHub(files.get(watchPrGitHubKey).bytes.toString("utf8")),
-      "utf8",
-    );
-  }
-  const worktreeAuditKey = "skills/poteto-mode/scripts/worktree-audit.sh";
-  if (files.has(worktreeAuditKey)) {
-    files.get(worktreeAuditKey).bytes = Buffer.from(
-      adaptWorktreeAudit(files.get(worktreeAuditKey).bytes.toString("utf8")),
-      "utf8",
-    );
-  }
+}
 
-  // Rewrite relative links that point to omitted pstack docs/assets to GitHub main.
-  for (const [rel, entry] of files) {
-    if (!rel.endsWith(".md")) continue;
-    const text = entry.bytes.toString("utf8").replace(LINK, (link, href) => {
-      const target = resolvePstackLink(pstackRoot, rel, href);
-      if (!target || target.split("/")[0] === ".." || hasPath(files, target)) return link;
-      const kind = statSync(join(pstackRoot, target)).isDirectory() ? "tree" : "blob";
-      return `](${GITHUB}/${kind}/main/pstack/${target}${href.slice(href.search(/[#?]|$/))})`;
+function sourceMetadata(repo) {
+  const repoCommitSha = gitText(repo, "rev-parse", "--verify", "HEAD^{commit}");
+  const pstackCommitSha = gitText(repo, "log", "-1", "--format=%H", repoCommitSha, "--", "pstack");
+  if (!pstackCommitSha) throw new Error("Could not determine the last commit touching pstack.");
+  if (gitText(repo, "rev-parse", "--is-shallow-repository") === "true") {
+    const shallowPath = resolvePath(repo, gitText(repo, "rev-parse", "--git-path", "shallow"));
+    if (readFileSync(shallowPath, "utf8").split("\n").includes(pstackCommitSha)) {
+      throw new Error("The last pstack commit is at the shallow boundary. Fetch the complete history before syncing.");
+    }
+  }
+  const pstackTreeSha = gitText(repo, "rev-parse", `${repoCommitSha}:pstack`);
+  const plugin = JSON.parse(git(repo, ["show", `${repoCommitSha}:pstack/plugin.json`]).stdout);
+  return { repository: REPOSITORY, subpath: "pstack", version: plugin.version,
+    repoCommitSha, pstackCommitSha, pstackTreeSha, npmGitignoreFiles: npmGitignores(repo, pstackTreeSha) };
+}
+
+function checkoutTree(repo, tree, destination, index) {
+  mkdirSync(destination, { recursive: true });
+  rmSync(index, { force: true });
+  const options = { env: { GIT_INDEX_FILE: index } };
+  git(repo, ["read-tree", tree], options);
+  git(repo, ["checkout-index", "--all", `--prefix=${destination}/`], options);
+  rmSync(index, { force: true });
+}
+
+function hashFile(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function changes(repo, base, upstream, overlay) {
+  const adapted = new Set(git(repo, ["diff", "--name-only", "-z", base, overlay]).stdout.split("\0").filter(Boolean));
+  const parts = git(repo, ["diff", "--name-status", "--find-renames", "-z", base, upstream]).stdout.split("\0");
+  const changes = [];
+  for (let index = 0; index < parts.length && parts[index];) {
+    const status = parts[index++];
+    const oldPath = /^[RC]/.test(status) ? parts[index++] : undefined;
+    const path = parts[index++];
+    const top = path.split("/")[0];
+    const shipped = OUTPUTS.includes(top);
+    const knownReference = [".cursor-plugin", ".gitignore", "README.md", "assets", "automations", "docs"].includes(top);
+    changes.push({ status, ...(oldPath ? { oldPath } : {}), path,
+      adapted: adapted.has(path) || (oldPath ? adapted.has(oldPath) : false),
+      classification: shipped ? "shipped" : knownReference || !status.startsWith("A") ? "source-only" : null });
+  }
+  return changes;
+}
+
+function stageSync(source) {
+  if (existsSync(STAGE)) throw new Error(`A sync is already staged at ${STAGE}. Finish it or remove that staging directory.`);
+  const current = checkTree(ROOT).provenance;
+  const incoming = sourceMetadata(source);
+  if (incoming.pstackTreeSha === current.pstackTreeSha) {
+    console.log(`pstack is already at upstream tree ${incoming.pstackTreeSha}; no sync needed.`);
+    return;
+  }
+  mkdirSync(STAGE);
+  const repo = join(STAGE, "worktree");
+  const tree = makeRepository(repo, join(ROOT, VENDOR), current, !existsSync(join(ROOT, ".git")));
+  if (tree !== current.pstackTreeSha) throw new Error("Vendored tree changed while staging; no generated files were written.");
+  const base = commitIndex(repo, "Pinned upstream");
+  git(repo, ["switch", "--quiet", "-c", "pi-rendering"]);
+  applyOverlay(repo, join(ROOT, OVERLAY));
+  const overlay = commitIndex(repo, "Pi rendering");
+  git(repo, ["switch", "--quiet", "-c", "incoming-upstream", base]);
+  for (const name of readdirSync(repo)) if (name !== ".git") rmSync(join(repo, name), { recursive: true, force: true });
+  checkoutTree(source, incoming.pstackTreeSha, repo, join(STAGE, "source.index"));
+  git(repo, ["add", "--force", "--all"]);
+  const upstream = commitIndex(repo, "Incoming upstream");
+  if (gitText(repo, "rev-parse", `${upstream}^{tree}`) !== incoming.pstackTreeSha) {
+    throw new Error("Checked-out upstream tree does not match its Git tree; no generated files were written.");
+  }
+  git(repo, ["switch", "--quiet", "pi-rendering"]);
+  const merge = git(repo, ["merge", "--no-commit", "--no-ff", "incoming-upstream"], { allow: [0, 1] });
+  const conflicts = git(repo, ["diff", "--name-only", "--diff-filter=U"]).stdout.trim();
+  if (merge.status !== 0 && !conflicts) throw new Error(`Could not stage upstream merge:\n${merge.stderr || merge.stdout}`);
+  const metadata = { current, incoming, base, overlay, upstream,
+    overlayHash: hashFile(join(ROOT, OVERLAY)), provenanceHash: hashFile(join(ROOT, "upstream.json")) };
+  const review = { changes: changes(repo, base, upstream, overlay), approvedSkillRemovals: [] };
+  writeFileSync(join(STAGE, "metadata.json"), `${JSON.stringify(metadata, null, 2)}\n`);
+  writeFileSync(join(STAGE, "review.json"), `${JSON.stringify(review, null, 2)}\n`);
+  console.log(`Staged upstream ${current.pstackCommitSha.slice(0, 7)} -> ${incoming.pstackCommitSha.slice(0, 7)} in ${repo}.`);
+  for (const change of review.changes) {
+    console.log(`${change.status} ${change.oldPath ? `${change.oldPath} -> ` : ""}${change.path}` +
+      ` [${change.classification ?? "unclassified"}${change.adapted ? ", adapted" : ""}]`);
+  }
+  console.log(`Review every upstream change: git -C ${repo} diff ${base} ${upstream}`);
+  console.log(`Review the Pi rendering: git -C ${repo} diff --cached ${upstream}`);
+  console.log(`Classify unknown additions and approve intentional skill removals in ${join(STAGE, "review.json")}.`);
+  console.log(`Resolve conflicts in ${repo}, git add the resolutions, then run npm run sync -- --continue.`);
+  if (conflicts) throw new Error(`Unresolved upstream conflicts:\n${conflicts}`);
+}
+
+function rewriteLinks(repo, oldCommit, newCommit) {
+  const oldOrMain = new RegExp(`https://github\\.com/cursor/plugins/(blob|tree)/(?:main|${oldCommit})/pstack/`, "g");
+  for (const path of OUTPUTS.slice(0, 2).flatMap((dir) => existsSync(join(repo, dir)) ? walk(join(repo, dir)) : [])) {
+    if (!path.endsWith(".md")) continue;
+    const rel = relative(repo, path).split("\\").join("/");
+    let text = readFileSync(path, "utf8").replace(oldOrMain, `${REPOSITORY}/$1/${newCommit}/pstack/`);
+    text = text.replace(LINK, (link, href) => {
+      const target = relativeSourceTarget(repo, rel, href);
+      if (!target || isShipped(repo, target)) return link;
+      const kind = statSync(join(repo, target)).isDirectory() ? "tree" : "blob";
+      return `](${REPOSITORY}/${kind}/${newCommit}/pstack/${target}${href.slice(href.search(/[#?]|$/))})`;
     });
-    entry.bytes = Buffer.from(text, "utf8");
+    writeFileSync(path, text);
   }
-
-  // Check for dangling internal links.
-  const dangling = [];
-  for (const [rel, entry] of files) {
-    if (!rel.endsWith(".md")) continue;
-    for (const [, href] of entry.bytes.toString("utf8").matchAll(LINK)) {
-      const target = resolvePstackLink(pstackRoot, rel, href);
-      if (target && !hasPath(files, target)) {
-        dangling.push(`${rel} links to ${href}, which is not in the package tree`);
-      }
-    }
-  }
-  if (dangling.length > 0) {
-    throw new Error(dangling.join("\n"));
-  }
-
-  const repoCommitSha = execFileSync("git", ["-C", sourceRepoRoot, "rev-parse", "HEAD"], {
-    encoding: "utf8",
-  }).trim();
-  const pstackCommitSha = execFileSync(
-    "git",
-    ["-C", sourceRepoRoot, "log", "-1", "--format=%H", "--", "pstack"],
-    { encoding: "utf8" },
-  ).trim();
-  const pstackTreeSha = execFileSync("git", ["-C", sourceRepoRoot, "rev-parse", "HEAD:pstack"], {
-    encoding: "utf8",
-  }).trim();
-  const pluginManifest = JSON.parse(readFileSync(join(pstackRoot, "plugin.json"), "utf8"));
-
-  const upstreamMeta = {
-    repository: GITHUB,
-    subpath: "pstack",
-    version: pluginManifest.version,
-    repoCommitSha,
-    pstackCommitSha,
-    pstackTreeSha,
-  };
-
-  return { files, skills, classes, upstreamMeta };
 }
 
-function checkOnDiskInvariants(sourceRepoRoot) {
-  const skillsRoot = join(ROOT, "skills");
-  if (!existsSync(skillsRoot)) {
-    throw new Error("skills/ directory does not exist. Run sync-pstack.mjs first.");
-  }
-  const adapterText = readFileSync(join(ROOT, ADAPTER), "utf8");
-  const { skills, classes } = classifySkills(skillsRoot);
-  const problems = validateAdapterCoverage(classes, adapterText);
-
-  for (const skill of skills) {
-    const skillPath = join(skillsRoot, skill, "SKILL.md");
-    const text = readFileSync(skillPath, "utf8");
-    if (!new RegExp(`^---\\n[\\s\\S]*?^name: ${skill}$[\\s\\S]*?\\n---\\n`, "m").test(text)) {
-      problems.push(`skills/${skill}/SKILL.md frontmatter name does not match '${skill}'`);
-    }
-    const { wrap } = classes.get(skill);
-    if (wrap && !text.includes(ADAPTER_LINE)) {
-      problems.push(`skills/${skill}/SKILL.md is missing the Pi adapter instruction line`);
-    }
-  }
-
-  for (const agent of ["poteto-agent.md", "comment-sicko.md"]) {
-    const agentPath = join(ROOT, "agents", agent);
-    if (!existsSync(agentPath)) {
-      problems.push(`Missing agents/${agent}`);
-    }
-  }
-
-  if (sourceRepoRoot) {
-    const { files, upstreamMeta } = renderFromUpstream(sourceRepoRoot);
-    for (const [rel, want] of files) {
-      const diskPath = join(ROOT, rel);
-      if (!existsSync(diskPath)) {
-        problems.push(`Missing generated file: ${rel}`);
-        continue;
-      }
-      const have = readFileEntry(diskPath);
-      if (!want.bytes.equals(have.bytes) || want.executable !== have.executable) {
-        problems.push(`Drifted generated file: ${rel}`);
-      }
-    }
-    const diskUpstream = JSON.parse(readFileSync(join(ROOT, "upstream.json"), "utf8"));
-    if (diskUpstream.pstackTreeSha !== upstreamMeta.pstackTreeSha) {
-      problems.push(
-        `upstream.json pstackTreeSha (${diskUpstream.pstackTreeSha}) != source (${upstreamMeta.pstackTreeSha})`,
-      );
-    }
-  }
-
-  if (problems.length > 0) {
-    throw new Error(problems.join("\n"));
-  }
-  console.log(`pi-pstack check passed (${skills.length} skills, 2 agents).`);
+function shippedSkills(root) {
+  const dir = join(root, "skills");
+  return existsSync(dir) ? readdirSync(dir).filter((name) => existsSync(join(dir, name, "SKILL.md"))) : [];
 }
 
-function writeSyncedTree(sourceRepoRoot) {
-  const { files, skills, classes, upstreamMeta } = renderFromUpstream(sourceRepoRoot);
-  // The checked-out skills tree is the persistent inventory, including additions
-  // shipped by earlier automatic syncs. Reject removals before any generated write.
-  const skillsRoot = join(ROOT, "skills");
-  const removed = existsSync(skillsRoot)
-    ? readdirSync(skillsRoot).filter((name) =>
-      existsSync(join(skillsRoot, name, "SKILL.md")) && !skills.includes(name))
-    : [];
-  if (removed.length > 0) {
-    throw new Error(`Refusing upstream sync: would remove shipped skills: ${removed.join(", ")}. Review removals or renames as an explicit local change.`);
+function publish(candidate, paths) {
+  const backup = join(STAGE, "backup");
+  const moved = [];
+  try {
+    for (const rel of paths) {
+      const destination = join(ROOT, rel);
+      const previous = join(backup, rel);
+      mkdirSync(dirname(destination), { recursive: true });
+      mkdirSync(dirname(previous), { recursive: true });
+      const hadPrevious = existsSync(destination);
+      if (hadPrevious) renameSync(destination, previous);
+      moved.push({ destination, previous, hadPrevious });
+      renameSync(join(candidate, rel), destination);
+    }
+  } catch (error) {
+    const failures = [];
+    for (const { destination, previous, hadPrevious } of moved.reverse()) {
+      try {
+        rmSync(destination, { recursive: true, force: true });
+        if (hadPrevious) renameSync(previous, destination);
+      } catch (rollbackError) { failures.push(`${destination}: ${rollbackError.message}`); }
+    }
+    if (failures.length) throw new Error(`Publication failed: ${error.message}\nRollback needs attention; backups remain at ${backup}:\n${failures.join("\n")}`);
+    throw new Error(`Publication failed and previous files were restored: ${error.message}`);
   }
-  rmSync(join(ROOT, "skills"), { recursive: true, force: true });
-  rmSync(join(ROOT, "agents"), { recursive: true, force: true });
+}
 
-  for (const [rel, { bytes, executable }] of files) {
-    if (rel === ADAPTER) continue;
-    const outPath = join(ROOT, rel);
-    mkdirSync(dirname(outPath), { recursive: true });
-    writeFileSync(outPath, bytes);
-    chmodSync(outPath, executable ? 0o755 : 0o644);
+function continueSync() {
+  const repo = join(STAGE, "worktree");
+  const metadata = JSON.parse(readFileSync(join(STAGE, "metadata.json"), "utf8"));
+  const review = JSON.parse(readFileSync(join(STAGE, "review.json"), "utf8"));
+  checkTree(ROOT);
+  if (hashFile(join(ROOT, OVERLAY)) !== metadata.overlayHash || hashFile(join(ROOT, "upstream.json")) !== metadata.provenanceHash) {
+    throw new Error("The checked-out overlay or provenance changed since staging; start a new sync instead of overwriting it.");
   }
-
-  writeFileSync(join(ROOT, "upstream.json"), `${JSON.stringify(upstreamMeta, null, 2)}\n`, "utf8");
-
-  const pkgPath = join(ROOT, "package.json");
-  const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
-  if (pkg.version !== upstreamMeta.version) {
-    pkg.version = upstreamMeta.version;
-    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
+  if (gitText(repo, "rev-parse", `${metadata.upstream}^{tree}`) !== metadata.incoming.pstackTreeSha) {
+    throw new Error("The staged upstream tree no longer matches its recorded provenance.");
   }
-
-  const wrappedCount = [...classes.values()].filter(({ wrap }) => wrap).length;
-  console.log(
-    `Synced ${skills.length} skills (${wrappedCount} with Pi adapter line) and 2 agents from cursor/plugins@${upstreamMeta.pstackCommitSha.slice(0, 7)} (tree ${upstreamMeta.pstackTreeSha.slice(0, 7)}, v${upstreamMeta.version}).`,
-  );
+  const expectedChanges = changes(repo, metadata.base, metadata.upstream, metadata.overlay);
+  const identity = ({ status, oldPath, path, adapted }) => ({ status, oldPath, path, adapted });
+  if (!Array.isArray(review.changes) ||
+      JSON.stringify(review.changes.map(identity)) !== JSON.stringify(expectedChanges.map(identity))) {
+    throw new Error("The review report no longer lists every upstream change. Restore its change inventory before continuing.");
+  }
+  const unresolved = git(repo, ["diff", "--name-only", "--diff-filter=U"]).stdout.trim();
+  if (unresolved) throw new Error(`Resolve and git add these conflicts first:\n${unresolved}`);
+  if (git(repo, ["diff", "--quiet"], { allow: [0, 1] }).status ||
+      git(repo, ["ls-files", "--others", "--exclude-standard"]).stdout.trim()) {
+    throw new Error(`Stage all reviewed changes with git -C ${repo} add before continuing.`);
+  }
+  const unclassified = review.changes.filter((change) => !["shipped", "source-only"].includes(change.classification));
+  if (unclassified.length) throw new Error(`Classify upstream additions in ${join(STAGE, "review.json")}:\n${unclassified.map(({ path }) => path).join("\n")}`);
+  const inconsistent = review.changes.filter(({ path, classification }) =>
+    (OUTPUTS.includes(path.split("/")[0]) ? "shipped" : "source-only") !== classification);
+  if (inconsistent.length) throw new Error(`Review classifications must match the published paths:\n${inconsistent.map(({ path }) => path).join("\n")}`);
+  const removed = shippedSkills(ROOT).filter((skill) => !shippedSkills(repo).includes(skill));
+  const unapproved = removed.filter((skill) => !review.approvedSkillRemovals.includes(skill));
+  if (unapproved.length) throw new Error(`Refusing to remove shipped skills without approval: ${unapproved.join(", ")}. Restore them in ${repo} or record approved removals in ${join(STAGE, "review.json")}.`);
+  adaptSkillEntries(repo);
+  rewriteLinks(repo, metadata.current.pstackCommitSha, metadata.incoming.pstackCommitSha);
+  git(repo, ["add", "--force", "--all"]);
+  const patch = git(repo, ["diff", "--cached", "--binary", "--full-index", metadata.upstream]).stdout;
+  const candidate = join(STAGE, "candidate");
+  mkdirSync(candidate, { recursive: true });
+  checkoutTree(repo, metadata.incoming.pstackTreeSha, join(candidate, VENDOR), join(STAGE, "candidate.index"));
+  for (const path of OUTPUTS) cpSync(join(repo, path), join(candidate, path), { recursive: true, verbatimSymlinks: true });
+  mkdirSync(join(candidate, "pi/overlays"), { recursive: true });
+  writeFileSync(join(candidate, OVERLAY), patch);
+  writeFileSync(join(candidate, "upstream.json"), `${JSON.stringify(metadata.incoming, null, 2)}\n`);
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+  pkg.version = metadata.incoming.version;
+  writeFileSync(join(candidate, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+  checkTree(candidate);
+  publish(candidate, [...OUTPUTS, VENDOR, OVERLAY, "package.json", "upstream.json"]);
+  rmSync(STAGE, { recursive: true, force: true });
+  console.log(`Published the reviewed pstack candidate at ${metadata.incoming.pstackCommitSha} (tree ${metadata.incoming.pstackTreeSha}, v${metadata.incoming.version}).`);
 }
 
 const args = process.argv.slice(2);
-const isCheck = args.includes("--check");
-const isFetch = args.includes("--fetch");
 const explicitSource = args.find((arg) => !arg.startsWith("--"));
-
-let tempCloneDir;
+let clone;
 try {
-  let sourceDir = explicitSource ? resolvePath(explicitSource) : undefined;
-  if (!sourceDir && isFetch) {
-    tempCloneDir = mkdtempSync(join(tmpdir(), "pi-pstack-upstream-"));
-    execFileSync(
-      "git",
-      ["clone", "--depth", "50", `${GITHUB}.git`, tempCloneDir],
-      { stdio: "inherit" },
-    );
-    sourceDir = tempCloneDir;
-  }
-
-  if (isCheck) {
-    checkOnDiskInvariants(sourceDir);
+  if (args.includes("--continue")) continueSync();
+  else if (args.includes("--record")) recordOverlay();
+  else if (args.includes("--check")) {
+    const { provenance, skills } = checkTree(ROOT, explicitSource ? resolvePath(explicitSource) : undefined);
+    console.log(`pi-pstack offline check passed (${skills} skills, 2 agents; upstream ${provenance.pstackCommitSha.slice(0, 7)}).`);
   } else {
-    if (!sourceDir) {
-      console.error("Usage: node scripts/sync-pstack.mjs <cursor-plugins-dir> | --fetch | --check [cursor-plugins-dir]");
-      process.exit(2);
+    let source = explicitSource ? resolvePath(explicitSource) : undefined;
+    if (!source && args.includes("--fetch")) {
+      clone = mkdtempSync(join(tmpdir(), "pi-pstack-upstream-"));
+      git(clone, ["clone", "--filter=blob:none", "--no-checkout", `${REPOSITORY}.git`, "."]);
+      source = clone;
     }
-    writeSyncedTree(sourceDir);
+    if (!source) throw new Error("Usage: node scripts/sync-pstack.mjs <cursor-plugins-dir> | --fetch | --continue | --record | --check [cursor-plugins-dir]");
+    stageSync(source);
   }
+} catch (error) {
+  console.error(`pi-pstack sync: ${error.message}`);
+  process.exitCode = 1;
 } finally {
-  if (tempCloneDir) {
-    rmSync(tempCloneDir, { recursive: true, force: true });
-  }
+  if (clone) rmSync(clone, { recursive: true, force: true });
 }
