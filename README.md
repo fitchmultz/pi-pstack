@@ -34,6 +34,8 @@ Optional providers include `pi-subagents` for delegation, `pi-ask-question` for 
 
 The package also exposes `pstack_capabilities`, which reports the current run's visible, selected tools without claiming permission or provider readiness, and `pstack_opinion`, which asks a configured `provider/model` for a text-only opinion on supplied material. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
 
+`/skill:make-bot-ui` guides creation of a user-owned browser UI, authenticated webhook, and dedicated Pi RPC session. It starts no listener when pstack loads. A requested remote-access or unattended deployment still needs the user's real network and host setup.
+
 The bundled profiles inherit the session model instead of pinning a credentialed provider. Existing explicit choices in `~/.pi/agent/pstack-models.md` still take precedence. Diverse-model panels require actual available models; they do not invent routes or silently collapse to one family.
 
 ## GitHub CLI selection for watch-pr
