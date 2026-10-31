@@ -29,7 +29,7 @@ const ADAPTER = "docs/harness/pi.md";
 const OUTPUTS = ["skills", "agents", "LICENSE", "plugin.json"];
 const STAGE = join(ROOT, ".pstack-sync");
 const LINK = /\]\(([^)\s]+)\)/g;
-const ADVERTISED_SKILLS = new Set(["poteto-mode", "tdd"]);
+const advertised = (skill) => !skill.startsWith("principle-") && skill !== "make-bot-ui";
 const DESCRIPTION_IN_BODY_SKILLS = new Set([
   "principle-exhaust-the-design-space",
   "principle-encode-lessons-in-structure",
@@ -37,6 +37,7 @@ const DESCRIPTION_IN_BODY_SKILLS = new Set([
   "principle-guard-the-context-window",
 ]);
 const EXECUTION_LINE = `Read [the Pi execution contract](../../${ADAPTER})`;
+const PLAYBOOK_CONTRACT = "../../../docs/harness/pi.md";
 
 const TERMS = [
   { key: "`Task`", re: /`Task`|\bTask (tool|subagent|call)/ },
@@ -199,22 +200,22 @@ function classifySkills(skillsRoot) {
         ({ groups }) => !line.includes(`(../${groups.bold ?? groups.command}/`),
       ))) usesCursorNames.add(ROUTE_KEY);
     }
-    const text = readFileSync(join(skillsRoot, skill, "SKILL.md"), "utf8");
-    classes.set(skill, { usesCursorNames, wrap: usesCursorNames.size > 0 && /^# /m.test(text) });
+    classes.set(skill, { usesCursorNames });
   }
   return { skills, classes };
 }
 
 function adaptSkillEntries(repo) {
   const { classes } = classifySkills(join(repo, "skills"));
-  for (const [skill, { wrap }] of classes) {
+  for (const [skill] of classes) {
+    if (skill === "make-bot-ui") continue;
     const path = join(repo, "skills", skill, "SKILL.md");
     let text = readFileSync(path, "utf8");
     const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
     if (!match) continue;
     let [, frontmatter, body] = match;
     frontmatter = frontmatter.replace(/^name:\s*.+$/m, `name: ${skill}`);
-    if (ADVERTISED_SKILLS.has(skill)) {
+    if (advertised(skill)) {
       frontmatter = frontmatter.replace(/\n?^disable-model-invocation:\s*(true|false)\s*$/m, "");
     } else if (/^disable-model-invocation:\s*(true|false)\s*$/m.test(frontmatter)) {
       frontmatter = frontmatter.replace(/^disable-model-invocation:\s*(true|false)\s*$/m, "disable-model-invocation: true");
@@ -226,11 +227,26 @@ function adaptSkillEntries(repo) {
     if (DESCRIPTION_IN_BODY_SKILLS.has(skill) && description && !body.includes(description)) {
       body = body.replace(/^(# .+)\n+/m, `$1\n\n${description}\n\n`);
     }
-    text = `---\n${frontmatter.trim()}\n---\n${body}`;
-    if (wrap && !text.includes(EXECUTION_LINE)) {
-      text = text.replace(/^(# .+)\n+/m, `$1\n\n${EXECUTION_LINE}.\n\n`);
+    if (!body.includes(EXECUTION_LINE)) {
+      if (/^# .+$/m.test(body)) body = body.replace(/^(# .+)\n+/m, `$1\n\n${EXECUTION_LINE}.\n\n`);
+      else body = `\n${EXECUTION_LINE}.\n${body}`;
     }
+    text = `---\n${frontmatter.trim()}\n---\n${body}`;
     writeFileSync(path, text);
+  }
+  const playbooks = join(repo, "skills/poteto-mode/playbooks");
+  if (existsSync(playbooks)) {
+    for (const name of readdirSync(playbooks).filter((entry) => entry.endsWith(".md"))) {
+      const path = join(playbooks, name);
+      let text = readFileSync(path, "utf8");
+      if (!text.includes(PLAYBOOK_CONTRACT)) {
+        const instruction = `Follow [the Pi execution contract](${PLAYBOOK_CONTRACT}).`;
+        text = /^### .+$/m.test(text)
+          ? text.replace(/^(### .+)\n+/m, `$1\n\n${instruction}\n\n`)
+          : `${instruction}\n\n${text}`;
+      }
+      writeFileSync(path, text);
+    }
   }
 }
 
@@ -241,16 +257,28 @@ function generatedProblems(root, source, provenance) {
   const adapter = readFileSync(join(ROOT, ADAPTER), "utf8");
   const { skills, classes } = classifySkills(skillsRoot);
   const users = new Map();
-  for (const [skill, { usesCursorNames, wrap }] of classes) {
+  for (const [skill, { usesCursorNames }] of classes) {
     const text = readFileSync(join(skillsRoot, skill, "SKILL.md"), "utf8");
     if (!new RegExp(`^---\\n[\\s\\S]*?^name: ${skill}$[\\s\\S]*?\\n---\\n`, "m").test(text)) {
       problems.push(`skills/${skill}/SKILL.md frontmatter name does not match '${skill}'`);
     }
-    if (usesCursorNames.size && !wrap) problems.push(`skills/${skill}/SKILL.md uses Cursor names but has no H1`);
-    if (wrap && !text.includes(EXECUTION_LINE)) {
+    if (skill !== "make-bot-ui" && !text.includes(EXECUTION_LINE)) {
       problems.push(`skills/${skill}/SKILL.md is missing the Pi execution contract`);
     }
+    const frontmatter = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+    const disabled = /^disable-model-invocation:\s*true\s*$/m.test(frontmatter);
+    if (disabled === advertised(skill)) {
+      problems.push(`skills/${skill}/SKILL.md has incorrect Pi model discovery`);
+    }
     for (const key of usesCursorNames) users.set(key, [...(users.get(key) ?? []), skill]);
+  }
+  const playbooks = join(skillsRoot, "poteto-mode/playbooks");
+  if (existsSync(playbooks)) {
+    for (const name of readdirSync(playbooks).filter((entry) => entry.endsWith(".md"))) {
+      if (!readFileSync(join(playbooks, name), "utf8").includes(PLAYBOOK_CONTRACT)) {
+        problems.push(`skills/poteto-mode/playbooks/${name} is missing the Pi execution contract`);
+      }
+    }
   }
   for (const [key, using] of users) if (!adapter.includes(key)) {
     problems.push(`Pi adapter (${ADAPTER}) has no row for ${key}, used by ${using.join(", ")}`);

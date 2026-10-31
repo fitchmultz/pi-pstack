@@ -2,9 +2,7 @@
 import fs from "node:fs";
 import process from "node:process";
 
-const RULE =
-	"Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.";
-const LANES = /Ten lanes on `[^`<>]+` at the PR head/;
+const RULE = "Verification must match the change and its user-facing consequences.";
 const SUB_BLOCKS = [
 	"Depends on.",
 	"Files.",
@@ -16,8 +14,7 @@ const SUB_BLOCKS = [
 	"Review gate.",
 	"Merge.",
 ];
-const PROGRAM_H3 = ["Arm the program", "Spawn owners", "PR mechanics", "Verdict and merge", "Boot recipe"];
-const PROGRAM_MARKERS = ["git show origin/main:", "/loop 1h", "status message"];
+const PROGRAM_H3 = ["Arm the program", "Assign work", "PR mechanics", "Verdict and merge", "Boot recipe"];
 const HOW_TO_READ_MARKERS = [
 	"One box is one unit of work",
 	"names the evidence",
@@ -106,17 +103,20 @@ if (h1 !== -1 && howToRead) {
 const program = find("Program checklist");
 if (!program) fail(1, 'no "## Program checklist" section');
 else {
-	const h3s = program.body.filter((l) => !l.code && l.text.startsWith("### ")).map((l) => l.text.slice(4).trim());
+	const h3s = [];
+	for (const line of program.body) {
+		if (!line.code && line.text.startsWith("### ")) {
+			h3s.push({ title: line.text.slice(4).trim(), n: line.n, lines: [] });
+		} else if (h3s.length) h3s.at(-1).lines.push(line);
+	}
 	let cursor = 0;
 	for (const name of PROGRAM_H3) {
-		const at = h3s.findIndex((t, i) => i >= cursor && t.startsWith(name));
+		const at = h3s.findIndex((heading, i) => i >= cursor && heading.title.startsWith(name));
 		if (at === -1) fail(program.n, `Program checklist lacks "### ${name}" in order`);
-		else cursor = at + 1;
-	}
-	for (const marker of PROGRAM_MARKERS) {
-		const text = bodyText(program);
-		const ok = marker === "/loop 1h" ? (text.includes("/loop 1h") || text.includes("background_command") || text.includes("watch-pr")) : text.includes(marker);
-		if (!ok) fail(program.n, `Program checklist lacks "${marker}"`);
+		else {
+			if (boxes(h3s[at].lines).length === 0) fail(h3s[at].n, `Program checklist "${name}" has no box`);
+			cursor = at + 1;
+		}
 	}
 }
 
@@ -157,34 +157,39 @@ for (const pr of prSections) {
 
 	const live = block("Verify, live.");
 	if (live) {
-		if (!LANES.test(live.rest)) fail(live.n, `${pr.title}: Verify, live lacks "Ten lanes on \`<swarm workers model>\` at the PR head" with the model filled in`);
-		const lanes = boxes(live.lines).map((b) => ({ ...b, m: b.text.match(/^Lane (\d+)\. /) }));
-		const numbers = lanes.filter((b) => b.m).map((b) => Number(b.m[1])).sort((a, b) => a - b);
-		if (numbers.join(",") !== "1,2,3,4,5,6,7,8,9,10") fail(live.n, `${pr.title}: lanes are [${numbers.join(",")}], expected 1 to 10`);
-		for (const lane of lanes) {
-			if (!lane.m) fail(lane.n, `${pr.title}: live box is not a lane`);
-			else if (!/Save `[^`]+`/.test(lane.text)) fail(lane.n, `${pr.title}: lane ${lane.m[1]} names no screenshot`);
-			else if (!lane.text.includes("Pass when")) fail(lane.n, `${pr.title}: lane ${lane.m[1]} has no pass predicate`);
+		const liveBoxes = boxes(live.lines);
+		const notApplicable = live.rest.slice(RULE.length).trim();
+		if (notApplicable.startsWith("Not applicable.")) {
+			if (!/^Not applicable\.\s+\S/.test(notApplicable)) fail(live.n, `${pr.title}: live omission needs a reason`);
+			if (liveBoxes.length) fail(live.n, `${pr.title}: live verification says Not applicable but has boxes`);
+		} else {
+			if (!liveBoxes.length) fail(live.n, `${pr.title}: Verify, live has no box or reason`);
+			for (const item of liveBoxes) {
+				if (!item.text.includes("Pass when")) fail(item.n, `${pr.title}: live check has no pass predicate`);
+			}
 		}
 	}
 
 	const perf = block("Verify, perf.");
 	if (perf) {
 		const items = boxes(perf.lines).map((b) => b.text.split(" ")[0]);
-		if (items.join("|") !== PERF_ITEMS.join("|")) fail(perf.n, `${pr.title}: perf boxes are [${items.join(", ")}], expected [${PERF_ITEMS.join(", ")}]`);
+		const notApplicable = perf.rest.slice(RULE.length).trim();
+		if (notApplicable.startsWith("Not applicable.")) {
+			if (!/^Not applicable\.\s+\S/.test(notApplicable)) fail(perf.n, `${pr.title}: perf omission needs a reason`);
+			if (items.length) fail(perf.n, `${pr.title}: perf verification says Not applicable but has boxes`);
+		} else if (items.join("|") !== PERF_ITEMS.join("|")) {
+			fail(perf.n, `${pr.title}: perf boxes are [${items.join(", ")}], expected [${PERF_ITEMS.join(", ")}]`);
+		}
 	}
 
 	const gate = block("Review gate.");
 	if (gate) {
 		const gateBoxes = boxes(gate.lines);
 		if (gate.rest.startsWith("None.")) {
+			if (!/^None\.\s+\S/.test(gate.rest)) fail(gate.n, `${pr.title}: Review gate says None without a reason`);
 			if (gateBoxes.length) fail(gate.n, `${pr.title}: Review gate says None but has boxes`);
 		} else {
-			const text = gate.lines.map((l) => l.text).join("\n");
 			if (gateBoxes.length === 0) fail(gate.n, `${pr.title}: Review gate has no box`);
-			for (const word of ["screenshot", "video", "operator"]) {
-				if (!text.includes(word)) fail(gate.n, `${pr.title}: Review gate lacks "${word}"`);
-			}
 		}
 	}
 

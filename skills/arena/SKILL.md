@@ -1,7 +1,6 @@
 ---
 name: arena
-description: "Compare candidates for the same task, pick a base, and graft the strongest parts of the others. Use for /arena or when one attempt would lock in the wrong shape."
-disable-model-invocation: true
+description: "Compare candidates for the same task, pick a base, and graft the strongest parts of the others. Use for /skill:arena or when one attempt would lock in the wrong shape."
 ---
 
 # Arena

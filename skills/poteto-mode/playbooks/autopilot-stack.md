@@ -1,8 +1,9 @@
 ### Autopilot-stack
 
-Run the Autopilot-full playbook, but do not merge.
+Follow [the Pi execution contract](../../../docs/harness/pi.md) and the Autopilot-full playbook, but do not merge.
 
-1. **In place of step 5, stop at verified.** Stop when each PR is verified and green at its current head, then hand the PRs to the operator. After the handoff, nobody pushes without the operator's go. Every loop tick prompt names this file, so each tick sees the no-merge rule.
-2. **Stack a PR only when it builds on another PR.** This is the one exception to step 3. Base the PR on the other PR's branch in place of trunk, per **Size and stacks** in `playbooks/opening-a-pr.md`. In place of step 2's rebase onto trunk, each PR rebases onto its parent PR's branch, and the stack root rebases onto trunk. A new head on the lower PR restacks the PRs above it, and a PR whose `git patch-id` the restack leaves unchanged keeps its verdict.
+1. **Stop at verified.** Each PR must be verified and green at its current head. Hand the PRs to the operator for merge, and continue addressing authorized review or check failures.
+2. **Stack only dependent PRs.** Base each on the parent it actually builds on. Reconcile the root against trunk and each later PR against its parent. A changed head needs current checks; reuse a verdict only when its evidence still covers the patch and integration.
+3. **Keep verification honest.** Use an independent reviewer when available. Otherwise run the same real checks and user flows yourself and record `PASS (self-verified)`. Preserve real protections, approvals, and holds.
 
-**Reply:** list each PR with its verdict, in place of what merged.
+**Reply:** list each PR with its live state and verdict, and state that the operator will merge.

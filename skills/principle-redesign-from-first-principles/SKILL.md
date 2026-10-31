@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Redesign From First Principles
 
+Read [the Pi execution contract](../../docs/harness/pi.md).
+
 When integrating a change, don't bolt it onto the existing design. Redesign as if the requirement had been a foundational assumption from the start.
 
 - Read all affected files and understand the current design

@@ -1,12 +1,11 @@
 ---
 name: technical-writing
-description: "Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. Use for /technical-writing or when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages."
-disable-model-invocation: true
+description: "Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. Use for /skill:technical-writing or when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages."
 ---
 
 # Technical writing
 
-Read [the Pi execution contract](../../docs/harness/pi.md).
+Read [the Pi execution contract](../../docs/harness/pi.md). Use available authorized delegation or work inline, labeling lost independence; keep actual external gates and live-proof requirements.
 
 Write so a tired engineer understands on the first read. Apply all four layers.
 

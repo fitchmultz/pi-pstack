@@ -1,7 +1,6 @@
 ---
 name: swarm
-description: "Cover slices or compare candidates and return one report. Use for /swarm, coverage, races, gauntlets, and exploration."
-disable-model-invocation: true
+description: "Cover slices or compare candidates and return one report. Use for /skill:swarm, coverage, races, gauntlets, and exploration."
 ---
 
 # Swarm

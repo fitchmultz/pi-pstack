@@ -1,5 +1,7 @@
 ### Investigation
 
+Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or inline work, real prerequisites, and existing user gates.
+
 **You own the answer. Plan, route, write.**
 
 Investigation requests are read-only. They produce a cited explanation or a recommendation, not a code change.

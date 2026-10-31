@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Attack the Premise
 
+Read [the Pi execution contract](../../docs/harness/pi.md).
+
 When two or more fixes that share one premise have failed the same gate, suspect the premise, not the fixes.
 
 **Why:** Each failed fix is evidence against the belief it assumed. A third fix on the same premise spends effort where the evidence already says the cause is not.

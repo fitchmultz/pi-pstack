@@ -38,7 +38,7 @@
     "sync": "node scripts/sync-pstack.mjs --fetch",
     "record:overlay": "node scripts/sync-pstack.mjs --record",
     "check:sync": "node scripts/sync-pstack.mjs --check",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs skills/poteto-mode/scripts/check-plan.test.ts",
     "smoke": "node --test test/discovery.test.mjs",
     "check:compat": "npm run check:sync && npm test && npm run pack:check",
     "pack:check": "npm pack --dry-run"

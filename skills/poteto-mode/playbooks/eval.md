@@ -1,5 +1,7 @@
 ### Eval
 
+Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or inline work, real prerequisites, and existing user gates.
+
 **You own the experiment design. Plan, blind, run, synthesize.**
 
 **Non-negotiables for blinding:**
@@ -17,9 +19,9 @@
 1. **Frame.** State what variant is under test and what behavior counts as success. Write the rubric (3-6 concrete criteria) for the judge only. Hold it back from candidates.
 2. **Set up sanitized environments.** Per-candidate working dir with the variant in place. Plant any context an organic task would have: a project skeleton, the skills the candidate would naturally read.
 3. **Author one organic prompt.** What a user would type. No leakage of what's being measured.
-4. **Spawn N parallel candidates** on different models per the **arena** skill's Phase B. Each works in its own sanitized dir. Same prompt to each. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section.
-5. **Spawn one blinded judge** on a different model family per the **arena** skill's Phase C. Judge sees outputs by sanitized label and the rubric, never a model name.
-6. **Verify the chain from transcripts, not self-report.** Read each candidate's local transcript under the active workspace's `agent-transcripts/` directory (the system prompt names this path). Do not glob across `~/.cursor/projects/*/`. That crosses workspace boundaries and reads private chats from unrelated projects. Look at which files each candidate actually opened. Grade chain-following from the files it really read plus the shape of the code, never from the candidate's own claims.
+4. **Run candidates** per the **arena** skill. Give authorized workers the same prompt in separate sanitized dirs and use real available model IDs. Without a provider, produce the same candidates serially yourself and state that the experiment is not self-blind or independent.
+5. **Judge the outputs.** An authorized independent judge sees sanitized labels and the rubric, not model names. Otherwise apply the same rubric yourself and label the judgment self-performed. A text-only opinion on supplied output is not a tool-using judge.
+6. **Verify the chain from transcripts, not self-report.** Read each available candidate transcript through its actual provider or session history. Do not search unrelated workspaces or private chats. Grade chain-following from the files actually read and the code shape. Report a missing transcript as a gap.
 7. **Read every candidate output yourself** end to end. Compare to the judge's verdict. Disagreement means a model is biased or the rubric is ambiguous. Synthesize.
 
 **Reply:** variant under test, rubric, per-candidate notes, judge's verdict, your synthesis, and a recommendation for whether to promote the variant.

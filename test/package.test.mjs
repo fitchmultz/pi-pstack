@@ -41,14 +41,10 @@ test("sync-pstack --check passes and all skills have valid normalized frontmatte
   });
 
   const skills = readdirSync(skillsDir).sort();
-  const advertised = [];
   for (const skill of skills) {
     const source = readFileSync(path.join(skillsDir, skill, "SKILL.md"), "utf8");
     assert.match(source, new RegExp(`^---\\n[\\s\\S]*?^name: ${skill}$[\\s\\S]*?\\n---\\n`, "m"));
     assert.match(source, /^[a-z0-9-]+$/m.test(skill) ? /.*/ : /never/);
-    if (!/^disable-model-invocation:\s*true$/m.test(source)) {
-      advertised.push(skill);
-    }
     for (const file of filesUnder(path.join(skillsDir, skill))) {
       assert.notEqual(path.basename(file), ".DS_Store");
       if (file.endsWith(".sh")) {
@@ -56,7 +52,6 @@ test("sync-pstack --check passes and all skills have valid normalized frontmatte
       }
     }
   }
-  assert.deepEqual(advertised, ["poteto-mode", "tdd"]);
 });
 
 test("adapted agents include valid pi-subagents frontmatter and ponytail protection", () => {

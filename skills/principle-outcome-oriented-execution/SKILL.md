@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Outcome-Oriented Execution
 
+Read [the Pi execution contract](../../docs/harness/pi.md).
+
 Optimize for the intended, verifiable end state rather than preserving smooth intermediate states.
 
 **Why:** Keeping every intermediate step fully stable often creates temporary compatibility code that becomes long-lived debt. Converge on the target architecture and prove correctness at explicit verification boundaries.

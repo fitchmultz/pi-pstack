@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Foundational Thinking
 
+Read [the Pi execution contract](../../docs/harness/pi.md).
+
 **Structural decisions** protect option value. **Code-level decisions** protect simplicity.
 
 **Data structures first.** Get the data shape right before writing logic. Define core types early, trace every access pattern, and choose structures that match the dominant paths.

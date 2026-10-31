@@ -157,7 +157,8 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
     }
     assert.deepEqual(skills.map(({ name }) => name).sort(), expected);
     assert.deepEqual(skills.filter(({ disableModelInvocation }) => !disableModelInvocation)
-      .map(({ name }) => name).sort(), ["poteto-mode", "tdd"]);
+      .map(({ name }) => name).sort(),
+    expected.filter((name) => !name.startsWith("principle-") && name !== "make-bot-ui"));
     for (const skill of skills) {
       assert.equal(realpathSync(skill.sourceInfo.path), realpathSync(join(packedRoot, "skills", skill.name, "SKILL.md")));
     }
@@ -175,6 +176,21 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
     const cli = join(packageDir, "dist/bundle/cli.js");
     const args = ["--offline", "--no-session", "--no-approve", "-np", "-nc", "--no-themes"];
     const options = { cwd, env, stdio: ["pipe", "pipe", "pipe"] };
+    await t.test("native package filters exclude only the selected skill", async () => {
+      const filtered = join(temp, "filtered-agent");
+      mkdirSync(filtered);
+      writeFileSync(join(filtered, "settings.json"), JSON.stringify({
+        packages: [{ source: packedRoot, skills: ["!skills/how/SKILL.md"] }],
+      }));
+      await withRpc(cli, args, { ...options, env: { ...env, PI_CODING_AGENT_DIR: filtered } }, async (request) => {
+        const commands = await request({ type: "get_commands" });
+        assert.equal(commands.success, true);
+        const names = commands.data.commands.map(({ name }) => name);
+        assert.ok(!names.includes("skill:how"));
+        assert.ok(names.includes("skill:why"));
+        assert.ok(names.includes("pstack-mode"));
+      });
+    });
     const probe = join(temp, "tool-state.mjs");
     writeFileSync(probe, `export default function(pi) {
       pi.registerCommand("pstack-test-tools", { handler: async (_args, ctx) => {

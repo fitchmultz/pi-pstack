@@ -189,7 +189,7 @@ test("staged sync preserves generated files until review and protects previously
     assertSuccess(sync(target, "--continue"));
     assertSuccess(sync(target, "--check", source));
     const addedSkill = readFileSync(join(target, "skills/fixture-added/SKILL.md"), "utf8");
-    assert.match(addedSkill, /^disable-model-invocation: true$/m);
+    assert.doesNotMatch(addedSkill, /^disable-model-invocation: true$/m);
     assert.match(addedSkill, /Read \[the Pi execution contract\]/);
     assert.doesNotMatch(addedSkill, /stop that workflow and explain the missing prerequisite; do not substitute serial self-review/);
     for (const name of ["architect", "arena", "interrogate", "maintain-verification-skill",
