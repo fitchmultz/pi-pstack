@@ -72,7 +72,7 @@ The scheduled PR includes the change inventory for the same review. GitHub may r
 
 Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference. The named test baseline protects the initially reviewed commands; native discovery must expose every bundled skill. SDK queue checks exercise expansion of the synced formal-verification and sharpen commands without launching a model.
 
-CI also qualifies the profile-based `pi-subagents` npm package's **0.84.0** loader on official Pi 1.4.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone and loader-fixture checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and its dynamic/eager loadout, without launching workers.
+CI also qualifies the profile-based `pi-subagents` npm package's **0.84.0** loader on official Pi 1.4.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and its dynamic/eager loadout, without launching workers.
 
 ### Exact hosts and the configured provider
 
