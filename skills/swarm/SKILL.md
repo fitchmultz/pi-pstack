@@ -9,7 +9,7 @@ Read [the Pi execution contract](../../docs/harness/pi.md) and select the author
 
 ## Start
 
-Open a todolist with one entry per phase before launching anything.
+Track one entry per phase before starting, using an available task list, a task-owned file, or the conversation.
 
 1. Frame
 2. Fan out

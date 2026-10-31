@@ -70,10 +70,10 @@ index e1d2df2e8c3c4954b87ee1b29655c898bc7ee699..45a454bbdbc8c3d586771b9c0f74744f
 +2. Navigate to a leaf `principle-*` skill in sibling `../principle-*/SKILL.md` whenever you apply that principle.
 +3. Follow project `AGENTS.md` and Ponytail constraints (including preserving `ponytail:` ceiling comments and mandatory evidence/pushback gates).
 diff --git a/skills/architect/SKILL.md b/skills/architect/SKILL.md
-index 88e23ca105b89e67f4085d0e676c40d4b170a623..0889583699abb037f08670ef6eb02ba5eb8a90ec 100644
+index 88e23ca105b89e67f4085d0e676c40d4b170a623..57a5787ac397b70e14cddd49445bfe35b370ffe9 100644
 --- a/skills/architect/SKILL.md
 +++ b/skills/architect/SKILL.md
-@@ -1,12 +1,13 @@
+@@ -1,16 +1,17 @@
  ---
  name: architect
 -description: "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape."
@@ -90,6 +90,11 @@ index 88e23ca105b89e67f4085d0e676c40d4b170a623..0889583699abb037f08670ef6eb02ba5
  
  ## Start
  
+-Open a todolist with one entry per phase before starting.
++Track one entry per phase using an available task list, a task-owned file, or the conversation.
+ 
+ 1. Ground
+ 2. Sketch
 @@ -26,9 +27,7 @@ Skip Phase A only when the work is genuinely greenfield with no surrounding syst
  
  ## Phase B: Sketch
@@ -123,7 +128,7 @@ index b1ad21aef22e80d718c361787190b599eb359d6c..a1474b141b637276ef247636180ba580
  You are producing one candidate design in architect's parallel exploration. Read the **architect** skill in full first. That's the workflow you're inside. Output a candidate design package: type sketch, function signatures, module map, and prose rationale shaped per [`rationale-template.md`](rationale-template.md).
  
 diff --git a/skills/arena/SKILL.md b/skills/arena/SKILL.md
-index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..a9258b6fc19d1dc120d3741112c0ed5e48ae544b 100644
+index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..15ddd4cdfa2c2c9d06dc922a264b94006274e044 100644
 --- a/skills/arena/SKILL.md
 +++ b/skills/arena/SKILL.md
 @@ -1,12 +1,13 @@
@@ -139,7 +144,7 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..a9258b6fc19d1dc120d3741112c0ed5e
 -Open a todolist with one entry per phase (Frame, Fan out, Cross-judge, Pick, Graft, Verify) before launching anything.
 +Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
 +
-+Open a todolist with one entry per phase (Frame, Candidates, Cross-judge, Pick, Graft, Verify) before starting.
++Track one entry per phase (Frame, Candidates, Cross-judge, Pick, Graft, Verify) using an available task list, a task-owned file, or the conversation.
  
  ## Phase A: Frame
  
@@ -417,10 +422,10 @@ index 140d033a001e8d27acd14b06004506c43053b199..43c681c68ae73d21f7528dee0ce21937
 -Point the user at `/maintain-verification-skill` for keeping the map honest as the app changes. Suggest a cadence only if they ask.
 +Point the user at `/skill:maintain-verification-skill` for keeping the map honest as the app changes. Suggest a cadence only if they ask.
 diff --git a/skills/figure-it-out/SKILL.md b/skills/figure-it-out/SKILL.md
-index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..5b8891603a5524f6166cf16106359d6f9dcea35b 100644
+index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..eff5c5652ff0eecc9f1222c122a80fe0cafa3950 100644
 --- a/skills/figure-it-out/SKILL.md
 +++ b/skills/figure-it-out/SKILL.md
-@@ -1,11 +1,12 @@
+@@ -1,16 +1,17 @@
  ---
  name: figure-it-out
 -description: "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions. Use for /figure-it-out or 'figure it out'."
@@ -435,7 +440,13 @@ index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..5b8891603a5524f6166cf16106359d6f
  When the task matches no playbook, design one. The deliverable before any code is the workflow itself: a sequence of phases that scales rigor to the task, runs the scientific method, and leaves a decision trail a human can audit after stepping away.
  
  ## Start
-@@ -20,15 +21,15 @@ Ground first, then commit. Don't start the run until you can state:
+ 
+-Open a todolist whose first item is to read the Principles section of the **poteto-mode** skill. Then add the phases below as todos.
++Track the phases below using an available task list, a task-owned file, or the conversation. First read the Principles section of the **poteto-mode** skill.
+ 
+ ## Phase A: Frame
+ 
+@@ -20,25 +21,25 @@ Ground first, then commit. Don't start the run until you can state:
  - Scope, quantified: rough units and effort, plus the blockers grounding surfaced.
  - The rigor level, biased high. One-way doors and high blast radius get more. Reversible low-stakes steps get less. Rigor is gates and artifacts, not "try harder".
  
@@ -454,8 +465,11 @@ index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..5b8891603a5524f6166cf16106359d6f
 +- Decide what can run independently. Give parallel writers separate worktrees or branches. When delegation is unavailable or forbidden, work serially and report the loss of independence.
  - Write the designed phase list down. That list is what the human reviews.
  
- Then execute the design. Add its steps to the todolist as concrete items between the Phase C and Phase D entries. Run each under the Phase C loop discipline, and weave the Phase D log through them, a row as each step lands, rather than saving the whole trail for the end.
-@@ -38,7 +39,7 @@ Then execute the design. Add its steps to the todolist as concrete items between
+-Then execute the design. Add its steps to the todolist as concrete items between the Phase C and Phase D entries. Run each under the Phase C loop discipline, and weave the Phase D log through them, a row as each step lands, rather than saving the whole trail for the end.
++Then execute the design. Track its concrete steps alongside Phase C and Phase D. Run each under the Phase C loop discipline, and weave the Phase D log through them, a row as each step lands, rather than saving the whole trail for the end.
+ 
+ ## Phase C: Run the loop
+ 
  Each unit is an experiment. State the hypothesis, make the smallest change, measure against the predicate on the real artifact, keep it if it advanced, revert it if it didn't. Apply the **sequence-verifiable-units** principle skill, verifying each unit before starting the next instead of batching checks at the end.
  
  - Verify by inspecting the artifact, never a self-report. When something passes too easily, suspect the observation method before the system.
@@ -1295,7 +1309,7 @@ index cc7a4e6828f5bfc3bcbf5954876358074718f45c..2318dff237e3b879e58da244f249d179
 +- `/skill:reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
 +- `/skill:bro` restates the last reply in plain words.
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..8f79fb1487027be9d7ab956a932e12ed7c047b35 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..0d41c6a62a1f9a7a5614229f7e379b94f3daa932 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
 @@ -1,14 +1,13 @@
@@ -1413,6 +1427,15 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..8f79fb1487027be9d7ab956a932e12ed
 +Without a usable provider, the parent performs the same task and checks inline. Report self-verification and the loss of independent or parallel work. Review any real delegate's output and diff before integrating it. Start fresh delegated work by default; resume an existing run only when its live state is necessary.
  
  ## Writing the reply
+ 
+@@ -121,7 +116,7 @@ Comments follow the same rule as the reply. Write them clean as you go. Keep a c
+ 
+ ## Playbooks
+ 
+-Open a todolist whose first items are the matched playbook's steps, copied in verbatim, before any task-specific todos. A step you choose not to do stays in the list with a one-line `skip: <reason>`. Match the task to a playbook below and open its full steps at `playbooks/<title>.md`, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its file. Copy its steps in verbatim.
++Match the task to a playbook below and read its full steps at `playbooks/<title>.md`, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its file. Track the applicable steps using an available task list, a task-owned file, or the conversation. Record why any step was skipped.
+ 
+ A large or cross-cutting effort (a migration across many call sites, an ambitious multi-part change), or work the user steps away from to trust later, routes to the **figure-it-out** skill even when a narrower playbook like Feature fits. Use **figure-it-out** whenever no bundled playbook fits. It designs a bespoke, rigorous playbook for the task. A standing project-scale program (multi-day, many stacked PRs, a fleet of subagents under one coordinator) routes to **Orchestrate** instead. figure-it-out designs one bespoke run, orchestrate runs the program.
  
 @@ -138,13 +133,13 @@ A large or cross-cutting effort (a migration across many call sites, an ambitiou
  - **Authoring or modifying a skill.** Writing or editing a SKILL.md. File: `playbooks/authoring-a-skill.md`.
@@ -3161,10 +3184,10 @@ index f5a64a8db4b8a5957ac5e76e051b1823cecd4d5e..9eae0128fbad3afc41264362f1b7f20a
  
  ## Run
 diff --git a/skills/swarm/SKILL.md b/skills/swarm/SKILL.md
-index 9cd32247b4f381bb020cbbf0fc546ba71407d558..b2ed93c6fb7a60607dc887e5d666739f518d4fb1 100644
+index 9cd32247b4f381bb020cbbf0fc546ba71407d558..0b71250337582a786212674ecafa746c9febb049 100644
 --- a/skills/swarm/SKILL.md
 +++ b/skills/swarm/SKILL.md
-@@ -1,11 +1,12 @@
+@@ -1,14 +1,15 @@
  ---
  name: swarm
 -description: "Fan out N parallel workers, drain them, and return one report. Use for /swarm, 'swarm this', or parallel coverage, races, gauntlets, and exploration."
@@ -3178,7 +3201,11 @@ index 9cd32247b4f381bb020cbbf0fc546ba71407d558..b2ed93c6fb7a60607dc887e5d666739f
 +
  ## Start
  
- Open a todolist with one entry per phase before launching anything.
+-Open a todolist with one entry per phase before launching anything.
++Track one entry per phase before starting, using an available task list, a task-owned file, or the conversation.
+ 
+ 1. Frame
+ 2. Fan out
 @@ -19,22 +20,20 @@ Open a todolist with one entry per phase before launching anything.
  
  1. State the done predicate and the artifact or report the swarm must return.
