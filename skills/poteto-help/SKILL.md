@@ -53,7 +53,7 @@ The default answer is `/skill:poteto-mode`, which runs most of the others when i
 | Turn their own working habits into a personal mode skill | [`/skill:automate-me`](../automate-me/SKILL.md) |
 | Turn what a finished task taught into skill edits | [`/skill:reflect`](../reflect/SKILL.md) |
 | Stop agents from repeating the same mistakes in this repo | [`/skill:correct`](../correct/SKILL.md) |
-| Build a page whose buttons wake a Grok Bot through a Cursor routine | [`/skill:make-bot-ui`](../make-bot-ui/SKILL.md) |
+| Build a page whose buttons wake a Pi bot over a webhook | [`/skill:make-bot-ui`](../make-bot-ui/SKILL.md) |
 | Find their way around pstack | `/skill:poteto-help` |
 
 If a skill directory next to this one is missing from the table, read its frontmatter and route by its description. The `principle-*` directories are covered under principles below.

@@ -947,7 +947,7 @@ index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..37527bf94aad75105f63e23503e07eea
  5. Constraint comments say `do not remove`, `do not change wording`, or `talk to X before changing`. Leave keeps about things we cannot change. Offer the cheapest in-scope type, runtime, test, or CI lint. Wait for interactive approval. Unattended and eval require caller pre-approval. If approved, encode then delete. Otherwise delete, report the constraint open, and sketch out-of-scope work.
  6. Report the deletion count, restored comments, reruns, architect sketch, fixes, encoding offers, encodings, unenforced constraints, and other open work.
 diff --git a/skills/poteto-help/SKILL.md b/skills/poteto-help/SKILL.md
-index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..77c2d7fd595912a5470e03beba85e51ef105b1bf 100644
+index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..0dd457065af4850fbb658d2d01237944efed1fe0 100644
 --- a/skills/poteto-help/SKILL.md
 +++ b/skills/poteto-help/SKILL.md
 @@ -1,163 +1,111 @@
@@ -1092,7 +1092,7 @@ index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..77c2d7fd595912a5470e03beba85e51e
 +| Turn their own working habits into a personal mode skill | [`/skill:automate-me`](../automate-me/SKILL.md) |
 +| Turn what a finished task taught into skill edits | [`/skill:reflect`](../reflect/SKILL.md) |
 +| Stop agents from repeating the same mistakes in this repo | [`/skill:correct`](../correct/SKILL.md) |
-+| Build a page whose buttons wake a Grok Bot through a Cursor routine | [`/skill:make-bot-ui`](../make-bot-ui/SKILL.md) |
++| Build a page whose buttons wake a Pi bot over a webhook | [`/skill:make-bot-ui`](../make-bot-ui/SKILL.md) |
 +| Find their way around pstack | `/skill:poteto-help` |
  
  If a skill directory next to this one is missing from the table, read its frontmatter and route by its description. The `principle-*` directories are covered under principles below.
