@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Experience First
 
+Read [the Pi execution contract](../../docs/harness/pi.md).
+
 When implementation convenience conflicts with user delight, choose delight.
 
 - Every feature, control, and option must be justified

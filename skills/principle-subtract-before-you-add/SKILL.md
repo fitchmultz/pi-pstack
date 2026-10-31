@@ -6,6 +6,8 @@ disable-model-invocation: true
 
 # Subtract Before You Add
 
+Read [the Pi execution contract](../../docs/harness/pi.md).
+
 When evolving a system, remove complexity first, then build. Default to subtraction.
 
 Make simplification a continual investment. Leave the design slightly simpler and more capable behind the same or smaller surface than you found it.

@@ -2,11 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { expect, test } from "bun:test";
+import assert from "node:assert/strict";
+import test from "node:test";
 
-const checker = join(import.meta.dir, "check-plan.mjs");
+const checker = join(import.meta.dirname, "check-plan.mjs");
 const rule =
-	"Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.";
+	"Verification must match the change and its user-facing consequences.";
 
 const validPlan = `# Demo
 
@@ -16,11 +17,15 @@ ${rule}
 
 ## Program checklist
 ### Arm the program
-### Spawn owners
+- [ ] Record the authority and holds.
+### Assign work
+- [ ] Assign the work.
 ### PR mechanics
+- [ ] Start checks and review.
 ### Verdict and merge
+- [ ] Honor required gates.
 ### Boot recipe
-\`git show origin/main:\` /loop 1h status message
+- [ ] Start the real runtime.
 
 ## PR 1
 **Depends on.** None.
@@ -32,14 +37,10 @@ ${rule}
 - [ ] Do the thing.
 **Verify, unit.** ${rule}
 - [ ] Check the thing.
-**Verify, live.** ${rule} Ten lanes on \`example-model\` at the PR head
-${Array.from({ length: 10 }, (_, i) => `- [ ] Lane ${i + 1}. Save \`lane-${i + 1}.png\`. Pass when evidence exists.`).join("\n")}
-**Verify, perf.** ${rule}
-- [ ] Metric. Recorded.
-- [ ] Probe. Recorded.
-- [ ] Baseline. Recorded.
-- [ ] Rule. Recorded.
-**Review gate.** None.
+**Verify, live.** ${rule}
+- [ ] Run the user's real flow. Pass when the result appears.
+**Verify, perf.** ${rule} Not applicable. No performance requirement.
+**Review gate.** None. No additional approval was requested.
 **Merge.**
 - [ ] Merge when approved.
 
@@ -50,18 +51,35 @@ Close.
 Recorded.
 `;
 
-const runPlan = (example: string, expectedExit: number) => {
+const runPlan = (example: string, expectedExit: number, plan = validPlan) => {
 	const directory = mkdtempSync(join(tmpdir(), "check-plan-test-"));
 	const file = join(directory, "plan.md");
-	writeFileSync(file, validPlan + example);
+	writeFileSync(file, plan + example);
 	try {
-		const result = spawnSync("node", [checker, file], { encoding: "utf8" });
-		expect(result.status).toBe(expectedExit);
+		const result = spawnSync(process.execPath, [checker, file], { encoding: "utf8" });
+		assert.equal(result.status, expectedExit, result.stderr);
 		return result;
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}
 };
+
+test("accepts proportional live verification and requires a real pass predicate", () => {
+	runPlan("", 0);
+	const missingPredicate = validPlan.replace(" Pass when the result appears.", "");
+	const result = runPlan("", 1, missingPredicate);
+	assert.match(result.stderr, /live check has no pass predicate/);
+});
+
+test("requires a reason for omitted performance and real review gates", () => {
+	const missingReason = validPlan.replace("Not applicable. No performance requirement.", "Not applicable.");
+	assert.match(runPlan("", 1, missingReason).stderr, /perf omission needs a reason/);
+	const perf = validPlan.replace("Not applicable. No performance requirement.", "")
+		.replace("**Review gate.**", "- [ ] Metric. Latency.\n- [ ] Probe. Measure both heads.\n- [ ] Baseline. Record trunk.\n- [ ] Rule. Compare to target.\n**Review gate.**");
+	runPlan("", 0, perf);
+	const unplannedGate = perf.replace("**Review gate.** None. No additional approval was requested.", "**Review gate.** Required.");
+	assert.match(runPlan("", 1, unplannedGate).stderr, /Review gate has no box/);
+});
 
 test("accepts ordinary, indented, and longer closing fences", () => {
 	for (const indent of ["", " ", "  ", "   "])
@@ -83,16 +101,16 @@ test("keeps mismatched, shorter, and suffixed closers inside the fence", () => {
 test("rejects headings and prose outside a proper close", () => {
 	for (const suffix of ["  ", "\t"]) {
 		const heading = runPlan(`\`\`\`markdown\n## Example only\n\`\`\`${suffix}\n## Example only\n`, 1);
-		expect(heading.stderr).toContain('"## Example only" after Close the program is not an appendix');
+		assert.match(heading.stderr, /"## Example only" after Close the program is not an appendix/);
 	}
 
 	const prose = runPlan("```markdown\nThis prose has a mid-sentence colon: inside code\n```\nThis prose has a mid-sentence colon: bad.\n", 1);
-	expect(prose.stderr).toContain("mid-sentence colon");
+	assert.match(prose.stderr, /mid-sentence colon/);
 });
 
 test("rejects backtick info strings containing a backtick", () => {
 	const result = runPlan("```markdown `invalid`\n## Example only\n```\n", 1);
-	expect(result.stderr).toContain('"## Example only" after Close the program is not an appendix');
+	assert.match(result.stderr, /"## Example only" after Close the program is not an appendix/);
 });
 
 test("ignores prose punctuation inside matching multi-backtick code spans", () => {
@@ -104,7 +122,7 @@ test("ignores prose punctuation inside matching multi-backtick code spans", () =
 
 test("checks prose following a multi-backtick span and unmatched delimiters", () => {
 	const outside = runPlan("Use ``echo `x`: y``. Bad: prose.\n", 1);
-	expect(outside.stderr).toContain("mid-sentence colon");
+	assert.match(outside.stderr, /mid-sentence colon/);
 	const unmatched = runPlan("Use ``unclosed: bad` here.\n", 1);
-	expect(unmatched.stderr).toContain("mid-sentence colon");
+	assert.match(unmatched.stderr, /mid-sentence colon/);
 });
