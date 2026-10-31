@@ -231,7 +231,9 @@ function adaptSkillEntries(repo) {
       body = body.replace(/^(# .+)\n+/m, `$1\n\n${description}\n\n`);
     }
     text = `---\n${frontmatter.trim()}\n---\n${body}`;
-    if (wrap && !text.includes(ADAPTER_LINE)) text = text.replace(/^(# .+)\n+/m, `$1\n\n${ADAPTER_LINE}\n\n`);
+    if (wrap && !text.includes(ADAPTER_LINE) && !text.includes(EXECUTION_LINE)) {
+      text = text.replace(/^(# .+)\n+/m, `$1\n\n${ADAPTER_LINE}\n\n`);
+    }
     writeFileSync(path, text);
   }
 }

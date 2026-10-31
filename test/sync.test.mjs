@@ -189,6 +189,12 @@ test("staged sync preserves generated files until review and protects previously
     assertSuccess(sync(target, "--continue"));
     assertSuccess(sync(target, "--check", source));
     assert.match(readFileSync(join(target, "skills/fixture-added/SKILL.md"), "utf8"), /^disable-model-invocation: true$/m);
+    for (const name of ["architect", "arena", "interrogate", "maintain-verification-skill",
+      "no-comments", "reflect", "show-me-your-work", "swarm"]) {
+      const rendered = readFileSync(join(target, "skills", name, "SKILL.md"), "utf8");
+      assert.match(rendered, /Pi execution contract/, name);
+      assert.doesNotMatch(rendered, /stop that workflow and explain the missing prerequisite; do not substitute serial self-review/, name);
+    }
     assert.match(readFileSync(join(target, "skills/tdd/SKILL.md"), "utf8"), /Upstream guidance added/);
     assert.equal(JSON.parse(readFileSync(join(target, "package.json"))).version, "0.15.37");
     const afterAddition = generatedSnapshot(target);
