@@ -24,11 +24,15 @@ The supported hosts are the latest official Pi release and the current `fitchmul
 
 The package loads by itself on official Pi and the Pi fork. Inline skills such as `unslop`, `tdd`, the principles, and the style portion of `poteto-mode` need no other extension.
 
+Use `/pstack-mode on` to keep the installed `poteto-mode` instructions active for the current session branch, `/pstack-mode off` to stop, and `/pstack-mode status` to inspect the setting. Saved sessions restore the setting on resume and when navigating the session tree. This mode does not supply delegation or waive a workflow's prerequisites; `/skill:poteto-mode` remains available for a one-time invocation.
+
 Independent/parallel workflows still need real delegation. Explicit bundled `architect`, `arena`, `how`, `interrogate`, `maintain-verification-skill`, `no-comments`, `reflect`, `show-me-your-work`, and `swarm` commands stop before model work when no supported delegation entry point is reachable. The adapter applies the same prerequisites to nested skill reads and other playbook phases. It never replaces an independent panel with serial self-review. The early check does not prove profiles, run controls, or model diversity; discover and validate those before launching.
 
 With the profile-based `pi-subagents` npm package, an advertised `subagents_enable` loader is sufficient for initial admission even while `subagent` is inactive. Call the loader before delegating; admission does not launch it or any workers. With `@fitchmultz/pi-subagents`, its active `delegate` tool admits the workflow.
 
 Optional providers include `pi-subagents` for delegation, `pi-ask-question` for dialogs, `pi-posthorse` for notes/history, `pi-agent-skills` for additional cleanup/browser guidance, `macuse` for native app driving, and the Pi fork's `background_command` for detached finite watchers. Use only available tools and their actual schemas. Ordinary questions, task-owned files, native shell commands, and repository-owned verification drivers cover their corresponding standalone cases. A missing required live driver, scheduler, or delegation capability blocks that phase with an explanation.
+
+The package also exposes `pstack_capabilities`, which reports the current run's visible, selected tools without claiming permission or provider readiness, and `pstack_opinion`, which asks a configured `provider/model` for a text-only opinion on supplied material. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
 
 The bundled profiles inherit the session model instead of pinning a credentialed provider. Existing explicit choices in `~/.pi/agent/pstack-models.md` still take precedence. Diverse-model panels require actual available models; they do not invent routes or silently collapse to one family.
 
