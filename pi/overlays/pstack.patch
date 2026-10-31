@@ -161,53 +161,53 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..e143ca1f60f1a59b6f0e7293c436340d
  Pick the base a future maintainer can extend most easily without breaking invariants. When two feel tied, prefer the cleaner boundary or smaller API, per the Laziness Protocol.
  
 diff --git a/skills/automate-me/SKILL.md b/skills/automate-me/SKILL.md
-index 50971b894688b1e1923458996b89f2a9961feeb3..02efa0b2c16ae1ccfae309b59c3a8f7f0fee9aef 100644
+index 50971b894688b1e1923458996b89f2a9961feeb3..6e5e0ef7001ec4b6c06d99b2498b174593d8d944 100644
 --- a/skills/automate-me/SKILL.md
 +++ b/skills/automate-me/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Automate me
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  A guided flow for turning the user's working conventions into a skill agents will follow. The output is one `-mode` skill tailored to them (e.g. `jay-mode`, `priya-mode`).
  
  This skill orchestrates three others: an inline mining pass (see step 1), Cursor's built-in `create-skill` (authoring), and the **unslop** skill (prose discipline). It sequences them. It doesn't replace them.
 diff --git a/skills/create-formal-verification-skill/SKILL.md b/skills/create-formal-verification-skill/SKILL.md
-index 92f7aa4fa966b857dd7fcc994b3c59650767c878..724016517551e8613045798a820c0e8e1f1f36eb 100644
+index 92f7aa4fa966b857dd7fcc994b3c59650767c878..11e35afc95d690cb6c3e2492139a4cbc3249010f 100644
 --- a/skills/create-formal-verification-skill/SKILL.md
 +++ b/skills/create-formal-verification-skill/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Create a formal verification skill
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  A test checks the cases that someone thought to write. Formal verification checks every case in a stated scope: every order of steps in a model, every input up to a bound, or every input. This skill finds the part of the repo where that matters most, verifies one property of it, and leaves a project-local skill that lets the next agent check a change against that property. Write that skill for an agent who reads it cold, mid-change, and has never seen your work. The user must be able to trust the result and act on it without learning the verification language.
  
  ## Choose the target from the code
 diff --git a/skills/create-verification-skill/SKILL.md b/skills/create-verification-skill/SKILL.md
-index 140d033a001e8d27acd14b06004506c43053b199..c84bbde62e0ec7463305c8c3476d41ae4288b785 100644
+index 140d033a001e8d27acd14b06004506c43053b199..804d38cb0b3e95afb80c075b55c5cc6bb4487fd3 100644
 --- a/skills/create-verification-skill/SKILL.md
 +++ b/skills/create-verification-skill/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Create a verification skill
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Every serious project needs a scripted way to drive the real app and prove behavior: launch it, exercise a feature the way a user would, and capture evidence. This skill generates that as a project-local skill (`.cursor/skills/verify-<app>/`) tailored to the repo. You write the generator's output for the next agent, not for a human: it will be read cold, mid-task, by an agent that has never seen the app.
  
  ## 1. Interview the repo, not the user
 diff --git a/skills/figure-it-out/SKILL.md b/skills/figure-it-out/SKILL.md
-index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..7510ae029ebe850f546d2bd247bd351cd6912faf 100644
+index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..b5c80a42d3b09757e7c5265151f15bc9ffcb3cfb 100644
 --- a/skills/figure-it-out/SKILL.md
 +++ b/skills/figure-it-out/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Figure it out
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  When the task matches no playbook, design one. The deliverable before any code is the workflow itself: a sequence of phases that scales rigor to the task, runs the scientific method, and leaves a decision trail a human can audit after stepping away.
  
@@ -293,14 +293,14 @@ index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..88e9722cbfa3a829103ea733814cdbf6
 +- **Findings**: for each verified finding, the command, its output, how it breaks the intent, and the review lens that found it. Say "no verified findings" when none survive.
 +- **Dropped**: for each lens, the count of dropped findings and why. State whether the passes were independent or self-performed.
 diff --git a/skills/maintain-formal-verification-skill/SKILL.md b/skills/maintain-formal-verification-skill/SKILL.md
-index 5d2f7f2228a3b771ca5b03124fc265ddfc53c5fc..b6f53d1ba0c30fa80a6844ee1e2bf9cd19d9454f 100644
+index 5d2f7f2228a3b771ca5b03124fc265ddfc53c5fc..eaf5a7bc1d39361bab3e1c659c2e139b721d36af 100644
 --- a/skills/maintain-formal-verification-skill/SKILL.md
 +++ b/skills/maintain-formal-verification-skill/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Maintain a formal verification skill
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  A formal check proves a property of what it describes. When the code changes and the verification does not, the check can keep passing while it describes code that no longer exists. That pass is the dangerous case, because it looks like a proof. This skill is the upkeep loop for a verify skill that `/create-formal-verification-skill` generated, or for any project-local skill that runs a model checker, prover, or code-level verifier against named code. The project-local skill handles a change that an agent makes while it uses that skill. This skill handles the changes that skipped it: merges, edits made without the skill, and drift that builds up across many commits.
  
@@ -342,14 +342,14 @@ index a2680b91fead45a0b4963d8c367a854956bea59d..6d87fdc5c1d576b1883e95c84467dc61
  4. **Live pass.** Required even when source looks clean. The coordinator owns all driving; follow the verification skill's own launch model — one long-lived instance driven serially for servers and UIs, or a fresh isolated session per drive for short-lived CLIs (the skill's Launch section decides, not this one). Exercise every feature at least once, and hold three invariants the whole pass, whatever the failure: (1) never drive an instance you haven't health-checked since it last did something surprising — doctor before first drive, doctor on each fresh session where sessions are the unit, doctor again after any failed drive, and where doctor can't see the failure (a wedged UI state on a healthy process), reset to a known state or relaunch rather than hoping; (2) evidence captured so far survives every cleanup, checked at its named location, not assumed; (3) nothing a drive started outlives that drive's usefulness — failed-iteration residue is cleaned whether the session is stuck, exited, or shared (for a shared instance, clean the residue, not the instance). A doctor failure caused by skill drift is drift: fix it under edit scope and retry once — restart whatever the fix invalidated, nothing more — before calling the pass `blocked`. A feature that can't be reached is `verified-unreachable` only with the concrete prerequisite (auth, entitlement, OS, external state) and the route attempted; if the map omits that prerequisite, that's drift. Any harness fix from triage gets re-driven live before it ships. Final teardown happens after the last drive of the run — including those re-proofs — so nothing outlives the run (evidence stays, per the skill).
  
 diff --git a/skills/make-bot-ui/SKILL.md b/skills/make-bot-ui/SKILL.md
-index 446342ca35a46af771271e0cd901354a61997589..fb9ab608036dc2603e978e77f71131ce542c9613 100644
+index 446342ca35a46af771271e0cd901354a61997589..ba6f82eaebe71d11b7119b0afe1472d1f62d27fe 100644
 --- a/skills/make-bot-ui/SKILL.md
 +++ b/skills/make-bot-ui/SKILL.md
 @@ -8,6 +8,8 @@ disable-model-invocation: true
  ---
  # How to make a bot UI
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Build a page the user clicks. A server on this computer POSTs JSON to a webhook routine. The bot wakes with that JSON. Keep the sender key on the server. Do not put the sender key in the browser, in chat, or in this skill.
  
@@ -388,14 +388,14 @@ index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..411f539d22a150e7a19a59943a64467e
  4. Implement the smallest root-cause fix in scope. Remove every named workaround. If the root cause is out of scope, land the smallest in-scope fix and report the rest open. The **principle-fix-root-causes** and **principle-redesign-from-first-principles** skills guide intent only. Neither authorizes widening the fence nor fixing instances outside it. Never bolt on symptom guards.
  5. Constraint comments say `do not remove`, `do not change wording`, or `talk to X before changing`. Leave keeps about things we cannot change. Offer the cheapest in-scope type, runtime, test, or CI lint. Wait for interactive approval. Unattended and eval require caller pre-approval. If approved, encode then delete. Otherwise delete, report the constraint open, and sketch out-of-scope work.
 diff --git a/skills/poteto-help/SKILL.md b/skills/poteto-help/SKILL.md
-index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..5dbe7c7bb85de073ab2f3c936732ff63341a8d61 100644
+index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..dee13ba0b9ff5c265973bf4a970ffad0c07a98f2 100644
 --- a/skills/poteto-help/SKILL.md
 +++ b/skills/poteto-help/SKILL.md
 @@ -6,11 +6,13 @@ disable-model-invocation: true
  
  # Poteto help
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Answer the user's question about pstack, hand them a prompt they can send, and link the file the answer came from. For a help question, don't start the work. The user asked how, and a pstack run spends real tokens, so let them send the prompt.
  
@@ -464,7 +464,7 @@ index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..5dbe7c7bb85de073ab2f3c936732ff63
  ## Reply
  
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..25f5b8586864c5a8250a7b6c890ee4dc8214f402 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..4d18b8008eeeb1f63ff19dddefd175fe96aba29f 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
 @@ -1,13 +1,12 @@
@@ -478,7 +478,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..25f5b8586864c5a8250a7b6c890ee4dc
  
  # Poteto mode
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Bundled skills live at `../<name>/SKILL.md` from this file, so put this file's absolute path in every `poteto-agent` prompt.
  
@@ -597,27 +597,27 @@ index 57ddd7b27d06ba4ee9e2d3811880476a18b88df6..091bc6c79dbc10d7e17ff42774ca2460
  
  **When this applies:**
 diff --git a/skills/principle-prove-it-works/SKILL.md b/skills/principle-prove-it-works/SKILL.md
-index 5dc14a3b06f9d579e5c17cd8a7242f432ddb3125..bb0f595fcd5f595265eb7ed1e274b9beef59341a 100644
+index 5dc14a3b06f9d579e5c17cd8a7242f432ddb3125..d6ac285accb45d828317838dd501c7d93bf95dc9 100644
 --- a/skills/principle-prove-it-works/SKILL.md
 +++ b/skills/principle-prove-it-works/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Prove It Works
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Verify every task output by checking the real thing directly. Do not infer from proxies, self-reports, or "it compiles."
  
  **Why:** Unverified work has unknown correctness. Indirect verification (file mtimes, output freshness, agent self-reports, cached screenshots) feels cheaper than direct observation. Acting on a wrong inference costs far more than checking the source.
 diff --git a/skills/recall/SKILL.md b/skills/recall/SKILL.md
-index cd8cc20790d90579e632626fe6db2b1fff593eea..c8ac722ecc875539c3d64f9bd7e331c57917d710 100644
+index cd8cc20790d90579e632626fe6db2b1fff593eea..a8f0c25aba21205d3a14749340dd3388ca844986 100644
 --- a/skills/recall/SKILL.md
 +++ b/skills/recall/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Recall
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  **Before you start or resume work, you rebuild the user's recent working context and hand back a tight capsule of where things stand now and what to do next.**
  
@@ -763,7 +763,7 @@ index a839db4318798c51539c319cb90387ce02557225..24a40cc2dd66c257e19bacc8ee3d7b7d
  Two finding shapes are valid:
  - The parent invoked the skill and you found a real gap in its body. Route to the skill's relevant section.
 diff --git a/skills/setup-pstack/SKILL.md b/skills/setup-pstack/SKILL.md
-index 91f1127f8b14415fef9698b02a64d3d0bdef4f54..d3f0d618ac6280ce812d205e944baf29d156cd13 100644
+index 91f1127f8b14415fef9698b02a64d3d0bdef4f54..ecb1d504e58b79ac0175b1404b3cfd42a8c2a1f5 100644
 --- a/skills/setup-pstack/SKILL.md
 +++ b/skills/setup-pstack/SKILL.md
 @@ -1,10 +1,13 @@
@@ -775,7 +775,7 @@ index 91f1127f8b14415fef9698b02a64d3d0bdef4f54..d3f0d618ac6280ce812d205e944baf29
  
  # Setup pstack
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Write `~/.cursor/rules/pstack-models.mdc`, an always-applied rule that sets pstack's model per role.
  
@@ -879,40 +879,40 @@ index ca6f24c963001d9d518db2936dfe3d12f29b4e94..de34d643fbffc0b219bd6e653bd9733a
  
  # TDD Bug Fix
 diff --git a/skills/teach/SKILL.md b/skills/teach/SKILL.md
-index 25369f3f554ed6b5826340ae3eee688fac0bda80..d9c223b9e56a379f0358c01b4a09619131592702 100644
+index 25369f3f554ed6b5826340ae3eee688fac0bda80..c49ec4239e98b827ae21a9a2ea30a93d6a28fc33 100644
 --- a/skills/teach/SKILL.md
 +++ b/skills/teach/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Teach
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  **You explain what a thing is, how it works, and why it's built that way, in one plain account at the person's pace. The goal is that they understand it, not that you change anything.**
  
  Teach sits on top of `how` and `why`. Get your bearings on what the work is and what it touches, then run `how` for how it works and `why` for why it's that way. Those are real skill invocations that do their own digging. Blend what they find into one plain explanation, lead with what matters to the person, and go deeper when they ask. Reword freely for teaching, with one exception. Keep `why`'s confidence language intact (its hedges are findings, not style).
 diff --git a/skills/technical-writing/SKILL.md b/skills/technical-writing/SKILL.md
-index 3e6d26109376cd66439c87ed48b4033df8d78a3a..092e9f64aa790c526bad0627dc792a175b1e49e4 100644
+index 3e6d26109376cd66439c87ed48b4033df8d78a3a..11d95f87ed3a5fa843bbd6887003ecb16b81c339 100644
 --- a/skills/technical-writing/SKILL.md
 +++ b/skills/technical-writing/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Technical writing
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Write so a tired engineer understands on the first read. Apply all four layers.
  
  Three rules sit above the layers:
 diff --git a/skills/why/SKILL.md b/skills/why/SKILL.md
-index b5fe93f8b78f58b06e0bf245a6b5b8faae4300e8..01cb198ff6830ccdce20e7bc1bb97074309a43f1 100644
+index b5fe93f8b78f58b06e0bf245a6b5b8faae4300e8..d998ae8dd0319765d3641124fa9425266d9b3ac2 100644
 --- a/skills/why/SKILL.md
 +++ b/skills/why/SKILL.md
 @@ -6,6 +6,8 @@ disable-model-invocation: true
  
  # Why
  
-+In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
++Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Investigate the motivation and intent behind code. The companion `how` skill answers what the code does and how it works. `why` answers what forces led to its shape.
  

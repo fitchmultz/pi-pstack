@@ -167,7 +167,7 @@ test("staged sync preserves generated files until review and protects previously
     const added = join(pstack, "skills", "fixture-added", "SKILL.md");
     const adapted = join(pstack, "skills/tdd/SKILL.md");
     const manifest = join(pstack, "plugin.json");
-    put(added, skill("fixture-added", "New independently shipped instructions."));
+    put(added, skill("fixture-added", "New independently shipped instructions. Use the `Task` tool when appropriate."));
     put(adapted, `${readFileSync(adapted, "utf8")}\nUpstream guidance added.\n`);
     const plugin = JSON.parse(readFileSync(manifest));
     plugin.version = "0.15.37";
@@ -188,9 +188,12 @@ test("staged sync preserves generated files until review and protects previously
     rmSync(obstruction, { recursive: true });
     assertSuccess(sync(target, "--continue"));
     assertSuccess(sync(target, "--check", source));
-    assert.match(readFileSync(join(target, "skills/fixture-added/SKILL.md"), "utf8"), /^disable-model-invocation: true$/m);
+    const addedSkill = readFileSync(join(target, "skills/fixture-added/SKILL.md"), "utf8");
+    assert.match(addedSkill, /^disable-model-invocation: true$/m);
+    assert.match(addedSkill, /Read \[the Pi execution contract\]/);
+    assert.doesNotMatch(addedSkill, /stop that workflow and explain the missing prerequisite; do not substitute serial self-review/);
     for (const name of ["architect", "arena", "interrogate", "maintain-verification-skill",
-      "no-comments", "reflect", "show-me-your-work", "swarm"]) {
+      "no-comments", "reflect", "show-me-your-work", "swarm", "poteto-mode"]) {
       const rendered = readFileSync(join(target, "skills", name, "SKILL.md"), "utf8");
       assert.match(rendered, /Pi execution contract/, name);
       assert.doesNotMatch(rendered, /stop that workflow and explain the missing prerequisite; do not substitute serial self-review/, name);
