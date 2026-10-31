@@ -277,20 +277,41 @@ test("packed pstack loads alone and guards only its delegation workflows before 
     }, async () => {
       const provider = process.env.PI_SUBAGENTS_INDEX;
       assert.ok(existsSync(provider), `Missing pi-subagents extension: ${provider}`);
-      // This scanner is internal to the CI-pinned provider; its public API has no package-discovery seam.
-      const scanner = pathToFileURL(join(dirname(provider), "src", "agents", "agents.js")).href;
-      const discovered = JSON.parse(execFileSync(process.execPath, ["--input-type=module", "-e", `
-        const { discoverAgents } = await import(${JSON.stringify(scanner)});
-        const { agents, agentDiagnostics: diagnostics } = discoverAgents(process.cwd(), "both", undefined, { globalNpmRoot: null });
-        console.log(JSON.stringify({ agents: agents.filter(({ source }) => source === "package"), diagnostics }));
-      `], { cwd, env, encoding: "utf8" }));
-      assert.deepEqual(discovered.diagnostics, []);
-      assert.deepEqual(discovered.agents.map(({ name }) => name).sort(), ["comment-sicko", "poteto-agent"]);
-      for (const agent of discovered.agents) {
-        assert.equal(realpathSync(agent.filePath), realpathSync(join(packedRoot, "agents", `${agent.name}.md`)));
-      }
       const configDir = join(agentDir, "extensions", "subagent");
       mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config.json"), JSON.stringify({ toolActivation: "eager" }));
+      const profileProbe = join(temp, "profile-probe.mjs");
+      writeFileSync(profileProbe, `
+        import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+        export default function (pi) {
+          const model = fauxProvider({ provider: "pstack-profile-probe", models: [{ id: "native" }] });
+          const calls = [
+            fauxToolCall("subagent", { action: "list", options: { capabilities: true } }, { id: "profiles" }),
+            ...["comment-sicko", "poteto-agent"].map((agent) =>
+              fauxToolCall("subagent", { action: "get", agent }, { id: agent })),
+          ];
+          model.setResponses([fauxAssistantMessage(calls, { stopReason: "toolUse" }), fauxAssistantMessage("done")]);
+          pi.registerProvider(model.provider);
+        }
+      `);
+      await withRpc(cli, [...args.filter((arg) => arg !== "--no-session"), "-e", provider, "-e", profileProbe,
+        "--provider", "pstack-profile-probe", "--model", "native"], options, async (request, events, waitForEvent) => {
+        const started = await request({ type: "prompt", message: "List the packaged pstack profiles." });
+        assert.equal(started.success, true, JSON.stringify(started));
+        assert.equal(started.data.disposition, "started");
+        assert.ok(await waitForEvent((event) => event.type === "agent_settled"));
+        const results = events.filter((event) => event.type === "tool_execution_end" && event.toolName === "subagent");
+        assert.equal(results.length, 3, JSON.stringify(results));
+        for (const result of results) assert.equal(result.isError, false, JSON.stringify(result));
+        const listed = results.find(({ toolCallId }) => toolCallId === "profiles");
+        assert.deepEqual(listed.result.details.agentCapabilities.agents
+          .filter(({ source }) => source === "package").map(({ name }) => name).sort(), ["comment-sicko", "poteto-agent"]);
+        for (const name of ["comment-sicko", "poteto-agent"]) {
+          const result = results.find(({ toolCallId }) => toolCallId === name);
+          const text = result.result.content.find(({ type }) => type === "text").text;
+          assert.ok(text.includes(`Path: ${join(packedRoot, "agents", `${name}.md`)}`), text);
+        }
+      });
       for (const mode of ["dynamic", "dynamic-codemode", "eager", "excluded"]) {
         writeFileSync(join(configDir, "config.json"), JSON.stringify({
           toolActivation: mode === "eager" ? "eager" : "dynamic",

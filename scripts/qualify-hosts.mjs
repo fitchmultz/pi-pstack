@@ -8,11 +8,10 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const officialVersion = "1.4.0";
-const forkCommit = "08032804703ddddecc19ffa75371ed904787780b";
-// Version 0.52.4 plus later commits. The npm 0.52.4 release predates this configured revision.
-const provider = "git:github.com/fitchmultz/pi-subagents@37a3f7173f125efaeb86f56ba265e33589e883d4";
+const forkCommit = "9e0674ef667e90a63a5fb64f18fbb476cd1b8a3f";
+const provider = "git:github.com/fitchmultz/pi-subagents@3676214592a883efdfc3cf99e89314b20070d043";
 // The profile-based provider's existing regression also runs on these hosts.
-const profileProvider = "pi-subagents@0.79.1";
+const profileProvider = "pi-subagents@0.84.0";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const work = mkdtempSync(join(tmpdir(), "pi-pstack-hosts-"));
@@ -62,7 +61,7 @@ try {
       cwd: root,
       env: { ...process.env, PI_HOST_INDEX: join(piPackage(host), "dist/index.js"), PI_PACKAGE_DIR: piPackage(host),
         PI_FITCH_SUBAGENTS_INDEX: providerIndex,
-        PI_SUBAGENTS_INDEX: join(profiles, "node_modules/pi-subagents/index.js") },
+        PI_SUBAGENTS_INDEX: join(profiles, "node_modules/pi-subagents/bundle/index.js") },
     });
   }
 } finally {
