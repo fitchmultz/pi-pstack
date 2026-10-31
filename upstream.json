@@ -4,5 +4,12 @@
   "version": "0.15.36",
   "repoCommitSha": "c742dd61706fbacc1b95f1a20b7b988cf096ce6c",
   "pstackCommitSha": "c742dd61706fbacc1b95f1a20b7b988cf096ce6c",
-  "pstackTreeSha": "4719e1c4b4c43bac85d4206a8b41dd2899769c1c"
+  "pstackTreeSha": "4719e1c4b4c43bac85d4206a8b41dd2899769c1c",
+  "npmGitignoreFiles": [
+    {
+      "path": ".gitignore",
+      "mode": "100644",
+      "content": "bm9kZV9tb2R1bGVzLwouRFNfU3RvcmUKKi5sb2cK"
+    }
+  ]
 }

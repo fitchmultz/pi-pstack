@@ -36,6 +36,7 @@
   },
   "scripts": {
     "sync": "node scripts/sync-pstack.mjs --fetch",
+    "record:overlay": "node scripts/sync-pstack.mjs --record",
     "check:sync": "node scripts/sync-pstack.mjs --check",
     "test": "node --test test/*.test.mjs",
     "smoke": "node --test test/discovery.test.mjs",
