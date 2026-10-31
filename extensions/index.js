@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Type } from "typebox";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const UPSTREAM_FILE = join(PACKAGE_ROOT, "upstream.json");
@@ -91,6 +92,132 @@ async function fetchLatestUpstreamCommit(signal) {
 
 export default function piPstackExtension(pi) {
   let activeController;
+  let modeEnabled = false;
+  let modeRequested = false;
+  let runOptions;
+  let turnCount = 0;
+
+  const modeAvailable = () => ownsSkill(
+    pi.getCommands().find((entry) => entry.name === "skill:poteto-mode"),
+    "poteto-mode",
+  );
+  const restoreMode = (ctx) => {
+    modeEnabled = false;
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "custom" && entry.customType === "pstack-mode" &&
+          typeof entry.data?.enabled === "boolean") {
+        modeEnabled = entry.data.enabled;
+      }
+    }
+  };
+
+  pi.on("session_start", (_event, ctx) => restoreMode(ctx));
+  pi.on("session_tree", (_event, ctx) => restoreMode(ctx));
+
+  pi.registerCommand("pstack-mode", {
+    description: "Turn persistent poteto mode on or off, or show its status",
+    handler: async (args, ctx) => {
+      const action = args.trim();
+      if (action === "status") {
+        const availability = modeEnabled && !modeAvailable() ? " (poteto-mode is excluded or unavailable)" : "";
+        ctx.ui.notify(`pstack mode is ${modeEnabled ? "on" : "off"}${availability}.`, "info");
+        return;
+      }
+      if (action !== "on" && action !== "off") {
+        ctx.ui.notify("Usage: /pstack-mode on|off|status", "warning");
+        return;
+      }
+      if (action === "on" && !modeAvailable()) {
+        ctx.ui.notify("pstack mode cannot start: this package's poteto-mode skill is excluded or unavailable.", "warning");
+        return;
+      }
+      modeEnabled = action === "on";
+      pi.appendEntry("pstack-mode", { enabled: modeEnabled });
+      ctx.ui.notify(`pstack mode is ${modeEnabled ? "on" : "off"}.`, "info");
+    },
+  });
+
+  pi.on("before_agent_start", (event) => {
+    // Pi finishes the first request's loadout after this event and updates this
+    // options object. Later turns use a new object, so their visibility is unknown here.
+    runOptions = event.systemPromptOptions;
+    turnCount = 0;
+    modeRequested = modeEnabled && modeAvailable();
+    if (!modeRequested) {
+      delete event.systemPromptOptions.sections.pstack_mode;
+      return;
+    }
+    if (event.systemPromptOptions.forceSystemPrompt !== undefined) return;
+    const path = join(PACKAGE_ROOT, "skills", "poteto-mode", "SKILL.md");
+    event.systemPromptOptions.sections.pstack_mode =
+      `Persistent pstack mode is on. Follow the installed skill at ${path}:\n\n${readFileSync(path, "utf8")}`;
+  });
+  pi.on("turn_start", (_event, ctx) => {
+    turnCount += 1;
+    if (turnCount === 1 && modeRequested && runOptions.forceSystemPrompt !== undefined) {
+      ctx.ui.notify("pstack mode is on, but another extension forces the system prompt; its mode section cannot be applied.", "warning");
+    }
+  });
+
+  pi.registerTool({
+    name: "pstack_capabilities",
+    label: "Pstack capabilities",
+    description: "Inspect the current Pi tool loadout for a pstack workflow.",
+    promptSnippet: "Check pstack workflow capabilities and session mode before choosing a route.",
+    parameters: Type.Object({ names: Type.Optional(Type.Array(Type.String())) }, { additionalProperties: false }),
+    async execute(_id, { names = [] }, _signal, _onUpdate, ctx) {
+      const active = new Set(pi.getActiveTools());
+      const selected = new Set(runOptions?.selectedTools);
+      const hidden = new Set(runOptions?.hiddenTools);
+      const unchanged = runOptions && turnCount === 1 && active.size === selected.size &&
+        [...active].every((name) => selected.has(name));
+      const callable = new Set(ctx.tools.map(({ name }) => name));
+      const tools = unchanged ? pi.getAllTools()
+        .filter(({ name, exposure }) => active.has(name) && !hidden.has(name) && exposure !== "hidden")
+        .map(({ name, exposure, sourceInfo, description, parameters }) => ({
+          name, exposure, callable: callable.has(name),
+          ...(names.includes(name) ? { sourceInfo, description, parameters } : {}),
+        })) : [];
+      const details = {
+        mode: ctx.mode,
+        visibility: unchanged ? "current request's declared loadout" : "unknown: Pi refreshed or changed the loadout",
+        tools,
+        guidance: "Presence does not prove permission, provider readiness, model access, or successful execution. Use advertised discovery and provider controls; inspect uncertain launches before retrying.",
+      };
+      return { content: [{ type: "text", text: JSON.stringify(details) }], details };
+    },
+  });
+
+  pi.registerTool({
+    name: "pstack_opinion",
+    label: "Pstack text opinion",
+    description: "Ask one configured Pi model for a text-only opinion.",
+    promptSnippet: "Request an optional text-only model opinion, not a tool-using review.",
+    parameters: Type.Object({
+      model: Type.String({ description: "Configured provider/model ID." }),
+      question: Type.String({ description: "Question for the model." }),
+      context: Type.Optional(Type.String({ description: "Explicit material the model should consider." })),
+    }, { additionalProperties: false }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const separator = params.model.indexOf("/");
+      if (separator <= 0 || separator === params.model.length - 1) throw new Error("Use a configured provider/model ID.");
+      const model = ctx.modelRegistry.find(params.model.slice(0, separator), params.model.slice(separator + 1));
+      if (!model) throw new Error(`Pi has no configured model ${params.model}. Choose an available model without changing global settings.`);
+      const input = params.context ? `${params.question}\n\nMaterial:\n${params.context}` : params.question;
+      const response = await ctx.modelRegistry.streamSimple(model, {
+        systemPrompt: "Give a text-only opinion on the supplied material. You have no tools and cannot independently inspect files, run checks, or verify an application. Distinguish observations from uncertainty.",
+        messages: [{ role: "user", content: input, timestamp: Date.now() }],
+      }, { signal }).result();
+      const text = response.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+      const details = { model: params.model, stopReason: response.stopReason, kind: "text-only opinion" };
+      if (response.stopReason === "error" || response.stopReason === "aborted" || response.stopReason === "toolUse") {
+        return { content: [{ type: "text", text: response.errorMessage || `Opinion did not complete (${response.stopReason}).` }],
+          details, usage: response.usage, isError: true };
+      }
+      return { content: [{ type: "text", text: `Text-only opinion from ${params.model} (${response.stopReason}):\n${text}` }],
+        details, usage: response.usage };
+    },
+  });
 
   pi.on("input", (event, ctx) => {
     const name = /^\/skill:([a-z0-9-]+)(?: |$)/.exec(event.text)?.[1];

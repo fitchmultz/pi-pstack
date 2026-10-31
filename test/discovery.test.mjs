@@ -182,6 +182,165 @@ test("packed pstack loads alone and guards only its delegation workflows before 
           tools: pi.getAllTools().map(({ name, exposure, sourceInfo }) => ({ name, exposure, path: sourceInfo.path })) }), "info");
       } });
     }`);
+    await t.test("status handles an unavailable upstream and caches success under a tilde agent directory", async () => {
+      const fetchProbe = join(temp, "pstack-fetch-probe.mjs");
+      writeFileSync(fetchProbe, `
+        let available = false;
+        globalThis.fetch = async () => {
+          if (!available) throw new TypeError("fetch failed");
+          return { ok: true, json: async () => [{ sha: "test-upstream", commit: { message: "test update" } }] };
+        };
+        export default function(pi) {
+          pi.registerCommand("pstack-test-fetch", { handler: async () => { available = true; } });
+        }
+      `);
+      const statusEnv = { ...env, PI_CODING_AGENT_DIR: "~/agent" };
+      delete statusEnv.PI_OFFLINE;
+      const statusArgs = [...args.filter((arg) => arg !== "--offline"), "-e", fetchProbe];
+      await withRpc(cli, statusArgs, { ...options, env: statusEnv }, async (request, events) => {
+        async function command(message) {
+          const before = events.length;
+          const result = await request({ type: "prompt", message });
+          assert.equal(result.success, true, JSON.stringify(result));
+          return events.slice(before).findLast((event) => event.type === "extension_ui_request" && event.method === "notify")?.message;
+        }
+        assert.match(await command("/pstack-status"), /Could not reach GitHub API/);
+        await command("/pstack-test-fetch");
+        assert.match(await command("/pstack-status"), /upstream update available/);
+        const cache = JSON.parse(readFileSync(join(agentDir, "cache/pi-pstack-upstream.json"), "utf8"));
+        assert.equal(cache.latestSha, "test-upstream");
+      });
+    });
+    await t.test("mode reports unavailable skills and a later forced system prompt", async () => {
+      await withRpc(cli, [...args, "--no-skills"], options, async (request, events) => {
+        const result = await request({ type: "prompt", message: "/pstack-mode on" });
+        assert.equal(result.success, true, JSON.stringify(result));
+        assert.ok(events.some((event) => event.method === "notify" && event.message?.includes("skill is excluded or unavailable")));
+      });
+      const forceProbe = join(temp, "pstack-force-probe.mjs");
+      writeFileSync(forceProbe, `
+        import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          const main = fauxProvider({ provider: "pstack-force-main", models: [{ id: "native" }] });
+          main.setResponses([fauxAssistantMessage("Done.")]);
+          pi.registerProvider(main.provider);
+          pi.on("before_agent_start", (event) => { event.systemPromptOptions.forceSystemPrompt = "A forced system prompt."; });
+        }
+      `);
+      await withRpc(cli, [...args, "-e", join(packedRoot, "extensions/index.js"), "-e", forceProbe,
+        "--provider", "pstack-force-main", "--model", "native"],
+        options, async (request, events, waitForEvent) => {
+          assert.equal((await request({ type: "prompt", message: "/pstack-mode on" })).success, true);
+          const before = events.length;
+          assert.equal((await request({ type: "prompt", message: "Run with the forced prompt." })).success, true);
+          assert.ok(await waitForEvent((event) => event.type === "agent_settled" && events.indexOf(event) >= before));
+          assert.ok(events.slice(before).some((event) => event.method === "notify" &&
+            event.message?.includes("forces the system prompt")), JSON.stringify(events.slice(before)));
+        });
+    });
+    await t.test("mode follows the active branch and capability reports respect Pi's tool visibility", async () => {
+      const runtimeProbe = join(temp, "pstack-runtime-probe.mjs");
+      writeFileSync(runtimeProbe, `
+        import { Type } from "typebox";
+        import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          let hidden = false;
+          const main = fauxProvider({ provider: "pstack-runtime-main", models: [{ id: "native" }] });
+          main.setResponses([
+            fauxAssistantMessage([fauxToolCall("pstack_capabilities", {
+              names: ["pstack-visible-probe", "pstack-hidden-probe"]
+            }, { id: "capability-check" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Capabilities checked."),
+            fauxAssistantMessage([fauxToolCall("pstack_opinion", {
+              model: "pstack-runtime-judge/native", question: "Review the supplied text.", context: "A short document."
+            }, { id: "opinion-check" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Opinion received."),
+            fauxAssistantMessage("Mode checked."),
+            fauxAssistantMessage([fauxToolCall("pstack-toggle-probe", {}, { id: "toggle-hidden" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage([fauxToolCall("pstack_capabilities", {
+              names: ["pstack-hidden-probe"]
+            }, { id: "capability-after-refresh" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Refreshed capabilities checked.")
+          ]);
+          const judge = fauxProvider({ provider: "pstack-runtime-judge", models: [{ id: "native" }] });
+          judge.setResponses([fauxAssistantMessage("The document is clear.")]);
+          pi.registerProvider(main.provider);
+          pi.registerProvider(judge.provider);
+          for (const name of ["pstack-visible-probe", "pstack-hidden-probe"]) {
+            pi.registerTool({ name, label: name, description: name, parameters: Type.Object({}),
+              async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; } });
+          }
+          pi.registerTool({ name: "pstack-policy-probe", label: "policy", description: "policy",
+            parameters: Type.Object({}), prepareLoadout: () => ({ hiddenDeclarations: hidden ? ["pstack-hidden-probe"] : [] }),
+            async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; } });
+          pi.registerTool({ name: "pstack-toggle-probe", label: "toggle", description: "toggle",
+            parameters: Type.Object({}), async execute() { hidden = true; return { content: [], details: {} }; } });
+          pi.registerCommand("pstack-test-hide", { handler: async () => { hidden = true; } });
+          pi.registerCommand("pstack-test-show", { handler: async () => { hidden = false; } });
+          pi.registerCommand("pstack-test-navigate", { handler: async (id, ctx) => {
+            await ctx.navigateTree(id.trim(), { summarize: false });
+          } });
+        }
+      `);
+      const runtimeArgs = [...args.filter((arg) => arg !== "--no-session"), "-e", runtimeProbe,
+        "--provider", "pstack-runtime-main", "--model", "native"];
+      await withRpc(cli, runtimeArgs, options, async (request, events, waitForEvent) => {
+        async function command(message) {
+          const before = events.length;
+          const result = await request({ type: "prompt", message });
+          assert.equal(result.success, true, JSON.stringify(result));
+          assert.equal(result.data.disposition, "handled");
+          return events.slice(before).findLast((event) => event.type === "extension_ui_request" && event.method === "notify")?.message;
+        }
+        async function run(message, toolCallId) {
+          const before = events.length;
+          const result = await request({ type: "prompt", message });
+          assert.equal(result.success, true, JSON.stringify(result));
+          assert.equal(result.data.disposition, "started");
+          assert.ok(await waitForEvent((event) => event.type === "agent_settled" && events.indexOf(event) >= before));
+          if (toolCallId) {
+            const tool = events.slice(before).find((event) => event.type === "tool_execution_end" && event.toolCallId === toolCallId);
+            assert.ok(tool, JSON.stringify(events.slice(before)));
+            return tool;
+          }
+        }
+        assert.match(await command("/pstack-mode status"), /mode is off/);
+        assert.match(await command("/pstack-mode on"), /mode is on/);
+        const entries = await request({ type: "get_entries" });
+        const enabledEntry = entries.data.entries.findLast((entry) => entry.type === "custom" && entry.customType === "pstack-mode" && entry.data.enabled);
+        assert.ok(enabledEntry);
+
+        await command("/pstack-test-hide");
+        const capabilities = await run("Check the pstack loadout.", "capability-check");
+        assert.equal(capabilities.isError, false, JSON.stringify(capabilities));
+        assert.ok(capabilities.result.details.tools.some(({ name, parameters }) => name === "pstack-visible-probe" && parameters));
+        assert.ok(!JSON.stringify(capabilities.result).includes("pstack-hidden-probe"), JSON.stringify(capabilities));
+        const messages = await request({ type: "get_messages" });
+        assert.ok(messages.data.messages.some((message) => message.role === "system" &&
+          message.sections?.pstack_mode?.includes("Persistent pstack mode is on.")), JSON.stringify(messages));
+        const opinion = await run("Ask for a text opinion.", "opinion-check");
+        assert.equal(opinion.isError, false, JSON.stringify(opinion));
+        assert.match(opinion.result.content[0].text, /Text-only opinion.*The document is clear/s);
+        assert.equal(opinion.result.details.kind, "text-only opinion");
+        assert.ok(opinion.result.usage);
+
+        assert.match(await command("/pstack-mode off"), /mode is off/);
+        await command(`/pstack-test-navigate ${enabledEntry.id}`);
+        assert.match(await command("/pstack-mode status"), /mode is on/);
+        await run("Continue on the restored branch.");
+        const state = await request({ type: "get_state" });
+        assert.ok(state.data.sessionFile);
+        await command("/pstack-test-show");
+        const refreshed = await run("Recheck after the tool loadout refreshes.", "capability-after-refresh");
+        assert.equal(refreshed.isError, false, JSON.stringify(refreshed));
+        assert.match(refreshed.result.details.visibility, /unknown/);
+        assert.ok(!JSON.stringify(refreshed.result).includes("pstack-hidden-probe"), JSON.stringify(refreshed));
+        assert.equal((await request({ type: "new_session" })).success, true);
+        assert.match(await command("/pstack-mode status"), /mode is off/);
+        assert.equal((await request({ type: "switch_session", sessionPath: state.data.sessionFile })).success, true);
+        assert.match(await command("/pstack-mode status"), /mode is on/);
+      });
+    });
     // Issue #7: exercise the real native command expander, not source-text equality
     // or a paid model. Public followUp queues expanded input without inference.
     await t.test("native SDK expands synced formal skills and sharpen without inference", () => {
