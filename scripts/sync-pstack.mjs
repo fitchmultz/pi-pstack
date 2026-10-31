@@ -40,6 +40,7 @@ const ADAPTER_LINE =
   `In Pi, read [the Pi adapter](../../${ADAPTER}) before you follow this skill. ` +
   "Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. " +
   "If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.";
+const EXECUTION_LINE = `Read [the Pi execution contract](../../${ADAPTER})`;
 
 const TERMS = [
   { key: "`Task`", re: /`Task`|\bTask (tool|subagent|call)/ },
@@ -248,7 +249,9 @@ function generatedProblems(root, source, provenance) {
       problems.push(`skills/${skill}/SKILL.md frontmatter name does not match '${skill}'`);
     }
     if (usesCursorNames.size && !wrap) problems.push(`skills/${skill}/SKILL.md uses Cursor names but has no H1`);
-    if (wrap && !text.includes(ADAPTER_LINE)) problems.push(`skills/${skill}/SKILL.md is missing the Pi adapter instruction line`);
+    if (wrap && !text.includes(ADAPTER_LINE) && !text.includes(EXECUTION_LINE)) {
+      problems.push(`skills/${skill}/SKILL.md is missing the Pi execution contract`);
+    }
     for (const key of usesCursorNames) users.set(key, [...(users.get(key) ?? []), skill]);
   }
   for (const [key, using] of users) if (!adapter.includes(key)) {

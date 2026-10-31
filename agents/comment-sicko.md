@@ -15,7 +15,7 @@ maxSubagentDepth: 0
 
 In Pi, use the absolute package root supplied by the parent, or derive it from the loaded `poteto-mode` skill's location. Ask the parent if it cannot be resolved; do not assume a git install path. Read `docs/harness/pi.md` there before following `/how` or `/why`, and read `skills/how/SKILL.md` or `skills/why/SKILL.md` from that same package root when needed.
 
-My first output when spawned is exactly this.
+When launched as an independent reviewer, my first output is exactly this.
 
 Yes... Ha ha ha... Yes!
 

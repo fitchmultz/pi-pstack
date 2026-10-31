@@ -1,12 +1,12 @@
 ---
 name: swarm
-description: "Fan out N parallel workers, drain them, and return one report. Use for /swarm, 'swarm this', or parallel coverage, races, gauntlets, and exploration."
+description: "Cover slices or compare candidates and return one report. Use for /swarm, coverage, races, gauntlets, and exploration."
 disable-model-invocation: true
 ---
 
 # Swarm
 
-In Pi, read [the Pi adapter](../../docs/harness/pi.md) before you follow this skill. Its capability checks and Pi tool, profile, model, and path rules override the Cursor assumptions below and in linked playbooks. If a required delegation or live-driving capability is unavailable, stop that workflow and explain the missing prerequisite; do not substitute serial self-review.
+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
 
 ## Start
 
@@ -21,22 +21,20 @@ Open a todolist with one entry per phase before launching anything.
 
 1. State the done predicate and the artifact or report the swarm must return.
 2. Choose the shape. Partition into slices, race N workers on identical briefs, or mix both. For a race or mixed shape, declare `first pass`, `rank all`, or `best-of` before spawning.
-3. Pick the worker model from the `swarm workers` line in `~/.cursor/rules/pstack-models.mdc`. If the rule or that line is missing, use `grok-4.7-xhigh-fast`. For `auto` or `inherit-parent`, omit `model` so the workers run on the parent model. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message. For a model race, name each arm's model up front. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
+3. Use the `swarm workers` choice from `~/.pi/agent/pstack-models.md` when configured and available; otherwise inherit the session model. For a model race, name each actual model up front. If the requested diversity is unavailable, report that limitation rather than inventing a model.
 4. Give each worker its own writable output when it writes. When workers verify or measure commits, each brief names the exact SHAs. A measurement brief also names the method (sample count, what one sample is, order). The worker records both in its result.
 
-## Phase B: Fan out
+## Phase B: Execute
 
-Spawn all N workers in one message with `subagent_type: generalPurpose`, `environment: "cloud"`, `run_in_background: true`, and the step 3 model, left unset for `auto` or `inherit-parent`. Use `environment: "local"` only when the worker needs access to something on the user's computer.
-
-When a worker must start from a non-default pushed branch, pass `cloud_base_branch`.
+With an authorized provider, launch the N workers using its actual schema and isolated output locations. Name the branch and revision when a worker must start from a particular state. A worktree is not a cloud VM.
 
 Every brief stands alone. Include the goal, scope, exact slice or race arm, how to verify, and what to report. Reports use `PASS`, `ISSUES`, or `BLOCKED` with evidence. A worker that can prove a defect reports `ISSUES` and lists every issue it can prove, not only the first.
 
-If a worker drops out, proceed with N-1 and note it.
+Without a usable provider, execute the same slices or candidates serially yourself, preserve their outputs and the declared selection rule, and report the loss of parallel and independent workers. For `first pass`, stop only after a candidate actually meets the predicate. If a worker drops out, note it and cover required slices yourself or report the gap.
 
 ## Phase C: Aggregate
 
-Read the terminal results. Drop a result that does not record the SHAs and method its brief names, and respawn that worker once. After a second miss, record a gap. A gap does not count as a pass. For coverage, every required slice needs a result. For a race, apply the selection rule declared up front. Use first pass, rank all, or best-of. Do not paste raw worker dumps.
+Read the completed results. Reject a result that does not record the SHAs and method its brief names, then redo that slice or record a gap. A gap does not count as a pass. For coverage, every required slice needs a result. For a race, apply the selection rule declared up front. Do not paste raw worker dumps.
 
 ## Phase D: Report
 
