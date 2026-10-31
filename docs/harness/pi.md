@@ -90,6 +90,8 @@ Pi model IDs are `provider/model`, with `:effort` where the selected delegation 
 | `.cursor/rules/*.mdc`, always-applied rules | `AGENTS.md` for project policy; `~/.pi/agent/pstack-models.md` for optional model choices. |
 | Transcripts in `~/.cursor/projects/<slug>/agent-transcripts/` | `history` is optional. Use the current session's provided path or an explicitly selected workspace's session JSONL under `${PI_CODING_AGENT_DIR:-~/.pi/agent}/sessions/`. Do not search unrelated workspaces or private chats. Without a transcript, use a tight digest of this conversation and disclose the gap. |
 
-## Cursor-only features
+## Cursor-only features and the Pi bot
 
-Cursor Automations (`benny`), Grok Bot `update_state` / `SendToUser` routines (`make-bot-ui`), Bugbot auto-triggers, and Cursor Cloud VMs have no native Pi equivalent. State the missing capability and stop a workflow that depends on it. Skip a step only when it is genuinely optional and report the omission. Do not claim the full outcome after dropping a required step.
+`make-bot-ui` builds a user-owned authenticated webhook receiver and a dedicated Pi RPC session; it does not require a Cursor routine. Real browser access, a running host, and any requested tailnet or scheduler remain prerequisites.
+
+Cursor Automations (`benny`), Bugbot auto-triggers, and Cursor Cloud VMs have no native Pi equivalent. State the missing capability when a user explicitly requires one. Skip a step only when it is genuinely optional and report the omission. Do not claim the full outcome after dropping a required step.

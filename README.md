@@ -26,13 +26,15 @@ The package loads by itself on official Pi and the Pi fork. Inline skills such a
 
 Use `/pstack-mode on` to keep the installed `poteto-mode` instructions active for the current session branch, `/pstack-mode off` to stop, and `/pstack-mode status` to inspect the setting. Saved sessions restore the setting on resume and when navigating the session tree. This mode does not supply delegation or waive a workflow's prerequisites; `/skill:poteto-mode` remains available for a one-time invocation.
 
-The bundled workflows and playbooks can use authorized delegates or run inline. Inline work preserves the checks and artifacts but is not an independent or parallel panel. Direct invocations and nested skill reads follow the same execution contract. Pi advertises the non-principle skills except `make-bot-ui`; that skill and the 24 principles remain directly invocable.
+The bundled workflows and playbooks can use authorized delegates or run inline. Inline work preserves the checks and artifacts but is not an independent or parallel panel. Direct invocations and nested skill reads follow the same execution contract. Pi advertises the 34 user-facing skills; the 24 principles remain directly invocable.
 
 With the profile-based `pi-subagents` npm package, discover its advertised `subagents_enable` loader and profiles before delegating. With `@fitchmultz/pi-subagents`, use its actual `delegate` and run-control tools. Availability does not prove permission, completion, or model diversity.
 
 Optional providers include `pi-subagents` for delegation, `pi-ask-question` for dialogs, `pi-posthorse` for notes/history, `pi-agent-skills` for additional cleanup/browser guidance, `macuse` for native app driving, and the Pi fork's `background_command` for detached finite watchers. Use only available tools and their actual schemas. Ordinary questions, task-owned files, native shell commands, and repository-owned verification drivers cover their corresponding standalone cases. A missing required live driver or scheduler remains a real gap.
 
 The package also exposes `pstack_capabilities`, which reports the current run's visible, selected tools without claiming permission or provider readiness, and `pstack_opinion`, which asks a configured `provider/model` for a text-only opinion on supplied material. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
+
+`/skill:make-bot-ui` guides creation of a user-owned browser UI, authenticated webhook, and dedicated Pi RPC session. It starts no listener when pstack loads. A requested remote-access or unattended deployment still needs the user's real network and host setup.
 
 The bundled profiles inherit the session model instead of pinning a credentialed provider. Existing explicit choices in `~/.pi/agent/pstack-models.md` still take precedence. Diverse-model panels require actual available models; they do not invent routes or silently collapse to one family.
 
