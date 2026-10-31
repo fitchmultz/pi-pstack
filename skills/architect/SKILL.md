@@ -11,7 +11,7 @@ Sketch types, function signatures, class shapes, and module boundaries with `not
 
 ## Start
 
-Open a todolist with one entry per phase before starting.
+Track one entry per phase using an available task list, a task-owned file, or the conversation.
 
 1. Ground
 2. Sketch

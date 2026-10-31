@@ -357,13 +357,14 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.match(await command("/pstack-mode status"), /mode is on/);
       });
     });
-    await t.test("each routed skill reaches Pi directly and through a nested read without delegation", async () => {
+    await t.test("each user-facing skill reaches Pi directly and through a nested read without delegation", async () => {
+      const workflowSkills = expected.filter((name) => !name.startsWith("principle-"));
       const inlineProbe = join(temp, "inline-probe.mjs");
       writeFileSync(inlineProbe, `
         import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
         export default function(pi) {
           const model = fauxProvider({ provider: "pstack-inline-probe", models: [{ id: "native" }] });
-          model.setResponses(${JSON.stringify(delegationSkills)}.flatMap((name) => [
+          model.setResponses(${JSON.stringify(workflowSkills)}.flatMap((name) => [
             fauxAssistantMessage(fauxToolCall("read", { path: ${JSON.stringify(packedRoot)} + "/skills/" + name + "/SKILL.md" },
               { id: "nested-" + name }), { stopReason: "toolUse" }),
             fauxAssistantMessage("Inline route available.")
@@ -373,7 +374,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
       `);
       await withRpc(cli, [...args, "-e", inlineProbe, "--provider", "pstack-inline-probe", "--model", "native"],
         options, async (request, events, waitForEvent) => {
-          for (const name of delegationSkills) {
+          for (const name of workflowSkills) {
             const before = events.length;
             const started = await request({ type: "prompt", message: `/skill:${name} inspect` });
             assert.equal(started.success, true, JSON.stringify(started));
@@ -388,7 +389,46 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             assert.ok(read && !read.isError, JSON.stringify(read));
             const content = read.result.content.map((part) => part.text ?? "").join("\n");
             assert.match(content, /Pi execution contract/);
-            assert.match(content, /inline route/);
+            if (delegationSkills.includes(name)) assert.match(content, /inline route/);
+          }
+        });
+    });
+    await t.test("poteto-mode names and reads every packed playbook", async () => {
+      const modeRoot = join(packedRoot, "skills/poteto-mode");
+      const mode = readFileSync(join(modeRoot, "SKILL.md"), "utf8");
+      const section = mode.split("## Playbooks\n")[1];
+      assert.ok(section, "poteto-mode must describe its playbooks");
+      const named = [...section.matchAll(/^- \*\*(.+?)\*\* (.+)$/gm)].map(([, title, details]) => {
+        const explicit = details.match(/File: `(playbooks\/[^`]+)`/)?.[1];
+        const slug = title.replace(/\.$/, "").toLowerCase().replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-");
+        return explicit ?? `playbooks/${slug}.md`;
+      }).sort();
+      const shipped = readdirSync(join(modeRoot, "playbooks"))
+        .filter((name) => name.endsWith(".md")).map((name) => `playbooks/${name}`).sort();
+      assert.deepEqual(named, shipped);
+      const probe = join(temp, "playbook-probe.mjs");
+      writeFileSync(probe, `
+        import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          const model = fauxProvider({ provider: "pstack-playbook-probe", models: [{ id: "native" }] });
+          model.setResponses([
+            fauxAssistantMessage(${JSON.stringify(named)}.map((name, i) =>
+              fauxToolCall("read", { path: ${JSON.stringify(modeRoot)} + "/" + name }, { id: "playbook-" + i })),
+              { stopReason: "toolUse" }),
+            fauxAssistantMessage("Playbooks read.")
+          ]);
+          pi.registerProvider(model.provider);
+        }
+      `);
+      await withRpc(cli, [...args, "-e", probe, "--provider", "pstack-playbook-probe", "--model", "native"],
+        options, async (request, events, waitForEvent) => {
+          const started = await request({ type: "prompt", message: "/skill:poteto-mode inspect playbooks" });
+          assert.equal(started.data.disposition, "started");
+          assert.ok(await waitForEvent((event) => event.type === "agent_settled"));
+          for (const [index, name] of named.entries()) {
+            const result = events.find((event) => event.type === "tool_execution_end" && event.toolCallId === `playbook-${index}`);
+            assert.ok(result && !result.isError, name);
+            assert.match(result.result.content.map((part) => part.text ?? "").join("\n"), /Pi execution contract/, name);
           }
         });
     });
