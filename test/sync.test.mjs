@@ -53,21 +53,47 @@ function skill(name, body) {
 test("the packed package can verify its pinned source and generated output offline", () => {
   const temp = mkdtempSync(join(tmpdir(), "pi-pstack-packed-check-"));
   try {
+    assert.equal(readFileSync(join(root, ".npmignore"), "utf8"),
+      `${readFileSync(join(root, ".gitignore"), "utf8")}!/.gitignore\n!/.npmignore\n`);
     const packed = Object.values(JSON.parse(execFileSync(
       "npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", temp],
       { cwd: root, encoding: "utf8" },
     )))[0];
     execFileSync("tar", ["-xzf", join(temp, packed.filename), "-C", temp]);
     const packageRoot = join(temp, "package");
-    assertSuccess(sync(packageRoot, "--check"));
+    const gitConfig = join(temp, "gitconfig");
+    put(gitConfig, "");
+    const packageSync = (...args) => spawnSync(process.execPath, [join(packageRoot, "scripts/sync-pstack.mjs"), ...args], {
+      cwd: packageRoot, encoding: "utf8",
+      env: { ...process.env, GIT_CONFIG_GLOBAL: gitConfig, GIT_CONFIG_NOSYSTEM: "1" },
+    });
+    assertSuccess(packageSync("--check"));
     put(join(packageRoot, "skills/poteto-mode/scripts/node_modules/commander/package.json"), "{}\n");
-    assertSuccess(sync(packageRoot, "--check"));
-    assertSuccess(sync(packageRoot, "--record"));
+    assertSuccess(packageSync("--check"));
+    assertSuccess(packageSync("--record"));
     assert.doesNotMatch(readFileSync(join(packageRoot, "pi/overlays/pstack.patch"), "utf8"), /node_modules\/commander/);
-    assertSuccess(sync(packageRoot, "--check"));
+    assertSuccess(packageSync("--check"));
+    const extra = join(packageRoot, "skills/tdd/debug.log");
+    put(extra, "unexpected\n");
+    const unexpected = packageSync("--check");
+    assert.notEqual(unexpected.status, 0);
+    assert.match(unexpected.stderr, /Unexpected generated path: skills\/tdd\/debug\.log/);
+    assertSuccess(packageSync("--record"));
+    assert.match(readFileSync(join(packageRoot, "pi/overlays/pstack.patch"), "utf8"), /skills\/tdd\/debug\.log/);
+    rmSync(extra);
+    assertSuccess(packageSync("--record"));
+    assert.deepEqual(readFileSync(join(packageRoot, ".gitignore")), readFileSync(join(root, ".gitignore")));
+    const globalIgnore = join(temp, "global-ignore");
+    put(globalIgnore, "*.tmp\n");
+    execFileSync("git", ["config", "--file", gitConfig, "core.excludesFile", globalIgnore]);
+    put(join(packageRoot, "skills/tdd/cache.tmp"), "local\n");
+    const overlay = readFileSync(join(packageRoot, "pi/overlays/pstack.patch"));
+    assertSuccess(packageSync("--check"));
+    assertSuccess(packageSync("--record"));
+    assert.deepEqual(readFileSync(join(packageRoot, "pi/overlays/pstack.patch")), overlay);
     const file = join(packageRoot, "skills/tdd/SKILL.md");
     writeFileSync(file, `${readFileSync(file, "utf8")}\nchanged\n`);
-    const drift = sync(packageRoot, "--check");
+    const drift = packageSync("--check");
     assert.notEqual(drift.status, 0);
     assert.match(drift.stderr, /Drifted generated path: skills\/tdd\/SKILL.md/);
   } finally {

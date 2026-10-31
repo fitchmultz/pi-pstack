@@ -136,7 +136,7 @@ function applyOverlay(repo, path) {
 
 function ignoredOutputs(root, reference) {
   const checkout = existsSync(join(root, ".git"));
-  const options = checkout ? [] : [`--work-tree=${root}`, "-c", `core.excludesFile=${join(reference, ".gitignore")}`];
+  const options = checkout ? [] : [`--work-tree=${root}`];
   const paths = git(checkout ? root : reference, [...options, "ls-files", "--others", "--ignored",
     "--exclude-standard", "--directory", "-z", "--", ...OUTPUTS]).stdout;
   return new Set(paths.split("\0").filter(Boolean).map((path) => path.replace(/\/$/, "")));
