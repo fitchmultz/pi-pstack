@@ -134,9 +134,18 @@ function applyOverlay(repo, path) {
   if (readFileSync(path).length) git(repo, ["apply", "--index", "--whitespace=nowarn", path]);
 }
 
-function inventory(root, paths) {
+function ignoredOutputs(root, reference) {
+  const checkout = existsSync(join(root, ".git"));
+  const options = checkout ? [] : [`--work-tree=${root}`, "-c", `core.excludesFile=${join(reference, ".gitignore")}`];
+  const paths = git(checkout ? root : reference, [...options, "ls-files", "--others", "--ignored",
+    "--exclude-standard", "--directory", "-z", "--", ...OUTPUTS]).stdout;
+  return new Set(paths.split("\0").filter(Boolean).map((path) => path.replace(/\/$/, "")));
+}
+
+function inventory(root, paths, ignored = new Set()) {
   const entries = new Map();
   function visit(rel) {
+    if (ignored.has(rel.split("\\").join("/"))) return;
     const path = join(root, rel);
     let stat;
     try { stat = lstatSync(path); } catch (error) {
@@ -156,9 +165,9 @@ function inventory(root, paths) {
   return entries;
 }
 
-function compareTrees(expected, actual, paths) {
+function compareTrees(expected, actual, paths, ignored) {
   const want = inventory(expected, paths);
-  const have = inventory(actual, paths);
+  const have = inventory(actual, paths, ignored);
   const problems = [];
   for (const [path, entry] of want) {
     const other = have.get(path);
@@ -295,10 +304,10 @@ function checkTree(root, sourceRepo) {
       problems.push("package.json, vendored plugin.json, and upstream.json versions differ");
     }
     applyOverlay(temp, join(root, OVERLAY));
-    problems.push(...compareTrees(temp, root, OUTPUTS));
-    problems.push(...generatedProblems(root, source, provenance));
+    problems.push(...compareTrees(temp, root, OUTPUTS, ignoredOutputs(root, temp)));
+    problems.push(...generatedProblems(temp, source, provenance));
     if (problems.length) throw new Error(problems.join("\n"));
-    return { provenance, skills: classifySkills(join(root, "skills")).skills.length };
+    return { provenance, skills: classifySkills(join(temp, "skills")).skills.length };
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -311,9 +320,12 @@ function recordOverlay() {
     const tree = makeRepository(temp, join(ROOT, VENDOR), provenance, !existsSync(join(ROOT, ".git")));
     if (tree !== provenance.pstackTreeSha) throw new Error("Vendored source does not match upstream.json; do not record an overlay against it.");
     commitIndex(temp, "Pinned upstream");
+    if (!existsSync(join(ROOT, ".git"))) applyOverlay(temp, join(ROOT, OVERLAY));
+    const ignored = ignoredOutputs(ROOT, temp);
     for (const path of OUTPUTS) {
       rmSync(join(temp, path), { recursive: true, force: true });
-      cpSync(join(ROOT, path), join(temp, path), { recursive: true, verbatimSymlinks: true });
+      cpSync(join(ROOT, path), join(temp, path), { recursive: true, verbatimSymlinks: true,
+        filter: (source) => !ignored.has(relative(ROOT, source).split("\\").join("/")) });
     }
     git(temp, ["add", "--force", "--all"]);
     const patch = git(temp, ["diff", "--cached", "--binary", "--full-index", "HEAD"]).stdout;

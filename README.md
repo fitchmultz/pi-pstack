@@ -58,7 +58,7 @@ npm run check:compat            # Check offline rendering, discovery, and pack
 node scripts/qualify-hosts.mjs  # Qualify both supported Pi hosts and providers
 ```
 
-`vendor/pstack/` contains the exact source tree recorded in `upstream.json`; `pi/overlays/pstack.patch` holds Pi-owned changes. `check:sync` renders them offline and compares the complete generated inventory, file contents, and executable modes. To change Pi instructions, edit the generated resources, run `npm run record:overlay`, and review the resulting patch and generated diff.
+`vendor/pstack/` contains the exact source tree recorded in `upstream.json`; `pi/overlays/pstack.patch` holds Pi-owned changes. `check:sync` renders them offline and compares the generated inventory, file contents, and executable modes. Git-ignored local artifacts, such as installed helper dependencies, are not part of that inventory or the recorded overlay. To change Pi instructions, edit the generated resources, run `npm run record:overlay`, and review the resulting patch and generated diff.
 
 Npm omits `.gitignore` files from packages. Their upstream bytes and modes are recorded in `upstream.json` so an unpacked package can reconstruct the same source tree offline; a Git checkout must contain the original files.
 

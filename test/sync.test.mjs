@@ -60,6 +60,11 @@ test("the packed package can verify its pinned source and generated output offli
     execFileSync("tar", ["-xzf", join(temp, packed.filename), "-C", temp]);
     const packageRoot = join(temp, "package");
     assertSuccess(sync(packageRoot, "--check"));
+    put(join(packageRoot, "skills/poteto-mode/scripts/node_modules/commander/package.json"), "{}\n");
+    assertSuccess(sync(packageRoot, "--check"));
+    assertSuccess(sync(packageRoot, "--record"));
+    assert.doesNotMatch(readFileSync(join(packageRoot, "pi/overlays/pstack.patch"), "utf8"), /node_modules\/commander/);
+    assertSuccess(sync(packageRoot, "--check"));
     const file = join(packageRoot, "skills/tdd/SKILL.md");
     writeFileSync(file, `${readFileSync(file, "utf8")}\nchanged\n`);
     const drift = sync(packageRoot, "--check");
@@ -125,7 +130,12 @@ test("staged sync preserves generated files until review and protects previously
       cpSync(join(root, path), join(target, path), { recursive: true });
     }
     commit(target, ["scripts", "docs", ".gitignore", ...shippedPaths], "Initialize adapter");
+    const toolDependencies = join(target, "skills/poteto-mode/scripts/node_modules");
+    put(join(toolDependencies, "commander/package.json"), "{}\n");
     assertSuccess(sync(target, "--check"));
+    assertSuccess(sync(target, "--record"));
+    assert.doesNotMatch(readFileSync(join(target, "pi/overlays/pstack.patch"), "utf8"), /node_modules\/commander/);
+    rmSync(toolDependencies, { recursive: true, force: true });
     const before = generatedSnapshot(target);
 
     const added = join(pstack, "skills", "fixture-added", "SKILL.md");
