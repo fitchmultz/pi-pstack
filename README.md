@@ -26,7 +26,7 @@ The package loads by itself on official Pi and the Pi fork. Inline skills such a
 
 Use `/pstack-mode on` to keep the installed `poteto-mode` instructions active for the current session branch, `/pstack-mode off` to stop, and `/pstack-mode status` to inspect the setting. Saved sessions restore the setting on resume and when navigating the session tree. This mode does not supply delegation or waive a workflow's prerequisites; `/skill:poteto-mode` remains available for a one-time invocation.
 
-The bundled workflows and playbooks can use authorized delegates or run inline. Inline work preserves the checks and artifacts but is not an independent or parallel panel. Direct invocations and nested skill reads follow the same execution contract. Pi advertises the non-principle skills except `make-bot-ui`; that skill and the 24 principles remain directly invocable.
+The bundled workflows and playbooks can use authorized delegates or run inline. Inline work preserves the checks and artifacts but is not an independent or parallel panel. Direct invocations and nested skill reads follow the same execution contract. Pi advertises the 34 user-facing skills; the 24 principles remain directly invocable.
 
 With the profile-based `pi-subagents` npm package, discover its advertised `subagents_enable` loader and profiles before delegating. With `@fitchmultz/pi-subagents`, use its actual `delegate` and run-control tools. Availability does not prove permission, completion, or model diversity.
 

@@ -29,7 +29,7 @@ const ADAPTER = "docs/harness/pi.md";
 const OUTPUTS = ["skills", "agents", "LICENSE", "plugin.json"];
 const STAGE = join(ROOT, ".pstack-sync");
 const LINK = /\]\(([^)\s]+)\)/g;
-const advertised = (skill) => !skill.startsWith("principle-") && skill !== "make-bot-ui";
+const advertised = (skill) => !skill.startsWith("principle-");
 const DESCRIPTION_IN_BODY_SKILLS = new Set([
   "principle-exhaust-the-design-space",
   "principle-encode-lessons-in-structure",
@@ -208,7 +208,6 @@ function classifySkills(skillsRoot) {
 function adaptSkillEntries(repo) {
   const { classes } = classifySkills(join(repo, "skills"));
   for (const [skill] of classes) {
-    if (skill === "make-bot-ui") continue;
     const path = join(repo, "skills", skill, "SKILL.md");
     let text = readFileSync(path, "utf8");
     const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -262,7 +261,7 @@ function generatedProblems(root, source, provenance) {
     if (!new RegExp(`^---\\n[\\s\\S]*?^name: ${skill}$[\\s\\S]*?\\n---\\n`, "m").test(text)) {
       problems.push(`skills/${skill}/SKILL.md frontmatter name does not match '${skill}'`);
     }
-    if (skill !== "make-bot-ui" && !text.includes(EXECUTION_LINE)) {
+    if (!text.includes(EXECUTION_LINE)) {
       problems.push(`skills/${skill}/SKILL.md is missing the Pi execution contract`);
     }
     const frontmatter = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";

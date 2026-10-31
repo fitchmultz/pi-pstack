@@ -3,7 +3,6 @@ name: make-bot-ui
 description: >-
   Build a browser UI that sends authenticated webhook events to a dedicated Pi
   session, with optional Tailscale access.
-disable-model-invocation: true
 ---
 # Make a bot UI
 

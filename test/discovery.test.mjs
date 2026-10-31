@@ -158,7 +158,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
     assert.deepEqual(skills.map(({ name }) => name).sort(), expected);
     assert.deepEqual(skills.filter(({ disableModelInvocation }) => !disableModelInvocation)
       .map(({ name }) => name).sort(),
-    expected.filter((name) => !name.startsWith("principle-") && name !== "make-bot-ui"));
+    expected.filter((name) => !name.startsWith("principle-")));
     for (const skill of skills) {
       assert.equal(realpathSync(skill.sourceInfo.path), realpathSync(join(packedRoot, "skills", skill.name, "SKILL.md")));
     }
