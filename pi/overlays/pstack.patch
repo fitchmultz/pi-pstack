@@ -2402,10 +2402,10 @@ index 19cc6c0eaa6fcbc2863fb73d1d25ca196c6a46e0..472b37f94e6ca6613e6f0e3ed4296628
  
  **Data structures first.** Get the data shape right before writing logic. Define core types early, trace every access pattern, and choose structures that match the dominant paths.
 diff --git a/skills/principle-guard-the-context-window/SKILL.md b/skills/principle-guard-the-context-window/SKILL.md
-index 0a1d3cfcf4539fe048887174000fecbf2fa40e81..a1af52665772a9aae710292b655acaa10b56ae33 100644
+index 0a1d3cfcf4539fe048887174000fecbf2fa40e81..c843e6abe3d99bbc4292842ad86164ecc4c8912e 100644
 --- a/skills/principle-guard-the-context-window/SKILL.md
 +++ b/skills/principle-guard-the-context-window/SKILL.md
-@@ -1,12 +1,16 @@
+@@ -1,12 +1,18 @@
  ---
  name: principle-guard-the-context-window
 -description: "Apply when context is filling up: large outputs, long files, repeated reads, fan-out planning. Route bulk to subagents; keep summaries in the main thread, not raw payloads."
@@ -2416,6 +2416,8 @@ index 0a1d3cfcf4539fe048887174000fecbf2fa40e81..a1af52665772a9aae710292b655acaa1
  # Guard the Context Window
  
 +Read [the Pi execution contract](../../docs/harness/pi.md).
++
++Manage large outputs, long files, and repeated reads without losing relevant evidence.
 +
 +Use authorized subagents for bounded bulk work when available. Otherwise page and filter reads, retain the evidence needed for decisions, and use Pi's native session and compaction behavior. A summary made by the parent is not an independent context or review.
 +

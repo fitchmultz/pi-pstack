@@ -163,6 +163,8 @@ test("staged sync preserves generated files until review and protects previously
     assert.doesNotMatch(readFileSync(join(target, "pi/overlays/pstack.patch"), "utf8"), /node_modules\/commander/);
     rmSync(toolDependencies, { recursive: true, force: true });
     const before = generatedSnapshot(target);
+    const contextSkill = join(target, "skills/principle-guard-the-context-window/SKILL.md");
+    const contextSkillBefore = readFileSync(contextSkill, "utf8");
 
     const added = join(pstack, "skills", "fixture-added", "SKILL.md");
     const adapted = join(pstack, "skills/tdd/SKILL.md");
@@ -188,6 +190,8 @@ test("staged sync preserves generated files until review and protects previously
     rmSync(obstruction, { recursive: true });
     assertSuccess(sync(target, "--continue"));
     assertSuccess(sync(target, "--check", source));
+    assert.equal(readFileSync(contextSkill, "utf8"), contextSkillBefore,
+      "Sync must not rewrite an unchanged adapted skill");
     const addedSkill = readFileSync(join(target, "skills/fixture-added/SKILL.md"), "utf8");
     assert.doesNotMatch(addedSkill, /^disable-model-invocation: true$/m);
     assert.match(addedSkill, /Read \[the Pi execution contract\]/);
