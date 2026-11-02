@@ -7,9 +7,9 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const officialVersion = "1.4.0";
-const forkCommit = "9e0674ef667e90a63a5fb64f18fbb476cd1b8a3f";
-const provider = "git:github.com/fitchmultz/pi-subagents@3676214592a883efdfc3cf99e89314b20070d043";
+const officialVersion = "1.5.0";
+const forkCommit = "ea5fe4563fd15e7b630fa33c776865a1e30c7acb";
+const provider = "git:github.com/fitchmultz/pi-subagents@fb818fc8cdada01893d47ffb8b968cd15e7c0b55";
 // The profile-based provider's existing regression also runs on these hosts.
 const profileProvider = "pi-subagents@0.84.0";
 

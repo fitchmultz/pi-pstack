@@ -74,15 +74,15 @@ The scheduled PR includes the change inventory for the same review. GitHub may r
 
 Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference. The named test baseline protects the initially reviewed commands; native discovery must expose every bundled skill. SDK queue checks exercise expansion of the synced formal-verification and sharpen commands without launching a model.
 
-CI also qualifies the profile-based `pi-subagents` npm package's **0.84.0** loader on official Pi 1.4.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and its dynamic/eager loadout, without launching workers.
+CI also qualifies the profile-based `pi-subagents` npm package's **0.84.0** loader on official Pi 1.5.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and its dynamic/eager loadout, without launching workers.
 
 ### Exact hosts and the configured provider
 
 CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on the candidate before opening a PR, so a failure opens its sync-failure issue instead. The script pins these sources in one place:
 
-- official Pi **1.4.0** from npm;
-- `fitchmultz/pi` commit `9e0674e`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
-- `@fitchmultz/pi-subagents` commit `3676214` (version 0.52.5), installed by Pi's own `pi install git:…`, which runs the provider's pinned `prepare` build;
+- official Pi **1.5.0** from npm;
+- `fitchmultz/pi` commit `ea5fe45`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
+- `@fitchmultz/pi-subagents` commit `fb818fc` (version 0.52.13), installed by Pi's own `pi install git:…`, which runs the provider's pinned `prepare` build;
 - the profile-based `pi-subagents` npm package **0.84.0**, in a separate install prefix that contains no second Pi because its Pi peers are optional.
 
 It then runs `npm run smoke` on each host with `PI_FITCH_SUBAGENTS_INDEX` and `PI_SUBAGENTS_INDEX` set, so both provider subtests run there. The `@fitchmultz/pi-subagents` subtest loads that package through Pi settings and checks that `delegate` and `agent_runs` are active and come from that package, and that `/skill:how` reaches Pi's model check both with and without those tools. Pi's built-in faux model then drives one offline delegation from the parent to a real child process and back. To run it locally, set `PI_FITCH_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/dist/index.js` along with `PI_HOST_INDEX`; without that variable, this subtest is also skipped.

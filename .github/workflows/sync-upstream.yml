@@ -45,7 +45,7 @@ jobs:
         if: steps.check.outputs.changed == 'true'
         run: |
           sudo apt-get update && sudo apt-get install --yes ripgrep tmux
-          npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.4.0
+          npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.5.0
       - name: Stage and validate candidate without write credentials
         id: verify
         if: steps.check.outputs.changed == 'true'
