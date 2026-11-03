@@ -271,6 +271,14 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
               model: "pstack-runtime-judge/native", question: "Review the supplied text.", context: "A short document."
             }, { id: "opinion-check" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Opinion received."),
+            fauxAssistantMessage([fauxToolCall("pstack_opinion", {
+              model: "pstack-runtime-judge/native", reasoning: "max", question: "Review the supplied text."
+            }, { id: "opinion-reasoning-check" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Reasoned opinion received."),
+            fauxAssistantMessage([fauxToolCall("pstack_opinion", {
+              model: "pstack-runtime-judge/native:max", question: "Review the supplied text."
+            }, { id: "opinion-suffix-check" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Model selection checked."),
             fauxAssistantMessage("Mode checked."),
             fauxAssistantMessage([fauxToolCall("pstack-toggle-probe", {}, { id: "toggle-hidden" })], { stopReason: "toolUse" }),
             fauxAssistantMessage([fauxToolCall("pstack_capabilities", {
@@ -278,8 +286,10 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             }, { id: "capability-after-refresh" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Refreshed capabilities checked.")
           ]);
-          const judge = fauxProvider({ provider: "pstack-runtime-judge", models: [{ id: "native" }] });
-          judge.setResponses([fauxAssistantMessage("The document is clear.")]);
+          const judge = fauxProvider({ provider: "pstack-runtime-judge", models: [{ id: "native", reasoning: true }] });
+          const opinion = (_context, options) =>
+            fauxAssistantMessage("The document is clear. Reasoning: " + (options?.reasoning ?? "default"));
+          judge.setResponses([opinion, opinion]);
           pi.registerProvider(main.provider);
           pi.registerProvider(judge.provider);
           for (const name of ["pstack-visible-probe", "pstack-hidden-probe"]) {
@@ -337,8 +347,15 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         const opinion = await run("Ask for a text opinion.", "opinion-check");
         assert.equal(opinion.isError, false, JSON.stringify(opinion));
         assert.match(opinion.result.content[0].text, /Text-only opinion.*The document is clear/s);
+        assert.match(opinion.result.content[0].text, /Reasoning: default/);
         assert.equal(opinion.result.details.kind, "text-only opinion");
         assert.ok(opinion.result.usage);
+        const reasoned = await run("Ask for a text opinion with max reasoning.", "opinion-reasoning-check");
+        assert.equal(reasoned.isError, false, JSON.stringify(reasoned));
+        assert.match(reasoned.result.content[0].text, /Reasoning: max/);
+        const suffixed = await run("Check the suffixed model selection.", "opinion-suffix-check");
+        assert.equal(suffixed.isError, true, JSON.stringify(suffixed));
+        assert.match(suffixed.result.content[0].text, /Pass reasoning separately/);
 
         assert.match(await command("/pstack-mode off"), /mode is off/);
         await command(`/pstack-test-navigate ${enabledEntry.id}`);
