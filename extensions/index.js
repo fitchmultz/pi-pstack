@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -182,7 +183,10 @@ export default function piPstackExtension(pi) {
     description: "Ask one configured Pi model for a text-only opinion.",
     promptSnippet: "Request an optional text-only model opinion, not a tool-using review.",
     parameters: Type.Object({
-      model: Type.String({ description: "Configured provider/model ID." }),
+      model: Type.String({ description: "Exact configured provider/model ID. Pass reasoning in the separate reasoning field." }),
+      reasoning: Type.Optional(StringEnum(["minimal", "low", "medium", "high", "xhigh", "max"], {
+        description: "Reasoning level for this request. Pi handles model support.",
+      })),
       question: Type.String({ description: "Question for the model." }),
       context: Type.Optional(Type.String({ description: "Explicit material the model should consider." })),
     }, { additionalProperties: false }),
@@ -190,12 +194,12 @@ export default function piPstackExtension(pi) {
       const separator = params.model.indexOf("/");
       if (separator <= 0 || separator === params.model.length - 1) throw new Error("Use a configured provider/model ID.");
       const model = ctx.modelRegistry.find(params.model.slice(0, separator), params.model.slice(separator + 1));
-      if (!model) throw new Error(`Pi has no configured model ${params.model}. Choose an available model without changing global settings.`);
+      if (!model) throw new Error(`Pi has no configured model ${params.model}. Use an exact provider/model ID. Pass reasoning separately, for example reasoning: "max". Choose an available model without changing global settings.`);
       const input = params.context ? `${params.question}\n\nMaterial:\n${params.context}` : params.question;
       const response = await ctx.modelRegistry.streamSimple(model, {
         systemPrompt: "Give a text-only opinion on the supplied material. You have no tools and cannot independently inspect files, run checks, or verify an application. Distinguish observations from uncertainty.",
         messages: [{ role: "user", content: input, timestamp: Date.now() }],
-      }, { signal }).result();
+      }, { signal, reasoning: params.reasoning }).result();
       const text = response.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
       const details = { model: params.model, stopReason: response.stopReason, kind: "text-only opinion" };
       if (response.stopReason === "error" || response.stopReason === "aborted" || response.stopReason === "toolUse") {
