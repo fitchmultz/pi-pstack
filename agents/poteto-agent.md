@@ -6,6 +6,7 @@ systemPromptMode: append
 inheritProjectContext: true
 inheritSkills: true
 defaultContext: fresh
+async: true
 allowSubagents: false
 maxSubagentDepth: 0
 ---

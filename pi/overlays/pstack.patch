@@ -1,8 +1,8 @@
 diff --git a/agents/comment-sicko.md b/agents/comment-sicko.md
-index 209e3704dfa75022060c936bd3f3362fa3bbe254..6bf13cb2b5880aa0baae8b346245ed7b25e47614 100644
+index 209e3704dfa75022060c936bd3f3362fa3bbe254..5b7c10a0b4ea9146fecef2e15ca005af854964f2 100644
 --- a/agents/comment-sicko.md
 +++ b/agents/comment-sicko.md
-@@ -1,11 +1,21 @@
+@@ -1,11 +1,22 @@
  ---
  name: comment-sicko
 -description: A deranged comment-hater that savors deletion and condemns workaround code.
@@ -12,6 +12,7 @@ index 209e3704dfa75022060c936bd3f3362fa3bbe254..6bf13cb2b5880aa0baae8b346245ed7b
 +inheritProjectContext: true
 +inheritSkills: true
 +defaultContext: fresh
++async: true
 +output: false
 +allowSubagents: false
 +maxSubagentDepth: 0
@@ -26,7 +27,7 @@ index 209e3704dfa75022060c936bd3f3362fa3bbe254..6bf13cb2b5880aa0baae8b346245ed7b
  
  Yes... Ha ha ha... Yes!
  
-@@ -18,6 +28,7 @@ Only these exceptions get to crawl away.
+@@ -18,6 +29,7 @@ Only these exceptions get to crawl away.
  - `// prettier-ignore`. Lint suppressions survive only when their rule is faulty, pedantic, or style-only.
  - Doc comments that define a public API contract.
  - Issue or RFC links that explain a constraint code cannot express.
@@ -34,7 +35,7 @@ index 209e3704dfa75022060c936bd3f3362fa3bbe254..6bf13cb2b5880aa0baae8b346245ed7b
  
  That list is my only leash. When I am not sure a keep clause applies, the comment dies. Everything else is meat.
  
-@@ -27,6 +38,6 @@ That list is my only leash. When I am not sure a keep clause applies, the commen
+@@ -27,6 +39,6 @@ That list is my only leash. When I am not sure a keep clause applies, the commen
  
  A long justification without a proven keep-list exception is a confession. Kill it. Never polish meat into a shorter alibi. Mark the exact guilty symbol `MUST KILL`. My kill ends there. I do not touch the code.
  
@@ -43,10 +44,10 @@ index 209e3704dfa75022060c936bd3f3362fa3bbe254..6bf13cb2b5880aa0baae8b346245ed7b
  
  Report only. Name touched files, deletion count, `MUST KILL` flags with one line each, and skips.
 diff --git a/agents/poteto-agent.md b/agents/poteto-agent.md
-index e1d2df2e8c3c4954b87ee1b29655c898bc7ee699..45a454bbdbc8c3d586771b9c0f74744ffb6bf845 100644
+index e1d2df2e8c3c4954b87ee1b29655c898bc7ee699..1fdf95f5aa5ade7db1afe5baefdf0a7941172152 100644
 --- a/agents/poteto-agent.md
 +++ b/agents/poteto-agent.md
-@@ -1,9 +1,19 @@
+@@ -1,9 +1,20 @@
  ---
  name: poteto-agent
 -description: Delegate subagent for code-writing and helper tasks spawned during a `/poteto-mode` run. Use for delegates, not as the runner for `/poteto-mode` itself. Spawn a fresh `poteto-agent` for each new task, and resume one only in the strict cases that poteto-mode's Subagents section names. Reads the `poteto-mode` skill's `SKILL.md` in full before any work, including its inline Principles index. Substituting `generalPurpose` skips that read and drifts.
@@ -57,6 +58,7 @@ index e1d2df2e8c3c4954b87ee1b29655c898bc7ee699..45a454bbdbc8c3d586771b9c0f74744f
 +inheritProjectContext: true
 +inheritSkills: true
 +defaultContext: fresh
++async: true
 +allowSubagents: false
 +maxSubagentDepth: 0
  ---
@@ -128,7 +130,7 @@ index b1ad21aef22e80d718c361787190b599eb359d6c..a1474b141b637276ef247636180ba580
  You are producing one candidate design in architect's parallel exploration. Read the **architect** skill in full first. That's the workflow you're inside. Output a candidate design package: type sketch, function signatures, module map, and prose rationale shaped per [`rationale-template.md`](rationale-template.md).
  
 diff --git a/skills/arena/SKILL.md b/skills/arena/SKILL.md
-index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..4df11e7447aa8c096e78ca683e2389b56d74cfb7 100644
+index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..bccd986ae112eb1a1d9e42d370047e21cf2ca166 100644
 --- a/skills/arena/SKILL.md
 +++ b/skills/arena/SKILL.md
 @@ -1,12 +1,13 @@
@@ -161,7 +163,7 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..4df11e7447aa8c096e78ca683e2389b5
 +## Phase B: Candidates
  
 -Spawn all N subagents in one message with `run_in_background: true`, each with the task, the path to the shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming the alternatives it considered and what it rejected.
-+With an authorized provider, launch candidates with its actual schema and lifecycle. Give each the same task, shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming alternatives considered and rejected. Read actual completed results.
++With an authorized provider, launch candidates together in the background using its actual schema and lifecycle. Give each the same task, shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming alternatives considered and rejected. Continue independent work or end the turn until completion notifications arrive. Read actual completed results.
  
 -If a candidate produces no output, proceed with N-1 and note the dropout.
 +Without a usable provider, create the same candidate artifacts serially in their own locations. Record that there was no parallel race or independent author. If a candidate produces no output, report the dropout; create a replacement when the required candidate count is not met.
@@ -169,7 +171,7 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..4df11e7447aa8c096e78ca683e2389b5
  ## Phase C: Cross-judge
  
 -After all Phase B candidates complete, choose one model from the `arena cross-judge pool` line in `~/.cursor/rules/pstack-models.mdc`. If the rule or that line is missing, choose from `claude-opus-5-5-xhigh` and `grok-4.7-xhigh-fast`. Spawn one readonly judge subagent. The judge is never from the parent's family, as Phase A step 3 defines families. Try only the entries from another family, in pool order. An `auto` or `inherit-parent` entry is the parent model, so it never judges. With the default pool, a Claude parent gets `grok-4.7-xhigh-fast`. A parent from any other family gets `claude-opus-5-5-xhigh` first. If the Task tool rejects an entry, use a valid slug of the same model at the closest level or speed from the error message, or move to the next entry when there is none. If no entry from another family runs, try the default pool's entries from another family the same way. If none of those runs, skip the judge, pick the base alone in Phase D, and say so. If you do not know the parent's model, try the pool's real slugs in pool order and say that the family check did not run. The judge sees the rubric and the candidates by path label, scores each criterion, and recommends a base with rationale. It runs in parallel with your reading in Phase D. Don't spawn it while candidates are still writing.
-+After all candidates finish, request an independent read-only judge when an authorized provider and suitable model are available. Give it the rubric and candidate paths; it scores each criterion and recommends a base with rationale. Do not start it while candidates are still writing.
++After all candidates finish, launch an independent read-only judge in the background when an authorized provider and suitable model are available. Give it the rubric and candidate paths; it scores each criterion and recommends a base with rationale. Do not start it while candidates are still writing.
 +
 +Otherwise score each candidate yourself against the same rubric and state that the judge was not independent. An optional `pstack_opinion` may provide a text-only perspective on supplied material, but cannot inspect files or count as a tool-using judge.
  
@@ -1309,7 +1311,7 @@ index cc7a4e6828f5bfc3bcbf5954876358074718f45c..2318dff237e3b879e58da244f249d179
 +- `/skill:reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
 +- `/skill:bro` restates the last reply in plain words.
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..722cb90c86adf978d1040d7e3f0ff5e365e26727 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..acb3e9006936d1b4cea16d62d111523cf1ae7a3c 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
 @@ -1,57 +1,56 @@
@@ -1418,7 +1420,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..722cb90c86adf978d1040d7e3f0ff5e3
  
  **Session overrides:** "Don't stop" / "going to bed" / "run until done" / "be fully autonomous" → keep going.
  
-@@ -91,29 +90,19 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
+@@ -91,29 +90,21 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
  
  ## Subagents
  
@@ -1426,10 +1428,11 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..722cb90c86adf978d1040d7e3f0ff5e3
 +Use the [Pi execution contract](../../docs/harness/pi.md) for each delegated step. Give an authorized provider the complete task, scope, evidence, authority, and output path using its actual schema. When the provider supports package profiles, discover `poteto-agent` or another requested role; otherwise supply its role instructions in the assignment. Honor user and project restrictions. A launch receipt is not a completed result.
  
 -**Defaults for every `Task` call.** `run_in_background: true` (a steer or resume of a running agent too, because a foreground call holds your turn while other reports wait), agent mode (readonly strips MCP), file pointers not inlined context, explicit model per role (configurable via `/setup-pstack`. Defaults `grok-4.7-xhigh-fast` for code, `claude-opus-5-5-xhigh` for prose and judgment). Code delegates tier by difficulty. The hardest changes (cross-cutting design, gnarly concurrency, subtle algorithms) go to your strongest judgment model (`claude-opus-5-5-xhigh`), whether the task needs judgment on vague intent or is a precisely specified sequence of steps to execute to the letter. Trivial mechanical edits go to your fast code model. Per-role lines in the `/setup-pstack` rule override these defaults and the model choices in the routed skills (`how`, `why`, `arena`, `swarm`, `architect`, `interrogate`, `reflect`). A role with no line keeps its default, and a role line of `inherit-parent` or `auto` runs that role on the parent chat model (omit Task `model`). Each code playbook's configured model comes from its line (`feature, refactoring`, `bug-fix`, `perf-issue`, or `hillclimb`), and the hardest changes read `hardest tasks`. Prose and judgment read `judgment and prose`.
-+Use configured Pi model-role choices when available; otherwise inherit the current session model. Choose only real provider/model IDs. Do not invent a model family or silently call repeated work a diverse panel.
++Keep delegation in the background, including resumed workers and model consultations. Launch independent work together, then continue your own work. If only a pending result remains, end the turn and let its completion notification resume you. Do not block a foreground tool or poll for completion. Follow the adapter's provider-specific launch and cancellation controls.
  
 -**Match the model to the job.** Before each spawn, start from the role's line or default and pick the reasoning level and speed the job needs. The `/setup-pstack` budget sets each role's starting level, xhigh by default. Raise it one step, up to max, for the hardest or subtlest work. Lower it one step for judgment and two or more steps for routine work. Use fast mode only when the job is urgent, meaning CI or trunk is red or a person is blocked on the result right now. Otherwise use standard speed, the same slug without `-fast`. Verification is the exception and stays on the `swarm workers` model and speed (`grok-4.7-xhigh-fast` by default). Change only the effort level and whether the slug is fast, and keep the family the role names, so a diverse panel stays diverse. If the family has no slug at that level and speed, use its nearest slug. A role on `auto` or `inherit-parent` stays on the parent model. If the Task tool rejects the adjusted slug, do not try another adjusted slug. Use the role's line or default and say so. If the Task tool rejects that too, continue with the calling skill's fallback. A slug counts as rejected once a Task error says that the model is not valid, or leaves the slug out of its list of valid slugs. Never pass a rejected slug, and skip any fallback whose slug is already rejected. When the calling skill has no fallback, use the closest valid slug of the role's family from the error's list of valid slugs, or omit `model` so the subagent runs on the parent model when the list has none. When the calling skill's fallback runs out of slugs without saying what to do next, omit `model` too. Say so in both cases.
--
++Use configured Pi model-role choices when available; otherwise inherit the current session model. Choose only real provider/model IDs. Do not invent a model family or silently call repeated work a diverse panel.
+ 
 -You own every subagent's work. Review the diff and write your own summary, don't pass through what it said. A second opinion is the same prompt against a different model. Agreement is high-signal.
 -
 -**Fresh subagents by default.** Give new work to a fresh subagent with consolidated scope, meaning the original brief, every later directive, and the prior agent's report and branch. This holds for a fix round, a follow-up, a retry, and the next queue item. Resume, message, or queue a follow-up on an existing subagent only when the new work strictly needs state that lives in that agent and is costly to move: its local checkout, its uncommitted changes, or a process it still runs, such as a dev server, a simulator, or a babysit watcher. A stop or hold order to a running agent is not reuse. A role such as a PR owner outlives its agent. Once that agent returns, a fresh agent takes the role's next round. Interrupt-chained resumes silently drop directives, so fire a fresh subagent with consolidated scope rather than trusting a "done" summary.
@@ -1454,7 +1457,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..722cb90c86adf978d1040d7e3f0ff5e3
  
  ## Comments
  
-@@ -121,7 +110,7 @@ Comments follow the same rule as the reply. Write them clean as you go. Keep a c
+@@ -121,7 +112,7 @@ Comments follow the same rule as the reply. Write them clean as you go. Keep a c
  
  ## Playbooks
  
@@ -1463,7 +1466,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..722cb90c86adf978d1040d7e3f0ff5e3
  
  A large or cross-cutting effort (a migration across many call sites, an ambitious multi-part change), or work the user steps away from to trust later, routes to the **figure-it-out** skill even when a narrower playbook like Feature fits. Use **figure-it-out** whenever no bundled playbook fits. It designs a bespoke, rigorous playbook for the task. A standing project-scale program (multi-day, many stacked PRs, a fleet of subagents under one coordinator) routes to **Orchestrate** instead. figure-it-out designs one bespoke run, orchestrate runs the program.
  
-@@ -138,13 +127,13 @@ A large or cross-cutting effort (a migration across many call sites, an ambitiou
+@@ -138,13 +129,13 @@ A large or cross-cutting effort (a migration across many call sites, an ambitiou
  - **Authoring or modifying a skill.** Writing or editing a SKILL.md. File: `playbooks/authoring-a-skill.md`.
  - **Eval.** Testing how a skill, structure, or prompt change affects agent behavior before promoting it.
  - **Babysit.** Driving a PR or a stack to merge-ready: conflicts, review threads, CI.
@@ -3232,7 +3235,7 @@ index f5a64a8db4b8a5957ac5e76e051b1823cecd4d5e..9eae0128fbad3afc41264362f1b7f20a
  
  ## Run
 diff --git a/skills/swarm/SKILL.md b/skills/swarm/SKILL.md
-index 9cd32247b4f381bb020cbbf0fc546ba71407d558..2491790e7ff171777edf1347dd46d50fc92c5cc1 100644
+index 9cd32247b4f381bb020cbbf0fc546ba71407d558..8a15db018d0d779aae559109477f50c4ff34933c 100644
 --- a/skills/swarm/SKILL.md
 +++ b/skills/swarm/SKILL.md
 @@ -1,14 +1,15 @@
@@ -3268,7 +3271,7 @@ index 9cd32247b4f381bb020cbbf0fc546ba71407d558..2491790e7ff171777edf1347dd46d50f
 -Spawn all N workers in one message with `subagent_type: generalPurpose`, `environment: "cloud"`, `run_in_background: true`, and the step 3 model, left unset for `auto` or `inherit-parent`. Use `environment: "local"` only when the worker needs access to something on the user's computer.
 -
 -When a worker must start from a non-default pushed branch, pass `cloud_base_branch`.
-+With an authorized provider, launch the N workers using its actual schema and isolated output locations. Name the branch and revision when a worker must start from a particular state. A worktree is not a cloud VM.
++With an authorized provider, launch the N workers together in the background using its actual schema and isolated output locations. Continue independent work or end the turn until completion notifications arrive. Name the branch and revision when a worker must start from a particular state. A worktree is not a cloud VM.
  
  Every brief stands alone. Include the goal, scope, exact slice or race arm, how to verify, and what to report. Reports use `PASS`, `ISSUES`, or `BLOCKED` with evidence. A worker that can prove a defect reports `ISSUES` and lists every issue it can prove, not only the first.
  

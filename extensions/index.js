@@ -172,8 +172,12 @@ export default function piPstackExtension(pi) {
   pi.registerTool({
     name: "pstack_opinion",
     label: "Pstack text opinion",
-    description: "Ask one configured Pi model for a text-only opinion.",
-    promptSnippet: "Request an optional text-only model opinion, not a tool-using review.",
+    description: "Ask one configured Pi model for a text-only opinion. Runs in the background by default in persistent Pi fork sessions; the answer arrives automatically.",
+    promptSnippet: "Request a background text-only model opinion, not a tool-using review.",
+    promptGuidelines: [
+      "Call pstack_opinion directly for background work, then continue independent work. Its receipt is not the opinion. Pi delivers the answer automatically; stopping the session cancels pending opinions.",
+      "Use pstack_opinion with background:false when a script must await the answer. Nested callers must own background execution themselves. Official Pi and one-shot print/JSON sessions default to foreground.",
+    ],
     parameters: Type.Object({
       model: Type.String({ description: "Exact configured provider/model ID. Pass reasoning in the separate reasoning field." }),
       reasoning: Type.Optional(StringEnum(["minimal", "low", "medium", "high", "xhigh", "max"], {
@@ -181,6 +185,9 @@ export default function piPstackExtension(pi) {
       })),
       question: Type.String({ description: "Question for the model." }),
       context: Type.Optional(Type.String({ description: "Explicit material the model should consider." })),
+      background: Type.Optional(Type.Boolean({
+        description: "Default true in persistent Pi fork sessions. False waits for the answer. Background runs require a direct tool call and end with the session/process.",
+      })),
     }, { additionalProperties: false }),
     async execute(_id, params, signal, _onUpdate, ctx) {
       const separator = params.model.indexOf("/");
@@ -188,18 +195,31 @@ export default function piPstackExtension(pi) {
       const model = ctx.modelRegistry.find(params.model.slice(0, separator), params.model.slice(separator + 1));
       if (!model) throw new Error(`Pi has no configured model ${params.model}. Use an exact provider/model ID. Pass reasoning separately, for example reasoning: "max". Choose an available model without changing global settings.`);
       const input = params.context ? `${params.question}\n\nMaterial:\n${params.context}` : params.question;
-      const response = await ctx.modelRegistry.streamSimple(model, {
-        systemPrompt: "Give a text-only opinion on the supplied material. You have no tools and cannot independently inspect files, run checks, or verify an application. Distinguish observations from uncertainty.",
-        messages: [{ role: "user", content: input, timestamp: Date.now() }],
-      }, { signal, reasoning: params.reasoning }).result();
-      const text = response.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
-      const details = { model: params.model, stopReason: response.stopReason, kind: "text-only opinion" };
-      if (response.stopReason === "error" || response.stopReason === "aborted" || response.stopReason === "toolUse") {
-        return { content: [{ type: "text", text: response.errorMessage || `Opinion did not complete (${response.stopReason}).` }],
-          details, usage: response.usage, isError: true };
+      const run = async (runSignal) => {
+        const response = await ctx.modelRegistry.streamSimple(model, {
+          systemPrompt: "Give a text-only opinion on the supplied material. You have no tools and cannot independently inspect files, run checks, or verify an application. Distinguish observations from uncertainty.",
+          messages: [{ role: "user", content: input, timestamp: Date.now() }],
+        }, { signal: runSignal, reasoning: params.reasoning }).result();
+        const text = response.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
+        const details = { model: params.model, stopReason: response.stopReason, kind: "text-only opinion" };
+        if (response.stopReason === "error" || response.stopReason === "aborted" || response.stopReason === "toolUse") {
+          return { content: [{ type: "text", text: response.errorMessage || `Opinion did not complete (${response.stopReason}).` }],
+            details, usage: response.usage, isError: true };
+        }
+        return { content: [{ type: "text", text: `Text-only opinion from ${params.model} (${response.stopReason}):\n${text}` }],
+          details, usage: response.usage };
+      };
+      const background = params.background ??
+        (typeof ctx.runInBackground === "function" && (ctx.mode === "tui" || ctx.mode === "rpc"));
+      if (!background) return run(signal);
+      if (typeof ctx.runInBackground !== "function") {
+        throw new Error("This Pi host has no background tool runs. Use background:false to wait for the opinion.");
       }
-      return { content: [{ type: "text", text: `Text-only opinion from ${params.model} (${response.stopReason}):\n${text}` }],
-        details, usage: response.usage };
+      const runId = ctx.runInBackground("pstack-opinion", run);
+      return {
+        content: [{ type: "text", text: `Opinion from ${params.model} started in the background. Run ${runId}. Continue independent work; Pi will deliver the answer automatically. Stopping, reloading, leaving the session branch, or exiting cancels it.` }],
+        details: { runId, model: params.model, kind: "text-only opinion", background: true },
+      };
     },
   });
 

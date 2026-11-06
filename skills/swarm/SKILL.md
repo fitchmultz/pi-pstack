@@ -25,7 +25,7 @@ Track one entry per phase before starting, using an available task list, a task-
 
 ## Phase B: Execute
 
-With an authorized provider, launch the N workers using its actual schema and isolated output locations. Name the branch and revision when a worker must start from a particular state. A worktree is not a cloud VM.
+With an authorized provider, launch the N workers together in the background using its actual schema and isolated output locations. Continue independent work or end the turn until completion notifications arrive. Name the branch and revision when a worker must start from a particular state. A worktree is not a cloud VM.
 
 Every brief stands alone. Include the goal, scope, exact slice or race arm, how to verify, and what to report. Reports use `PASS`, `ISSUES`, or `BLOCKED` with evidence. A worker that can prove a defect reports `ISSUES` and lists every issue it can prove, not only the first.
 
