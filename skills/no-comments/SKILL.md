@@ -5,7 +5,7 @@ description: "Review comments with the Comment Sicko criteria, fix accepted find
 
 # No comments
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 Review the scoped comments using the package's `comment-sicko` role and act on accepted findings. An authorized independent reviewer can provide a fresh perspective; otherwise follow the same report-only role yourself and label the review self-performed.
 

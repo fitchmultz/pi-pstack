@@ -90,6 +90,12 @@ export default function piPstackExtension(pi) {
     pi.getCommands().find((entry) => entry.name === "skill:poteto-mode"),
     "poteto-mode",
   );
+  const updateModeStatus = (ctx) => {
+    if (!ctx.hasUI) return;
+    const status = !modeEnabled ? undefined : !modeAvailable() ? "pstack: unavailable" :
+      runOptions?.forceSystemPrompt !== undefined ? "pstack: prompt overridden" : "pstack: on";
+    ctx.ui.setStatus("pstack-mode", status);
+  };
   const restoreMode = (ctx) => {
     modeEnabled = false;
     for (const entry of ctx.sessionManager.getBranch()) {
@@ -98,17 +104,32 @@ export default function piPstackExtension(pi) {
         modeEnabled = entry.data.enabled;
       }
     }
+    updateModeStatus(ctx);
   };
 
   pi.on("session_start", (_event, ctx) => restoreMode(ctx));
   pi.on("session_tree", (_event, ctx) => restoreMode(ctx));
 
   pi.registerCommand("pstack-mode", {
-    description: "Turn persistent poteto mode on or off, or show its status",
+    description: "Manage persistent poteto mode for this session branch",
+    getArgumentCompletions: (prefix) => {
+      const items = ["on", "off", "status"]
+        .filter((value) => value.startsWith(prefix))
+        .map((value) => ({ value, label: value }));
+      return items.length ? items : null;
+    },
     handler: async (args, ctx) => {
-      const action = args.trim();
+      let action = args.trim();
+      if (!action && ctx.hasUI) {
+        action = await ctx.ui.select(`Pstack mode is ${modeEnabled ? "on" : "off"}`, [
+          modeEnabled ? "off" : "on", "status",
+        ]);
+        if (!action) return;
+      }
       if (action === "status") {
-        const availability = modeEnabled && !modeAvailable() ? " (poteto-mode is excluded or unavailable)" : "";
+        const availability = modeEnabled && !modeAvailable() ? " (poteto-mode is excluded or unavailable)" :
+          modeEnabled && runOptions?.forceSystemPrompt !== undefined ? " (system prompt is overridden)" : "";
+        updateModeStatus(ctx);
         ctx.ui.notify(`pstack mode is ${modeEnabled ? "on" : "off"}${availability}.`, "info");
         return;
       }
@@ -122,13 +143,12 @@ export default function piPstackExtension(pi) {
       }
       modeEnabled = action === "on";
       pi.appendEntry("pstack-mode", { enabled: modeEnabled });
+      updateModeStatus(ctx);
       ctx.ui.notify(`pstack mode is ${modeEnabled ? "on" : "off"}.`, "info");
     },
   });
 
   pi.on("before_agent_start", (event) => {
-    // Pi finishes the first request's loadout after this event and updates this
-    // options object. Later turns use a new object, so their visibility is unknown here.
     runOptions = event.systemPromptOptions;
     turnCount = 0;
     modeRequested = modeEnabled && modeAvailable();
@@ -143,38 +163,10 @@ export default function piPstackExtension(pi) {
   });
   pi.on("turn_start", (_event, ctx) => {
     turnCount += 1;
+    if (turnCount === 1) updateModeStatus(ctx);
     if (turnCount === 1 && modeRequested && runOptions.forceSystemPrompt !== undefined) {
       ctx.ui.notify("pstack mode is on, but another extension forces the system prompt; its mode section cannot be applied.", "warning");
     }
-  });
-
-  pi.registerTool({
-    name: "pstack_capabilities",
-    label: "Pstack capabilities",
-    description: "Inspect the current Pi tool loadout for a pstack workflow.",
-    promptSnippet: "Check pstack workflow capabilities and session mode before choosing a route.",
-    parameters: Type.Object({ names: Type.Optional(Type.Array(Type.String())) }, { additionalProperties: false }),
-    async execute(_id, { names = [] }, _signal, _onUpdate, ctx) {
-      const active = new Set(pi.getActiveTools());
-      const selected = new Set(runOptions?.selectedTools);
-      const hidden = new Set(runOptions?.hiddenTools);
-      const unchanged = runOptions && turnCount === 1 && active.size === selected.size &&
-        [...active].every((name) => selected.has(name));
-      const callable = new Set(ctx.tools.map(({ name }) => name));
-      const tools = unchanged ? pi.getAllTools()
-        .filter(({ name, exposure }) => active.has(name) && !hidden.has(name) && exposure !== "hidden")
-        .map(({ name, exposure, sourceInfo, description, parameters }) => ({
-          name, exposure, callable: callable.has(name),
-          ...(names.includes(name) ? { sourceInfo, description, parameters } : {}),
-        })) : [];
-      const details = {
-        mode: ctx.mode,
-        visibility: unchanged ? "current request's declared loadout" : "unknown: Pi refreshed or changed the loadout",
-        tools,
-        guidance: "Presence does not prove permission, provider readiness, model access, or successful execution. Use advertised discovery and provider controls; inspect uncertain launches before retrying.",
-      };
-      return { content: [{ type: "text", text: JSON.stringify(details) }], details };
-    },
   });
 
   pi.registerTool({
@@ -241,7 +233,7 @@ export default function piPstackExtension(pi) {
           notifiedForInstalledSha: upstream.pstackCommitSha,
         });
         ctx.ui.notify(
-          `pstack upstream has new commits in cursor/plugins (${cached.latestSha.slice(0, 7)}: ${cached.latestSubject ?? "updated"}). Run 'pi update --extensions' (or '/pstack-status' for details).`,
+          `pstack upstream has new commits in cursor/plugins (${cached.latestSha.slice(0, 7)}: ${cached.latestSubject ?? "updated"}). These changes may not be packaged for Pi yet. Use /pstack-status for details.`,
           "info",
         );
       }
@@ -273,7 +265,7 @@ export default function piPstackExtension(pi) {
         });
         if (isOutdated && !alreadyNotified) {
           ctx.ui.notify(
-            `pstack upstream has new commits in cursor/plugins (${latest.sha.slice(0, 7)}: ${latest.subject}). Run 'pi update --extensions' (or '/pstack-status' for details).`,
+            `pstack upstream has new commits in cursor/plugins (${latest.sha.slice(0, 7)}: ${latest.subject}). These changes may not be packaged for Pi yet. Use /pstack-status for details.`,
             "info",
           );
         }
@@ -330,7 +322,7 @@ export default function piPstackExtension(pi) {
           );
         } else {
           ctx.ui.notify(
-            `pi-pstack upstream update available: installed ${upstream.pstackCommitSha?.slice(0, 7)} -> latest ${latest.sha.slice(0, 7)} (${latest.subject}). Run 'pi update --extensions' or trigger sync-upstream workflow.`,
+            `pi-pstack upstream update available: installed ${upstream.pstackCommitSha?.slice(0, 7)} -> latest ${latest.sha.slice(0, 7)} (${latest.subject}). These changes need a reviewed Pi sync before they are installable. Check https://github.com/fitchmultz/pi-pstack/pulls. Pi's package update notice reports installable fork updates.`,
             "info",
           );
         }

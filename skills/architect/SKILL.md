@@ -5,7 +5,7 @@ description: "Sketch types, signatures, and module structure before code, then s
 
 # Architect
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 Sketch types, function signatures, class shapes, and module boundaries with `not implemented` bodies and pseudocode. Compare distinct perspectives, then fill in code against the chosen sketch.
 

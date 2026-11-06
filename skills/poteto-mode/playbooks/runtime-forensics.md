@@ -8,6 +8,5 @@ Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or
 2. Reduce the artifact to the smoking gun: the function on the hot path, the retainer chain from the leaked object to a GC root, or the loop firing without input. Use an authorized delegate or page and filter the artifact yourself.
 3. Prove the mechanism before believing it. Use authorized instrumentation on the real target or an isolated reproduction. Do not mutate a production process without the required authority.
 4. Map the finding back to source: file, symbol, the line that allocates or schedules.
-5. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only forensics`.
 
 **Reply:** the signal captured, the reduced finding, how you proved the mechanism, the source location, artifact paths. No fix unless asked. Hand back to Bug fix or Perf once the cause is known.

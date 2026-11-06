@@ -8,10 +8,10 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const officialVersion = "1.5.0";
-const forkCommit = "ea5fe4563fd15e7b630fa33c776865a1e30c7acb";
-const provider = "git:github.com/fitchmultz/pi-subagents@fb818fc8cdada01893d47ffb8b968cd15e7c0b55";
+const forkCommit = "e6c04cb27845611fb0be62652b7e03e2fc4caf74";
+const provider = "git:github.com/fitchmultz/pi-subagents@acc04d750abda33a172cea941746408b447d1746";
 // The profile-based provider's existing regression also runs on these hosts.
-const profileProvider = "pi-subagents@0.84.0";
+const profileProvider = "pi-subagents@0.86.0";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const work = mkdtempSync(join(tmpdir(), "pi-pstack-hosts-"));

@@ -5,7 +5,7 @@ description: "Cover slices or compare candidates and return one report. Use for 
 
 # Swarm
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 ## Start
 
