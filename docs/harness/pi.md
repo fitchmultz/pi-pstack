@@ -1,13 +1,14 @@
 # pstack in Pi
 
-Read this adapter before following a pstack skill. `<pstack>` is the package directory containing `skills/`, `agents/`, and `docs/`. These Pi instructions override automatic workflow triggers and Cursor-specific tool, profile, model, and path assumptions in the upstream text, including its references and playbooks. Repository `AGENTS.md`, user authority, and safety requirements still take precedence.
+Read this adapter once when following a pstack skill in a session; reuse it until the relevant instructions change. `<pstack>` is the package directory containing `skills/`, `agents/`, and `docs/`. These Pi instructions override automatic workflow triggers and Cursor-specific tool, profile, model, and path assumptions in the upstream text, including its references and playbooks. Repository `AGENTS.md`, user authority, and safety requirements still take precedence.
 
 ## Task scope and workflow selection
 
 These rules override poteto-mode's Non-negotiables triggers and automatic specialist steps in its playbooks.
 
 - Investigate the facts needed to complete and verify the requested outcome. Stop expanding research once the relevant decisions are supported. Do not turn a specific request into a general policy.
-- Select specialist workflows when the user names them, the repository requires them, or a concrete task need justifies them. A nontrivial change, a function boundary, or a review alone does not require `how`, `architect`, `arena`, or `no-comments`. When poteto-mode matches a playbook, select its specialist steps by this rule and mark unused steps `skip: <reason>`. Preserve the selected workflow's artifacts and checks. Use independent delegates where authorized and available; otherwise use its inline route and report the loss of independence or parallelism.
+- Select specialist workflows when the user names them, the repository requires them, or a concrete task need justifies them. A nontrivial change, a function boundary, or a review alone does not require `how`, `architect`, `arena`, or `no-comments`. Preserve useful artifacts and required checks. Omit inapplicable optional steps without a skip ledger.
+- Report results, consequential choices, verification, and remaining gaps. Routine inline work needs no delegation disclaimer. When the requested workflow promises independent review, multiple models, or parallel execution, state what actually ran and any material limitation once. Never present self-review as independent review.
 - Keep the existing design when it covers the required behavior. First-principles reasoning does not authorize a rewrite. Compare whole-design alternatives when an unresolved architectural tradeoff warrants them, not when a sufficient local change is already supported.
 - Build a script or prototype when it resolves a concrete uncertainty or makes repeated work safer. Nontrivial work alone does not require a new tool.
 - Reviews, comment cleanup, and broken skills do not authorize unrelated refactors or side PRs. Report out-of-scope findings without expanding the task. Preserve repository evidence requirements and explicit approval gates.
@@ -16,7 +17,7 @@ These rules override poteto-mode's Non-negotiables triggers and automatic specia
 
 Pi natively loads this package's skills and update/status extension. Writing, principles, TDD, local analysis, and other inline work need no sibling extension. The `pi.subagents.agents` manifest metadata is an **optional pi-subagents integration**, not a native Pi profile registry. The top-level `subagents.agents` alias is retained for older adapters.
 
-Before starting a routed workflow, check its required capabilities against the tools and resources actually available in this session. `pstack_capabilities`, when present, reports the selected, visible tools for the current run and can show the schema and source of named tools. If the loadout changed during the run, it reports that visibility is unknown; inspect the current tools and discovery catalog rather than assuming absence. If the extension is excluded, use the model-visible tool list and advertised discovery instead. Presence does not establish permission, provider readiness, or model access.
+Check capabilities when the next step needs a tool or provider whose availability is uncertain. Use the tools and resources already visible in the session before making an extra discovery call. For tools not already visible, use the host's advertised discovery entry points and read their returned instructions. Discovery and tool exposure belong to Pi and the selected provider. Presence does not establish permission, provider readiness, or model access.
 
 ### Choose the execution route
 
@@ -28,7 +29,7 @@ Before starting a routed workflow, check its required capabilities against the t
 These rules apply to direct commands and nested skill reads. An inline review is `PASS (self-verified)` only after the parent performs the actual checks. When no authorized independent reviewer is available, this self-verdict replaces an upstream pstack playbook's mandatory cross-family verifier; it is not an independent review. It cannot satisfy an independent review required by the user, project, or forge. A text-only model opinion is not an independent tool-using review. Real required checks, branch protections, approvals, and explicit holds still apply. An actual failing review is not reviewer unavailability.
 
 - `poteto-mode` supplies its inline style and principles without delegation. A missing required live driver or other real prerequisite remains a gap; do not substitute a simulation for a live verification.
-- `/pstack-mode on|off|status` controls the persistent poteto-mode instructions for the active session branch. The setting follows saved-session resume and tree navigation. If this package's skill is excluded or another extension forces the system prompt, follow the reported limitation rather than assuming the mode was applied.
+- `/pstack-mode` opens Pi's mode picker; `on|off|status` arguments provide direct control. Enabled mode appears in Pi's status area and applies to the active session branch. The setting follows saved-session resume and tree navigation. If this package's skill is excluded or another extension forces the system prompt, follow the reported limitation rather than assuming the mode was applied.
 - Live UI/TUI proof needs an actual driver for that surface. A repository-owned Playwright, PTY, simulator, or HTTP harness can suffice. Otherwise discover a suitable tool/skill if advertised. If no driver can exercise the required interaction, report the blocked proof. Source review, screenshots without interaction, and unit tests do not substitute for it.
 - Preserve user questions and approval gates. Ordinary conversation can ask a question and wait for the user's answer when no dialog tool exists. Never substitute a default answer for required approval.
 

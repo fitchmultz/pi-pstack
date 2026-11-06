@@ -10,7 +10,7 @@ Pi package adapter for [Cursor's `pstack`](https://github.com/cursor/plugins/tre
 - **Automated upstream sync & notifications**:
   - `.github/workflows/sync-upstream.yml` polls `cursor/plugins` (`pstack/`) every 6 hours. It validates a candidate without write credentials, then opens a PR for review instead of pushing to `main`. Conflicts or failed checks open an issue.
   - Pi's built-in interactive startup package checker detects new commits on `fitchmultz/pi-pstack` and displays the native `Package Updates Available` banner (`pi update --extensions`).
-  - `extensions/index.js` also performs a non-blocking, cached (6h TTL) check against `cursor/plugins/pstack` on interactive startup and provides `/pstack-status` so upstream commits are surfaced immediately even between scheduled sync runs.
+  - `extensions/index.js` also performs a non-blocking, cached (6h TTL) check against `cursor/plugins/pstack` on interactive startup and provides `/pstack-status` so upstream commits are surfaced even between scheduled sync runs. These notices distinguish upstream changes awaiting a reviewed sync from installable fork updates reported by Pi.
 
 ## Install
 
@@ -24,7 +24,7 @@ The supported hosts are the latest official Pi release and the current `fitchmul
 
 The package loads by itself on official Pi and the Pi fork. Inline skills such as `unslop`, `tdd`, the principles, and the style portion of `poteto-mode` need no other extension.
 
-Use `/pstack-mode on` to keep the installed `poteto-mode` instructions active for the current session branch, `/pstack-mode off` to stop, and `/pstack-mode status` to inspect the setting. Saved sessions restore the setting on resume and when navigating the session tree. This mode does not supply delegation or waive a workflow's prerequisites; `/skill:poteto-mode` remains available for a one-time invocation.
+Use `/pstack-mode` to open Pi's mode picker, or `/pstack-mode on|off|status` directly with argument completion. An enabled mode appears in Pi's status area. The setting applies to the current session branch. Saved sessions restore the setting on resume and when navigating the session tree. The mode uses proportional planning, plain explanations, and verification of the actual outcome. Routine work does not require principle citations, skip ledgers, or delegation disclaimers. Explicit review and multi-model workflows still report what actually ran. This mode does not supply delegation or waive prerequisites; `/skill:poteto-mode` remains available for a one-time invocation.
 
 The bundled workflows and playbooks can use authorized delegates or run inline. Inline work preserves the checks and artifacts but is not an independent or parallel panel. Direct invocations and nested skill reads follow the same execution contract. Pi advertises the 34 user-facing skills; the 24 principles remain directly invocable.
 
@@ -32,7 +32,7 @@ With the profile-based `pi-subagents` npm package, discover its advertised `suba
 
 Optional providers include `pi-subagents` for delegation, `pi-ask-question` for dialogs, `pi-posthorse` for notes/history, `pi-agent-skills` for additional cleanup/browser guidance, `macuse` for native app driving, and the Pi fork's `background_command` for detached finite watchers. Use only available tools and their actual schemas. Ordinary questions, task-owned files, native shell commands, and repository-owned verification drivers cover their corresponding standalone cases. A missing required live driver or scheduler remains a real gap.
 
-The package also exposes `pstack_capabilities`, which reports the current run's visible, selected tools without claiming permission or provider readiness, and `pstack_opinion`, which asks a configured `provider/model` for a text-only opinion on supplied material. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
+Use Pi's visible tools and advertised discovery to find capabilities. The package exposes `pstack_opinion` to ask a configured `provider/model` for a text-only opinion on supplied material. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
 
 `pstack_opinion` accepts an optional `reasoning` field for that request, without changing global settings. For example, pass `model: "provider/model-id"` and `reasoning: "max"` as separate fields, not `model: "provider/model-id:max"`.
 
@@ -76,16 +76,16 @@ The scheduled PR includes the change inventory for the same review. GitHub may r
 
 Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a particular host. Native tests use an isolated packed package, HOME, and agent directory, without external inference. The named test baseline protects the initially reviewed commands; native discovery must expose every bundled skill. SDK queue checks exercise expansion of the synced formal-verification and sharpen commands without launching a model.
 
-CI also qualifies the profile-based `pi-subagents` npm package's **0.84.0** loader on official Pi 1.5.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and its dynamic/eager loadout, without launching workers.
+CI also qualifies the profile-based `pi-subagents` npm package's **0.86.0** loader on official Pi 1.5.0 in a separate install prefix. To include that regression locally, set `PI_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/bundle/index.js` when running `npm run smoke`, with `PI_HOST_INDEX` pointing to its host. Without that variable, that subtest is skipped; the standalone checks still run. The integration checks packed-profile discovery through the provider's public `subagent` tool and its dynamic/eager loadout, without launching workers.
 
 ### Exact hosts and the configured provider
 
 CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on the candidate before opening a PR, so a failure opens its sync-failure issue instead. The script pins these sources in one place:
 
 - official Pi **1.5.0** from npm;
-- `fitchmultz/pi` commit `ea5fe45`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
-- `@fitchmultz/pi-subagents` commit `fb818fc` (version 0.52.13), installed by Pi's own `pi install git:…`, which runs the provider's pinned `prepare` build;
-- the profile-based `pi-subagents` npm package **0.84.0**, in a separate install prefix that contains no second Pi because its Pi peers are optional.
+- `fitchmultz/pi` commit `e6c04cb`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
+- `@fitchmultz/pi-subagents` commit `acc04d7` (version 0.52.17), installed by Pi's own `pi install git:…`, which runs the provider's pinned `prepare` build;
+- the profile-based `pi-subagents` npm package **0.86.0**, in a separate install prefix that contains no second Pi because its Pi peers are optional.
 
 It then runs `npm run smoke` on each host with `PI_FITCH_SUBAGENTS_INDEX` and `PI_SUBAGENTS_INDEX` set, so both provider subtests run there. The `@fitchmultz/pi-subagents` subtest loads that package through Pi settings and checks that `delegate` and `agent_runs` are active and come from that package, and that `/skill:how` reaches Pi's model check both with and without those tools. Pi's built-in faux model then drives one offline delegation from the parent to a real child process and back. To run it locally, set `PI_FITCH_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/dist/index.js` along with `PI_HOST_INDEX`; without that variable, this subtest is also skipped.
 

@@ -5,7 +5,7 @@ description: "Compare candidates for the same task, pick a base, and graft the s
 
 # Arena
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 Track one entry per phase (Frame, Candidates, Cross-judge, Pick, Graft, Verify) using an available task list, a task-owned file, or the conversation.
 

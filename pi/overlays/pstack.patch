@@ -70,7 +70,7 @@ index e1d2df2e8c3c4954b87ee1b29655c898bc7ee699..45a454bbdbc8c3d586771b9c0f74744f
 +2. Navigate to a leaf `principle-*` skill in sibling `../principle-*/SKILL.md` whenever you apply that principle.
 +3. Follow project `AGENTS.md` and Ponytail constraints (including preserving `ponytail:` ceiling comments and mandatory evidence/pushback gates).
 diff --git a/skills/architect/SKILL.md b/skills/architect/SKILL.md
-index 88e23ca105b89e67f4085d0e676c40d4b170a623..57a5787ac397b70e14cddd49445bfe35b370ffe9 100644
+index 88e23ca105b89e67f4085d0e676c40d4b170a623..5a71da5a5c5f945d7d1ca772dd845eb4d9f23536 100644
 --- a/skills/architect/SKILL.md
 +++ b/skills/architect/SKILL.md
 @@ -1,16 +1,17 @@
@@ -84,7 +84,7 @@ index 88e23ca105b89e67f4085d0e676c40d4b170a623..57a5787ac397b70e14cddd49445bfe35
  # Architect
  
 -Sketch types, function signatures, class shapes, and module boundaries with `not implemented` bodies and pseudocode. Synthesize across multiple model perspectives, then fill in code against the chosen sketch.
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
 +Sketch types, function signatures, class shapes, and module boundaries with `not implemented` bodies and pseudocode. Compare distinct perspectives, then fill in code against the chosen sketch.
  
@@ -128,7 +128,7 @@ index b1ad21aef22e80d718c361787190b599eb359d6c..a1474b141b637276ef247636180ba580
  You are producing one candidate design in architect's parallel exploration. Read the **architect** skill in full first. That's the workflow you're inside. Output a candidate design package: type sketch, function signatures, module map, and prose rationale shaped per [`rationale-template.md`](rationale-template.md).
  
 diff --git a/skills/arena/SKILL.md b/skills/arena/SKILL.md
-index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..15ddd4cdfa2c2c9d06dc922a264b94006274e044 100644
+index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..4df11e7447aa8c096e78ca683e2389b56d74cfb7 100644
 --- a/skills/arena/SKILL.md
 +++ b/skills/arena/SKILL.md
 @@ -1,12 +1,13 @@
@@ -142,7 +142,7 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..15ddd4cdfa2c2c9d06dc922a264b9400
  # Arena
  
 -Open a todolist with one entry per phase (Frame, Fan out, Cross-judge, Pick, Graft, Verify) before launching anything.
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
 +Track one entry per phase (Frame, Candidates, Cross-judge, Pick, Graft, Verify) using an available task list, a task-owned file, or the conversation.
  
@@ -479,7 +479,7 @@ index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..eff5c5652ff0eecc9f1222c122a80fe0
  
  ## Phase D: Keep the audit trail
 diff --git a/skills/how/SKILL.md b/skills/how/SKILL.md
-index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..a9ff62339be4a3fa5c26a743fd802fe4429bb750 100644
+index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..5c4bba4f116eb50713f726393ea21ed24b87dfcf 100644
 --- a/skills/how/SKILL.md
 +++ b/skills/how/SKILL.md
 @@ -1,35 +1,36 @@
@@ -491,12 +491,12 @@ index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..a9ff62339be4a3fa5c26a743fd802fe4
  
  # How
  
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
  Explore the codebase to answer "how does X work?" questions. Produce architectural explanations at the level of a senior engineer onboarding onto a subsystem, enough to build a working mental model, not so much that it reads like annotated source code.
  
 -Every spawn is a Task subagent with `subagent_type: generalPurpose` and `readonly: true`. Explorers use the `how explorer` line in the `pstack-models.mdc` rule (default `grok-4.7-xhigh-fast`), and every explainer uses the `how explainer` line (default `claude-opus-5-5-xhigh`). Set `model` to that line's value, or to the default if the rule or the line is missing. Leave `model` unset when the value is `auto` or `inherit-parent`. If the Task tool rejects a slug, use the default and say so. If it rejects the default, use the closest valid slug of the same family from its error message. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
-+Use authorized read-only explorers and an explainer when a provider can supply them. Honor available `how explorer` and `how explainer` model choices from `~/.pi/agent/pstack-models.md`; otherwise inherit the session model. Without a usable provider, read the same sources and perform the same exploration and synthesis yourself. Label the explanation self-performed, not an independent review.
++Use authorized read-only explorers and an explainer when independent perspectives or parallel investigation help. Honor available `how explorer` and `how explainer` model choices from `~/.pi/agent/pstack-models.md`; otherwise inherit the session model. For inline work, read the sources and explain them yourself. Identify the route only when the user requested independent exploration or it materially limits the answer.
  
  ## 1. Assess complexity
  
@@ -521,7 +521,7 @@ index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..a9ff62339be4a3fa5c26a743fd802fe4
  ## 4. Present
  
 -Present the explainer's output. Light edits for clarity or context from the conversation are fine. Do not substantially rewrite it.
-+Present the explanation, verify its source citations, and identify whether it was self-performed.
++Present the explanation and verify its source citations.
  
  ## Output format
  
@@ -541,7 +541,7 @@ index 4b2a476a9017863032c8dba9d12f0a2026943292..f17a69663163cd7556e832bc4272181e
 +
  Restate in your own words what you think the user's goals are and what problem they're trying to solve.
 diff --git a/skills/interrogate/SKILL.md b/skills/interrogate/SKILL.md
-index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..094a07826e9893614ca5a6b11b4f0d51e4bcdb22 100644
+index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..f38dbdd6555b96369988183e732e50d3d5acfd24 100644
 --- a/skills/interrogate/SKILL.md
 +++ b/skills/interrogate/SKILL.md
 @@ -1,20 +1,21 @@
@@ -553,7 +553,7 @@ index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..094a07826e9893614ca5a6b11b4f0d51
  
  # Interrogate
  
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
  Adversaries try to break a change or a design. A finding survives only when a run proves it. Report the findings. Do not apply fixes.
  
@@ -672,7 +672,7 @@ index 5d2f7f2228a3b771ca5b03124fc265ddfc53c5fc..b6294bbfcd9dabbed1ec7936396af429
  2. **Run it as it is.** Run each check once before you change anything, and record the result. A pass here does not tell you that the code is correct. It tells you that the old description still holds. A failure here can be drift or a bug. Do not decide which until step 5.
  
 diff --git a/skills/maintain-verification-skill/SKILL.md b/skills/maintain-verification-skill/SKILL.md
-index a2680b91fead45a0b4963d8c367a854956bea59d..a4ccec28e1e9ff52a69e65c1e954d3e1e25975a6 100644
+index a2680b91fead45a0b4963d8c367a854956bea59d..2d09708359f28d49396327cdd18a6189915ebca2 100644
 --- a/skills/maintain-verification-skill/SKILL.md
 +++ b/skills/maintain-verification-skill/SKILL.md
 @@ -1,12 +1,13 @@
@@ -686,7 +686,7 @@ index a2680b91fead45a0b4963d8c367a854956bea59d..a4ccec28e1e9ff52a69e65c1e954d3e1
  # Maintain a verification skill
  
 -A feature map rots the moment the app changes. This skill is the upkeep loop for a skill generated by `/create-verification-skill` (or any project-local verification skill with a feature map). The unit of rigor is the feature, not every sentence: cover every feature file from source and exercise every feature live, without terminalising every bullet.
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
 +A feature map rots the moment the app changes. This skill is the upkeep loop for a skill generated by `/skill:create-verification-skill` (or any project-local verification skill with a feature map). The unit of rigor is the feature, not every sentence: cover every feature file from source and exercise every feature live, without terminalising every bullet.
  
@@ -926,7 +926,7 @@ index 446342ca35a46af771271e0cd901354a61997589..2d8ecf7c6e6b2a35cf3e2505ae4d43b1
 +requested, verify it from a permitted peer. Report any missing real model,
 +browser, peer, or service as a gap, not as a simulated pass.
 diff --git a/skills/no-comments/SKILL.md b/skills/no-comments/SKILL.md
-index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..37527bf94aad75105f63e23503e07eea4ae18728 100644
+index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..1aa4be26a34d39d77348cc971df34f5cb0a68ca2 100644
 --- a/skills/no-comments/SKILL.md
 +++ b/skills/no-comments/SKILL.md
 @@ -1,14 +1,13 @@
@@ -940,7 +940,7 @@ index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..37527bf94aad75105f63e23503e07eea
  # No comments
  
 -Spawn Comment Sicko. Act on accepted findings.
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
  
 -Defer to Comment Sicko's fresh perspective.
 +Review the scoped comments using the package's `comment-sicko` role and act on accepted findings. An authorized independent reviewer can provide a fresh perspective; otherwise follow the same report-only role yourself and label the review self-performed.
@@ -961,7 +961,7 @@ index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..37527bf94aad75105f63e23503e07eea
  5. Constraint comments say `do not remove`, `do not change wording`, or `talk to X before changing`. Leave keeps about things we cannot change. Offer the cheapest in-scope type, runtime, test, or CI lint. Wait for interactive approval. Unattended and eval require caller pre-approval. If approved, encode then delete. Otherwise delete, report the constraint open, and sketch out-of-scope work.
  6. Report the deletion count, restored comments, reruns, architect sketch, fixes, encoding offers, encodings, unenforced constraints, and other open work.
 diff --git a/skills/poteto-help/SKILL.md b/skills/poteto-help/SKILL.md
-index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..0dd457065af4850fbb658d2d01237944efed1fe0 100644
+index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..c5134b44234d7281ca822f876ecc35e5365355f4 100644
 --- a/skills/poteto-help/SKILL.md
 +++ b/skills/poteto-help/SKILL.md
 @@ -1,163 +1,111 @@
@@ -982,8 +982,8 @@ index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..0dd457065af4850fbb658d2d01237944
  
 -This file maps questions to the skills and guide pages that hold the answers. Those files own the details. Read the file you route to before you quote it, and trust it when it disagrees with this map. The links here point into the installed plugin, which the user may not be able to open, so give the user the file's public copy: `https://github.com/cursor/plugins/blob/main/pstack/` followed by its path.
 +1. Install the package as described in `<pstack>/README.md`. It supplies skills for the latest supported Pi hosts; it does not require Cursor at runtime.
-+2. Invoke `/skill:poteto-mode` for a task, or use `/pstack-mode on`, `off`, and `status` to manage the persistent mode for the current session branch. Respect resource exclusions. A clear prompt names the goal, proof, and any real hold.
-+3. Run `/skill:setup-pstack` only if the user wants per-role model choices. Without those choices, workflows inherit the session model. Independent delegation is optional; when unavailable, workflows run the same substantive checks inline and label the loss of independence. Live interaction, real approvals, and required external gates still need their actual prerequisites.
++2. Invoke `/skill:poteto-mode` for a task, or open `/pstack-mode` to manage the persistent mode for the current session branch. The command also accepts `on`, `off`, and `status` directly. Respect resource exclusions. A clear prompt names the goal, proof, and any real hold.
++3. Run `/skill:setup-pstack` only if the user wants per-role model choices. Without those choices, workflows inherit the session model. Delegate when an independent perspective or parallel work helps; otherwise run the substantive checks inline. Review verdicts identify whether the review was independent or self-performed. Live interaction, real approvals, and required external gates still need their actual prerequisites.
  
 -## Find out what they need
 -
@@ -1309,10 +1309,10 @@ index cc7a4e6828f5bfc3bcbf5954876358074718f45c..2318dff237e3b879e58da244f249d179
 +- `/skill:reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
 +- `/skill:bro` restates the last reply in plain words.
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..0d41c6a62a1f9a7a5614229f7e379b94f3daa932 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..722cb90c86adf978d1040d7e3f0ff5e365e26727 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
-@@ -1,14 +1,13 @@
+@@ -1,57 +1,56 @@
  ---
  name: poteto-mode
 -description: poteto's agent style for concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work. Use for poteto, /poteto-mode, or requests to work in this style.
@@ -1325,34 +1325,40 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..0d41c6a62a1f9a7a5614229f7e379b94
  # Poteto mode
  
 -Bundled skills live at `../<name>/SKILL.md` from this file, so put this file's absolute path in every `poteto-agent` prompt.
-+Read [the Pi execution contract](../../docs/harness/pi.md). Select the authorized delegated or inline route and report the actual loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
 +Bundled skills live at `../<name>/SKILL.md` from this file. Resolve them through Pi's resource discovery and honor resource exclusions.
  
  ## Non-negotiables
  
-@@ -17,24 +16,24 @@ The Principles section below grounds every trigger. In your reply, name each pri
- Remaining triggers:
+-The Principles section below grounds every trigger. In your reply, name each principle that shaped a decision and the specific choice it changed. Cite only principles whose leaf SKILL.md you read this session.
++Use the principles below to make decisions. Explain consequential choices in plain language; the user needs the reason, not the principle's name.
  
- - Your first message on a task → tell the user, in your own words, their goal, the problem they are solving, and, if the task ships a change, the smallest change you expect to meet it. Don't wait for confirmation. If the evidence rules out the change the user asked for, show it and stop. Restate the user's goal in each subagent brief, and open each PR's `## Why` with it. Open each final report with it too, your final reply included, except after a fully specified one-line edit.
+-Remaining triggers:
++Choose the steps that help the task:
+ 
+-- Your first message on a task → tell the user, in your own words, their goal, the problem they are solving, and, if the task ships a change, the smallest change you expect to meet it. Don't wait for confirmation. If the evidence rules out the change the user asked for, show it and stop. Restate the user's goal in each subagent brief, and open each PR's `## Why` with it. Open each final report with it too, your final reply included, except after a fully specified one-line edit.
 -- Nontrivial change, architecture decision, or "are we sure?" → the **how** skill.
 -- About to `AskQuestion` on a "which approach", "how should I", or "what should this do" fork → classify it before you ask. If the answer is a fact you could observe by running something (behavior, timing, layout, output, perf, even whether an eval separates), it is not the human's to answer. Sketch it via the Prototype playbook (`playbooks/prototype.md`) and let the result decide. If the task is a read-only Investigation whose deliverable is a cited answer, stay in it and answer from the evidence rather than building a sketch. Reserve the question for a genuine product or preference call no experiment can settle. Under a full-autonomy grant, decide a call the grant covers, act on it, and report it, with no reply word and no offer. Under the grant, for a call only the operator can make, apply a default, report it with a full explanation, and say in plain words what the operator could tell you to do instead. The operator answers in their own words. Never give a shorthand token to type back. Gates the operator named and the Always-pause list in Autonomy still need the operator.
-+- Use the **how** skill when the user names it or the task needs an architectural explanation.
-+- Before asking a "which approach" or "what should this do" question, resolve facts you can observe yourself. Use the Prototype playbook when an experiment answers the question; stay read-only for an investigation. Reserve questions for genuine user decisions or required approval. Honor the user's autonomy grant and explicit gates.
- - Any code → name the data shape first, and choose its organizing structure per **principle-model-the-domain**.
+-- Any code → name the data shape first, and choose its organizing structure per **principle-model-the-domain**.
 -- Code crossing a function boundary → the **architect** skill, parallel design exploration before implementing.
 -- Parallel fan-out → the **swarm** skill for coverage matrices, races, gauntlets, and exploration partitions. Use **arena** for design or code bakeoffs with base selection and grafting.
 -- Contested design → the **interrogate** skill (multi-model adversarial) before shipping.
-+- An unresolved architectural tradeoff → the **architect** skill. Compare distinct designs with authorized workers or serially.
-+- Coverage matrices, races, gauntlets, or exploration partitions → the **swarm** skill. Use **arena** for design or code comparisons with base selection and grafting.
-+- A materially contested design → the **interrogate** skill when an adversarial check is warranted. Use actual available models or a labeled self-review.
- - Nontrivial multi-step → write the throughput checkpoint (Feature step 3).
+-- Nontrivial multi-step → write the throughput checkpoint (Feature step 3).
 -- Any prose surface, your reply to the user included → the **unslop** skill. Write the reply per **Writing the reply**. Agent-facing prose also follows the **create-skill** skill (Cursor's built-in for authoring SKILL.md files).
 -- Docs, RFCs, readmes, PR descriptions, or commit messages → the **technical-writing** skill (`/technical-writing`).
 -- Before commit → the `deslop` skill from the `cursor-team-kit` plugin (`/deslop`).
 -- Before review → the **no-comments** skill (`/no-comments`).
 -- Shipping UI / IDE / CLI → the matching control skill. `cursor-team-kit` publishes `control-cli` (CLIs and TUIs) and `control-ui` (browser / Electron / web UIs). For bug fixes, reproduce first on the same surface yourself. Hand to the user only under the narrow Bug fix step 1 exception.
-+- Any prose surface, your reply to the user included → the **unslop** skill. Write the reply per **Writing the reply**. Follow the project's native skill-authoring guidance for agent-facing prose.
++- Ground the task in the user's goal. Clarify your interpretation when it matters, include the goal in delegated briefs, and explain when evidence contradicts the requested approach. Lead progress and final replies with the outcome rather than repeating the original request.
++- Use the **how** skill when the user names it or the task needs an architectural explanation.
++- Before asking a "which approach" or "what should this do" question, resolve facts you can observe yourself. Use the Prototype playbook when an experiment answers the question; stay read-only for an investigation. Reserve questions for genuine user decisions or required approval. Honor the user's autonomy grant and explicit gates.
++- Stateful or branching code → choose data structures that express the domain before adding control flow. Use **principle-model-the-domain** when that choice needs deeper analysis.
++- An unresolved architectural tradeoff → the **architect** skill. Compare distinct designs with authorized workers or serially.
++- Coverage matrices, races, gauntlets, or exploration partitions → the **swarm** skill. Use **arena** for design or code comparisons with base selection and grafting.
++- A materially contested design → the **interrogate** skill when an adversarial check is warranted. Use actual available models or a labeled self-review.
++- Multi-step work → track dependencies and useful parallel work. Keep the plan proportional to the task.
++- Write plain, direct prose. Use the **unslop** skill for a writing cleanup, and follow the project's native skill-authoring guidance for agent-facing prose.
 +- Docs, RFCs, readmes, PR descriptions, or commit messages → the **technical-writing** skill (`/skill:technical-writing`).
 +- Before commit → inspect the changed code for unnecessary scaffolding and noise using the Pi contract's code-cleanup procedure.
 +- Before review → use the **no-comments** skill (`/skill:no-comments`) when the user, project, or scoped change calls for it.
@@ -1370,7 +1376,10 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..0d41c6a62a1f9a7a5614229f7e379b94
  
  ## Principles
  
-@@ -44,14 +43,14 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
+-Read the leaf skill in full for any principle you apply. Each entry names when it applies. Each leaf is the **principle-<title>** skill, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its name.
++The summaries below guide ordinary work. Read a leaf skill when its detailed procedure would help a decision or when the user invokes it. Each entry names when it applies. Each leaf is the **principle-<title>** skill, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its name.
+ 
+ **Core**
  
  - **Laziness Protocol.** Refactoring, sizing a diff, or tempted to add abstractions, layers, or signal threading. Bias to deletion and the smallest change that solves the problem.
  - **Foundational Thinking.** Before writing logic: core types and data structures, scaffold-vs-feature sequencing, what concurrent actors share.
@@ -1409,7 +1418,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..0d41c6a62a1f9a7a5614229f7e379b94
  
  **Session overrides:** "Don't stop" / "going to bed" / "run until done" / "be fully autonomous" → keep going.
  
-@@ -91,15 +90,11 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
+@@ -91,29 +90,19 @@ Read the leaf skill in full for any principle you apply. Each entry names when i
  
  ## Subagents
  
@@ -1424,20 +1433,37 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..0d41c6a62a1f9a7a5614229f7e379b94
 -You own every subagent's work. Review the diff and write your own summary, don't pass through what it said. A second opinion is the same prompt against a different model. Agreement is high-signal.
 -
 -**Fresh subagents by default.** Give new work to a fresh subagent with consolidated scope, meaning the original brief, every later directive, and the prior agent's report and branch. This holds for a fix round, a follow-up, a retry, and the next queue item. Resume, message, or queue a follow-up on an existing subagent only when the new work strictly needs state that lives in that agent and is costly to move: its local checkout, its uncommitted changes, or a process it still runs, such as a dev server, a simulator, or a babysit watcher. A stop or hold order to a running agent is not reuse. A role such as a PR owner outlives its agent. Once that agent returns, a fresh agent takes the role's next round. Interrupt-chained resumes silently drop directives, so fire a fresh subagent with consolidated scope rather than trusting a "done" summary.
-+Without a usable provider, the parent performs the same task and checks inline. Report self-verification and the loss of independent or parallel work. Review any real delegate's output and diff before integrating it. Start fresh delegated work by default; resume an existing run only when its live state is necessary.
++Delegate when an independent perspective or parallel work helps. Otherwise perform the task and checks yourself. Identify self-review when reporting a review verdict; ordinary inline work needs no disclaimer. Review actual delegate results and diffs before integrating them. Resume an existing run when its retained context is useful.
  
  ## Writing the reply
  
-@@ -121,7 +116,7 @@ Comments follow the same rule as the reply. Write them clean as you go. Keep a c
+-Write the reply clean as you draft it. A cleanup pass after drafting does not remove these patterns.
++Lead with the result, its effect on the user, and any action they need to take. Explain material decisions and limitations. Include verification and delivery status when relevant, with links to supporting evidence.
+ 
+-- **Short declarative sentences.** One thought per sentence, ended with a period.
+-- **No long-dash character anywhere.** Write a file-list bullet as a sentence ("`main.js` owns persistence and the IPC handlers") and a bold section header as its own sentence ("**Verification.** End to end via CDP").
+-- **A colon as a mid-sentence connector is also out** (unslop rule 14). A colon before a list is fine.
+-- **Terse is not an excuse to drop content.** Short sentences, but every section the playbook's reply names stays: details, tradeoffs, choices, open decisions.
+-- **Frame impact for the consumer and the maintainer.** Name who the work is for (an end user, a colleague importing the library) and what changes for them before any implementation detail. Then what the next engineer who owns this code inherits. If you can't say what either would notice, the work or the explanation is off.
+-- **Never fabricate a link, citation, or transcript reference.** Link only artifacts you produced or read this session.
+-- **Every claim carries its evidence or its label in the same sentence.** Measured, inferred, or guess. A prediction or an unseen cause is a guess. Never hand the human a check you could run.
++Write natural sentences and use the structure that makes the answer easiest to read. Playbook reply lists are reminders of useful information, not mandatory headings. Omit inapplicable fields and routine process narration. Keep detailed logs in the evidence record unless the user asks for them or a failure needs the detail.
+ 
+-Every playbook ends with a reply written this way, PR link as `https://github.com/<owner>/<repo>/pull/<number>`. Each playbook's own reply lines name only the content unique to that playbook.
++Distinguish observed behavior from inference. Never invent citations or claim checks, independent review, or delivery that did not happen.
+ 
+ ## Comments
+ 
+@@ -121,7 +110,7 @@ Comments follow the same rule as the reply. Write them clean as you go. Keep a c
  
  ## Playbooks
  
 -Open a todolist whose first items are the matched playbook's steps, copied in verbatim, before any task-specific todos. A step you choose not to do stays in the list with a one-line `skip: <reason>`. Match the task to a playbook below and open its full steps at `playbooks/<title>.md`, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its file. Copy its steps in verbatim.
-+Match the task to a playbook below and read its full steps at `playbooks/<title>.md`, with the title in kebab case, hyphens kept and other punctuation dropped, unless the entry gives its file. Track the applicable steps using an available task list, a task-owned file, or the conversation. Record why any step was skipped.
++Use the playbook that fits the task and read it at `playbooks/<title>.md`, with the title in kebab case unless the entry gives its file. Track useful steps in an available task list, a task-owned file, or the conversation. Report skipped requirements, not inapplicable optional steps.
  
  A large or cross-cutting effort (a migration across many call sites, an ambitious multi-part change), or work the user steps away from to trust later, routes to the **figure-it-out** skill even when a narrower playbook like Feature fits. Use **figure-it-out** whenever no bundled playbook fits. It designs a bespoke, rigorous playbook for the task. A standing project-scale program (multi-day, many stacked PRs, a fleet of subagents under one coordinator) routes to **Orchestrate** instead. figure-it-out designs one bespoke run, orchestrate runs the program.
  
-@@ -138,13 +133,13 @@ A large or cross-cutting effort (a migration across many call sites, an ambitiou
+@@ -138,13 +127,13 @@ A large or cross-cutting effort (a migration across many call sites, an ambitiou
  - **Authoring or modifying a skill.** Writing or editing a SKILL.md. File: `playbooks/authoring-a-skill.md`.
  - **Eval.** Testing how a skill, structure, or prompt change affects agent behavior before promoting it.
  - **Babysit.** Driving a PR or a stack to merge-ready: conflicts, review threads, CI.
@@ -1593,16 +1619,16 @@ index 14d5783d447ba3530d038c9dffa514f2492a54e0..d3362d74929908b608370ac1b2128332
 -`drive` ends at merge-ready. Landing the stack is `playbooks/shipping.md`.
 +**Reply:** each PR's current head, checks, review and thread status, fixes or rebuttals, remaining blockers, and merge boundary.
 diff --git a/skills/poteto-mode/playbooks/bug-fix.md b/skills/poteto-mode/playbooks/bug-fix.md
-index b5de0bfa63add6ed38a38a8bd668cf36ac009c61..05ab3cfdb92c0c109baa5802d1696c21cf9f1a56 100644
+index b5de0bfa63add6ed38a38a8bd668cf36ac009c61..92d3f8039bc19d6ca74acf74c34abbb4ecaa5a5c 100644
 --- a/skills/poteto-mode/playbooks/bug-fix.md
 +++ b/skills/poteto-mode/playbooks/bug-fix.md
-@@ -1,12 +1,14 @@
+@@ -1,15 +1,16 @@
  ### Bug fix
  
 -**You own this task. Plan, review, verify.** Delegate investigation and the fix to subagents, stay in the lead. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section.
 +Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or inline work, real prerequisites, and existing user gates.
 +
-+**You own this task. Plan, review, verify.** Use authorized delegates when available or investigate and fix it inline. Label self-verification.
++**Own the fix through verification.** Delegate when it helps or investigate and fix it inline.
  
  Be scientific. Every shipped line traces to runtime evidence. Belt-and-suspenders that "might help" is a hypothesis, not a fix. It does not ship. When evidence refutes a hypothesis, revert what it motivated. The smallest change the evidence justifies ships, nothing more.
  
@@ -1613,8 +1639,13 @@ index b5de0bfa63add6ed38a38a8bd668cf36ac009c61..05ab3cfdb92c0c109baa5802d1696c21
 +2. Form and eliminate candidate causes with source and runtime evidence. Use `how` or `why` when the task warrants them. Use available finite watchers for long waits. Confirm the surviving mechanism before fixing it.
 +3. Plan the smallest supported fix. Use `architect` when an unresolved design tradeoff warrants it. Give an authorized delegate a specific scope, or implement it yourself.
  4. Verify on the same surface. The original repro now passes. "Inconclusive" or wrong-surface is not a pass. Flag it. Unit tests show branch behavior, not bug absence.
- 5. Stage the commits so the failing repro lands before the fix in git history. See the **tdd** skill for the failing-test-first cadence when the bug has a cheap local test path. Skip it when the test would be expensive, integration-heavy, or unclear.
-    This is the canonical **sequence-verifiable-units** principle skill, the failing test first and the fix on top.
+-5. Stage the commits so the failing repro lands before the fix in git history. See the **tdd** skill for the failing-test-first cadence when the bug has a cheap local test path. Skip it when the test would be expensive, integration-heavy, or unclear.
+-   This is the canonical **sequence-verifiable-units** principle skill, the failing test first and the fix on top.
++5. When a cheap local regression test exists, demonstrate that it fails before the fix and passes afterward. Use the **tdd** skill when applicable. Keep the evidence; a separate failing-test commit is not required.
+ 6. Run **Opening a PR**.
+ 
+-**Reply:** what was broken, root cause, fix, how you verified. Paste failing-then-passing repro output verbatim.
++**Reply:** what was broken, its cause, the fix, and how you verified it. Link the repro evidence; include raw output when it explains a remaining failure.
 diff --git a/skills/poteto-mode/playbooks/eval.md b/skills/poteto-mode/playbooks/eval.md
 index 768a894e275b1e9b198e83ceb6b46964e3f9d6db..45134af7997b8d2d7d636944083a7306bc533b1e 100644
 --- a/skills/poteto-mode/playbooks/eval.md
@@ -1641,10 +1672,10 @@ index 768a894e275b1e9b198e83ceb6b46964e3f9d6db..45134af7997b8d2d7d636944083a7306
  
  **Reply:** variant under test, rubric, per-candidate notes, judge's verdict, your synthesis, and a recommendation for whether to promote the variant.
 diff --git a/skills/poteto-mode/playbooks/feature.md b/skills/poteto-mode/playbooks/feature.md
-index eb1040cb2631f3eeacd8f9f6469d7e97277f24ef..0c9467650f6f583956665d8174f96fb84d79731f 100644
+index eb1040cb2631f3eeacd8f9f6469d7e97277f24ef..5ccc297d7e4f179de59dbceca921ee3eb51e8f3f 100644
 --- a/skills/poteto-mode/playbooks/feature.md
 +++ b/skills/poteto-mode/playbooks/feature.md
-@@ -1,21 +1,23 @@
+@@ -1,21 +1,19 @@
  ### Feature
  
 -**You own the design. Plan, review, verify.** Delegate implementation. Stay in the lead.
@@ -1652,16 +1683,17 @@ index eb1040cb2631f3eeacd8f9f6469d7e97277f24ef..0c9467650f6f583956665d8174f96fb8
  
 -1. `how` over the affected subsystem.
 -2. `architect` for parallel design exploration.
+-3. Write the throughput checkpoint as four todo items. A dimension that genuinely does not apply (single file, no fan-out) keeps its item with `n/a: <reason>` rather than being dropped:
+-   - **Blocking first steps.** Gates run before fan-out.
+-   - **Independent workstreams.** Disjoint files, services, or layers parallelize. Shared writes serialize.
+-   - **Shared mutable state.** Default to splitting the target (the **separate-before-serializing-shared-state** principle skill). Serialize only for real invariants.
+-   - **Smallest safe decomposition.** If one worker is best, name why.
+-4. Delegate code-writing to a subagent using your configured feature model (default `grok-4.7-xhigh-fast`) with a specific scope (file paths, named data shape and its organizing structure per **principle-model-the-domain**, a state machine over scattered booleans, a table/registry over branching, a typed model over repeated shape assumptions, chosen before the delegate writes logic, and success criteria). Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section. When the implementation admits multiple valid shapes (error handling, abstraction layer, test structure), delegate via the **arena** skill instead so the runners surface the alternatives and the cross-judge guards the pick. Mandatory: no skip-with-reason escape, and Laziness Protocol does not override it (the gain is review separation, not lines saved). A subagent forbidden to spawn satisfies this by owning the diff directly with the same review separation. No "standing by" reply that waits on a nested agent. Comments per **Comments**. Surgical edits, re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally.
 +**You own the design. Plan, review, verify.** Use an authorized delegate or implement inline.
 +
 +1. Ground the affected subsystem. Use `how` when its architectural explanation is needed.
 +2. Use `architect` to compare distinct designs when an unresolved tradeoff warrants it.
- 3. Write the throughput checkpoint as four todo items. A dimension that genuinely does not apply (single file, no fan-out) keeps its item with `n/a: <reason>` rather than being dropped:
-    - **Blocking first steps.** Gates run before fan-out.
-    - **Independent workstreams.** Disjoint files, services, or layers parallelize. Shared writes serialize.
-    - **Shared mutable state.** Default to splitting the target (the **separate-before-serializing-shared-state** principle skill). Serialize only for real invariants.
-    - **Smallest safe decomposition.** If one worker is best, name why.
--4. Delegate code-writing to a subagent using your configured feature model (default `grok-4.7-xhigh-fast`) with a specific scope (file paths, named data shape and its organizing structure per **principle-model-the-domain**, a state machine over scattered booleans, a table/registry over branching, a typed model over repeated shape assumptions, chosen before the delegate writes logic, and success criteria). Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section. When the implementation admits multiple valid shapes (error handling, abstraction layer, test structure), delegate via the **arena** skill instead so the runners surface the alternatives and the cross-judge guards the pick. Mandatory: no skip-with-reason escape, and Laziness Protocol does not override it (the gain is review separation, not lines saved). A subagent forbidden to spawn satisfies this by owning the diff directly with the same review separation. No "standing by" reply that waits on a nested agent. Comments per **Comments**. Surgical edits, re-ground against the source for upstream-derived files. Port shared-primitive improvements to all consumers and verify each. Commit liberally.
++3. Identify dependencies, independent work, and shared mutable state. Use separate worktrees for concurrent writers. Keep tightly coupled changes with one owner; parallelize only when it helps.
 +4. Implement with an authorized delegate or inline. Name the scope, data shape, organizing structure, and success criteria first. Use **arena** when comparing real alternatives helps the task. Review delegated results; label serial self-review. Re-ground upstream-derived files, fix shared causes across affected consumers, and verify each.
  5. Verify on the matching surface. "Inconclusive" or wrong-surface is not a pass. Flag it.
 -6. Rebase into small, ordered commits. Stack follow-ups.
@@ -1671,9 +1703,10 @@ index eb1040cb2631f3eeacd8f9f6469d7e97277f24ef..0c9467650f6f583956665d8174f96fb8
  8. Run **Opening a PR**.
  
 -Code-coupled work (one feature, one migration) goes to a single owner with the checkpoint inline. That owner fans out internally after the blocking phase. Parent-level fan-out is for slices that produce independent artifacts (audits, cross-subsystem investigations, competing experiments). Rewrite the checkpoint at phase boundaries. Spawn a fresh owner rather than chaining interrupts.
-+Keep code-coupled work with one owner. Parallelize independent artifacts only when authorized providers are available; otherwise execute the same units serially. Rewrite the checkpoint at phase boundaries.
++Adjust the plan when evidence changes the dependencies or scope.
  
- **Reply:** what you built, what you chose and why, the throughput checkpoint, open decisions. Tables for design alternatives.
+-**Reply:** what you built, what you chose and why, the throughput checkpoint, open decisions. Tables for design alternatives.
++**Reply:** what changed, material design choices, verification, and any open decision.
 diff --git a/skills/poteto-mode/playbooks/hillclimb.md b/skills/poteto-mode/playbooks/hillclimb.md
 index e9cf267908a9737236b3a8a8a5a99fe9066f7554..81469704631090b73d07cae79a6113ac1bccedc6 100644
 --- a/skills/poteto-mode/playbooks/hillclimb.md
@@ -1700,10 +1733,10 @@ index e9cf267908a9737236b3a8a8a5a99fe9066f7554..81469704631090b73d07cae79a6113ac
     - Accept only when the metric moves past noise and the gate stays green. Otherwise revert the change in full. A tweak that "might help" is not kept.
     - One commit per accepted fix, staging only the files you changed (`git add <files>`, never `-A`). Log the row either way, kept or reverted.
 diff --git a/skills/poteto-mode/playbooks/investigation.md b/skills/poteto-mode/playbooks/investigation.md
-index cd119f04f23e0b7acb3f8cc5ba13ce4ab7aa6c7d..98ac83924a35474d02e5b580c40d20d576abe5ab 100644
+index cd119f04f23e0b7acb3f8cc5ba13ce4ab7aa6c7d..b1e18bace6a54cbf5bf349605a3399d94c7f196c 100644
 --- a/skills/poteto-mode/playbooks/investigation.md
 +++ b/skills/poteto-mode/playbooks/investigation.md
-@@ -1,5 +1,7 @@
+@@ -1,13 +1,14 @@
  ### Investigation
  
 +Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or inline work, real prerequisites, and existing user gates.
@@ -1711,6 +1744,16 @@ index cd119f04f23e0b7acb3f8cc5ba13ce4ab7aa6c7d..98ac83924a35474d02e5b580c40d20d5
  **You own the answer. Plan, route, write.**
  
  Investigation requests are read-only. They produce a cited explanation or a recommendation, not a code change.
+ 
+ 1. Route through the **how** skill. For motivation questions, also route through the **why** skill.
+-2. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only investigation`.
+-3. Produce the `how`-shaped output (Overview / Key Concepts / How It Works / Where Things Live / Gotchas), or a recommendation with a tradeoffs table if the request is a decision between alternatives.
+-4. Apply the **unslop** skill to the reply.
++2. Produce the `how`-shaped output (Overview / Key Concepts / How It Works / Where Things Live / Gotchas), or a recommendation with a tradeoffs table if the request is a decision between alternatives.
++3. Write a direct answer with supporting evidence.
+ 
+ No PR, no babysit, no `architect` unless the investigation precedes a code change. If it does, hand back to the user and re-route to Bug fix or Feature.
+ 
 diff --git a/skills/poteto-mode/playbooks/multi-phase-plan.md b/skills/poteto-mode/playbooks/multi-phase-plan.md
 index 7101aa71dbc08f2b84baa227a7bd589f800f13e8..3ba6cd5db8086e0f300956b7fab2488336c48af5 100644
 --- a/skills/poteto-mode/playbooks/multi-phase-plan.md
@@ -2079,10 +2122,10 @@ index c04b07eeb8b8fa651d080729363466ab73d2fe40..378f4e4af521255cecb65d0c54935d28
  7. Confirm the change is worth keeping. The success measure is reduced reader load (**principle-minimize-reader-load**). If the diff does not lower reader load somewhere, revert it.
  8. Rebase into small ordered commits. A subtraction commit, then the reshape, then any follow-on cleanup. Shape them with the **sequence-verifiable-units** principle skill, so each behavior-preserving slice stays green before the next. Run **Opening a PR**.
 diff --git a/skills/poteto-mode/playbooks/runtime-forensics.md b/skills/poteto-mode/playbooks/runtime-forensics.md
-index 6bf64240d1a890df290b98c632ad374d20ca9fd4..eb598d93463626ad100e4ce2732938ada9f47bab 100644
+index 6bf64240d1a890df290b98c632ad374d20ca9fd4..86db0fe1f514035ae55b300658e84cc366e7de1d 100644
 --- a/skills/poteto-mode/playbooks/runtime-forensics.md
 +++ b/skills/poteto-mode/playbooks/runtime-forensics.md
-@@ -1,10 +1,12 @@
+@@ -1,11 +1,12 @@
  ### Runtime forensics
  
 +Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or inline work, real prerequisites, and existing user gates.
@@ -2095,8 +2138,9 @@ index 6bf64240d1a890df290b98c632ad374d20ca9fd4..eb598d93463626ad100e4ce2732938ad
 +2. Reduce the artifact to the smoking gun: the function on the hot path, the retainer chain from the leaked object to a GC root, or the loop firing without input. Use an authorized delegate or page and filter the artifact yourself.
 +3. Prove the mechanism before believing it. Use authorized instrumentation on the real target or an isolated reproduction. Do not mutate a production process without the required authority.
  4. Map the finding back to source: file, symbol, the line that allocates or schedules.
- 5. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only forensics`.
+-5. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only forensics`.
  
+ **Reply:** the signal captured, the reduced finding, how you proved the mechanism, the source location, artifact paths. No fix unless asked. Hand back to Bug fix or Perf once the cause is known.
 diff --git a/skills/poteto-mode/playbooks/session-pickup.md b/skills/poteto-mode/playbooks/session-pickup.md
 index 876b1433828ccc7c874123cdf300240abb285dd9..47bd7bb364f2c676d8e12469b749d3bd506f290e 100644
 --- a/skills/poteto-mode/playbooks/session-pickup.md
@@ -2142,10 +2186,10 @@ index 0a0c3cfde8948e3aa8ee80c6f3f9ce7e3e64fcba..a20d7002e21ba2b2085add47f004d8fa
 -**Reply:** the verified run and its ceiling, each PR's verdict and who produced it, what landed and how you confirmed it, and what the next gap needs.
 +**Reply:** the verified run and ceiling, each verdict and who produced it, what landed and how it was confirmed, and the next gap.
 diff --git a/skills/poteto-mode/playbooks/trace-forensics.md b/skills/poteto-mode/playbooks/trace-forensics.md
-index bf1b003786503623d91ca173fc97a6e54eee3acf..370fedb55ddaa697515f94b50dbd3eb2ab32c843 100644
+index bf1b003786503623d91ca173fc97a6e54eee3acf..37bf19a8b682e84c46ce497045663818b6f9567c 100644
 --- a/skills/poteto-mode/playbooks/trace-forensics.md
 +++ b/skills/poteto-mode/playbooks/trace-forensics.md
-@@ -1,11 +1,13 @@
+@@ -1,14 +1,16 @@
  ### Trace forensics
  
 +Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or inline work, real prerequisites, and existing user gates.
@@ -2161,6 +2205,10 @@ index bf1b003786503623d91ca173fc97a6e54eee3acf..370fedb55ddaa697515f94b50dbd3eb2
  3. Narrow to the cause. Query for the frames that hold the most time and walk the call tree to the hot path. For a leak, follow the retainer chain from the leaked object to a GC root. For a spindump, find the thread stuck on-CPU or blocked and its wait reason.
  4. Attribute to source. Map the hot frame to file, symbol, and line via the artifact's own symbols. A frame with no source mapping is not yet a diagnosis. Resolve the symbols, or say plainly the artifact does not carry them.
  5. If you have a paired capture, diff the before and after artifacts to confirm. Otherwise, mark the finding as the strongest hypothesis the artifact supports, not a confirmed cause.
+-6. Hand back a cited diagnosis, no fix unless asked. Route to Bug fix or Perf issue once the cause is known. Throughput checkpoint stays one line: `throughput checkpoint: n/a, read-only forensics`.
++6. Hand back a cited diagnosis, no fix unless asked. Route to Bug fix or Perf issue once the cause is known.
+ 
+ **Reply:** the artifact and format, the reduced finding, the source location, the artifact paths, and whether a paired capture confirmed it.
 diff --git a/skills/poteto-mode/playbooks/visual-parity.md b/skills/poteto-mode/playbooks/visual-parity.md
 index 248830ec74a593fc22143a842026388f92f1b9f4..faa9dd4c99c6010cbca68c50f63f8757d4e5721b 100644
 --- a/skills/poteto-mode/playbooks/visual-parity.md
@@ -2870,7 +2918,7 @@ index cd8cc20790d90579e632626fe6db2b1fff593eea..e93ae8db46eb1d044f732cf1082568a1
  6. Write the brief to the contract below. Group by thread. Stay on the named topic.
  
 diff --git a/skills/reflect/SKILL.md b/skills/reflect/SKILL.md
-index 9bb153bd2121e49d73a7af7d55ef372079889e62..8b5f24e5cfb5ebe8981d620c24faf75dab976273 100644
+index 9bb153bd2121e49d73a7af7d55ef372079889e62..44a9718beb54b5b5ff76ea67efdb315e76bcb8aa 100644
 --- a/skills/reflect/SKILL.md
 +++ b/skills/reflect/SKILL.md
 @@ -1,42 +1,35 @@
@@ -2883,7 +2931,7 @@ index 9bb153bd2121e49d73a7af7d55ef372079889e62..8b5f24e5cfb5ebe8981d620c24faf75d
  
  # Reflect
  
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
  Mine the current conversation for durable learnings, then route them into skill edits.
  
@@ -3120,7 +3168,7 @@ index 5b4a7b104e709f8cded1726541be42431c334164..b2255f183eba7b7b156605094af02a09
  
  1. Say what a top professional in this field would do here that I'm not asking for.
 diff --git a/skills/show-me-your-work/SKILL.md b/skills/show-me-your-work/SKILL.md
-index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..ab51bb2499bcd2163bae95d5d94e96a897cb5942 100644
+index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..1431c819acb5195b67a164a8cb9aedd312dff754 100644
 --- a/skills/show-me-your-work/SKILL.md
 +++ b/skills/show-me-your-work/SKILL.md
 @@ -1,11 +1,12 @@
@@ -3133,7 +3181,7 @@ index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..ab51bb2499bcd2163bae95d5d94e96a8
  
  # Show me your work
  
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
  Keep one canonical log.
  
@@ -3160,7 +3208,7 @@ index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..ab51bb2499bcd2163bae95d5d94e96a8
  - Gaps the user would otherwise miss on a casual skim.
  
 -Every reply for a run that produced a trail ends with an "Attention" section. Lead with the reviewer's model on its own line (`reviewed by <model>`), then list each flag pointing to specific rows or moments. "No flags" is a valid value. The model name is not.
-+Every reply for a run that produced a trail ends with an "Attention" section. Name the actual reviewer and model, or say `self-reviewed`, then list each flag pointing to specific rows or moments. "No flags" is a valid value; a model name alone is not a finding.
++Include material review findings in the final handoff, with evidence pointers and whether the review was independent or self-performed. Keep routine progress replies focused on progress; the trail holds the detailed record.
  
  ## Reviewing the trail
  
@@ -3184,7 +3232,7 @@ index f5a64a8db4b8a5957ac5e76e051b1823cecd4d5e..9eae0128fbad3afc41264362f1b7f20a
  
  ## Run
 diff --git a/skills/swarm/SKILL.md b/skills/swarm/SKILL.md
-index 9cd32247b4f381bb020cbbf0fc546ba71407d558..0b71250337582a786212674ecafa746c9febb049 100644
+index 9cd32247b4f381bb020cbbf0fc546ba71407d558..2491790e7ff171777edf1347dd46d50fc92c5cc1 100644
 --- a/skills/swarm/SKILL.md
 +++ b/skills/swarm/SKILL.md
 @@ -1,14 +1,15 @@
@@ -3197,7 +3245,7 @@ index 9cd32247b4f381bb020cbbf0fc546ba71407d558..0b71250337582a786212674ecafa746c
  
  # Swarm
  
-+Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
  ## Start
  
@@ -3282,7 +3330,7 @@ index 25369f3f554ed6b5826340ae3eee688fac0bda80..ae40626778e2eb3f39910ce2e15c179d
  Write every response through the **unslop** skill, in plain spoken English, the way you'd explain it to a colleague. Be tight, not terse. Cut filler and hedging, keep the part that makes it click. State the concrete mechanism, not a metaphor, a framing, or a preview of what is coming. This is the target density: "Virtualization runs in two parts, one for rendering and one for loading from disk. When an item scrolls out past the buffer, both its DOM node and its in-memory data are evicted." Normal sentence case, not all-lowercase. No em dashes. Prefer periods over commas. Keep each sentence to one or two commas. If clauses pile up, split them into separate sentences. Give each concept one name and keep it. Avoid mirror sentences ("A without B, or B without A") and tidy closers ("the rest follows", "it all falls out"). The words in these steps are directions to you, not labels to print. Don't echo the structure as headers or stock phrases.
  
 diff --git a/skills/technical-writing/SKILL.md b/skills/technical-writing/SKILL.md
-index 3e6d26109376cd66439c87ed48b4033df8d78a3a..b09d4624b7151840b2c6aad147c8cc37b7a5153e 100644
+index 3e6d26109376cd66439c87ed48b4033df8d78a3a..ad1e071779bbf264c23667dadabad23bbf2c9589 100644
 --- a/skills/technical-writing/SKILL.md
 +++ b/skills/technical-writing/SKILL.md
 @@ -1,11 +1,12 @@
@@ -3295,11 +3343,20 @@ index 3e6d26109376cd66439c87ed48b4033df8d78a3a..b09d4624b7151840b2c6aad147c8cc37
  
  # Technical writing
  
-+Read [the Pi execution contract](../../docs/harness/pi.md). Use available authorized delegation or work inline, labeling lost independence; keep actual external gates and live-proof requirements.
++Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 +
  Write so a tired engineer understands on the first read. Apply all four layers.
  
  Three rules sit above the layers:
+@@ -16,7 +17,7 @@ Three rules sit above the layers:
+ 
+ The codebase is the word list. Write the real symbol, file, flag, or command name, not a synonym or a description of it.
+ 
+-Don't invent jargon. Use the words a developer would say out loud: "move", "delete", "a budget that only decreases", not "evacuate", "ratchet", or "endgame". A named pattern is fine when the doc says what it means the first time. Propose a new offender and its replacement as an addition to `unslop`'s abstract-metaphor rule in your reply, with the diff. Don't edit that skill.
++Don't invent jargon. Use the words a developer would say out loud: "move", "delete", "a budget that only decreases", not "evacuate", "ratchet", or "endgame". A named pattern is fine when the doc says what it means the first time. Fix confusing wording in the document being written.
+ 
+ ## Vary the rhythm
+ 
 diff --git a/skills/typescript-best-practices/SKILL.md b/skills/typescript-best-practices/SKILL.md
 index e1e5aa7c97ed39c425d60d933a96424a3f14539e..279a6369d45f431c2bf940e47ca4fb157412fdea 100644
 --- a/skills/typescript-best-practices/SKILL.md

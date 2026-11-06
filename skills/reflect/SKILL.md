@@ -5,7 +5,7 @@ description: Review the active transcript through three lenses, surface learning
 
 # Reflect
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 Mine the current conversation for durable learnings, then route them into skill edits.
 

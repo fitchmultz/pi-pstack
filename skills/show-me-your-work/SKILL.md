@@ -5,7 +5,7 @@ description: "Keep a reviewable decision trail for long-running or unattended wo
 
 # Show me your work
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 Keep one canonical log.
 
@@ -72,7 +72,7 @@ Before handing back, request an independent transcript-reading review on a diffe
 - Choices that look risky in hindsight (premature, scope-creeping, papering over a symptom).
 - Gaps the user would otherwise miss on a casual skim.
 
-Every reply for a run that produced a trail ends with an "Attention" section. Name the actual reviewer and model, or say `self-reviewed`, then list each flag pointing to specific rows or moments. "No flags" is a valid value; a model name alone is not a finding.
+Include material review findings in the final handoff, with evidence pointers and whether the review was independent or self-performed. Keep routine progress replies focused on progress; the trail holds the detailed record.
 
 ## Reviewing the trail
 

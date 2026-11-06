@@ -98,7 +98,9 @@ async function withRpc(cli, args, options, run) {
     watchers.add(watch);
   });
   try {
-    await run(request, events, waitForEvent);
+    await run(request, events, waitForEvent, (response) => {
+      child.stdin.write(`${JSON.stringify({ type: "extension_ui_response", ...response })}\n`);
+    });
   } finally {
     child.stdin.end();
     const [code, signal] = await closed;
@@ -222,7 +224,9 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         }
         assert.match(await command("/pstack-status"), /Could not reach GitHub API/);
         await command("/pstack-test-fetch");
-        assert.match(await command("/pstack-status"), /upstream update available/);
+        const status = await command("/pstack-status");
+        assert.match(status, /reviewed Pi sync before they are installable/);
+        assert.doesNotMatch(status, /Run 'pi update/);
         const cache = JSON.parse(readFileSync(join(agentDir, "cache/pi-pstack-upstream.json"), "utf8"));
         assert.equal(cache.latestSha, "test-upstream");
       });
@@ -254,19 +258,14 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             event.message?.includes("forces the system prompt")), JSON.stringify(events.slice(before)));
         });
     });
-    await t.test("mode follows the active branch and capability reports respect Pi's tool visibility", async () => {
+    await t.test("mode picker and status follow the active branch; opinions use the requested model and reasoning", async () => {
       const runtimeProbe = join(temp, "pstack-runtime-probe.mjs");
       writeFileSync(runtimeProbe, `
-        import { Type } from "typebox";
         import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
         export default function(pi) {
-          let hidden = false;
           const main = fauxProvider({ provider: "pstack-runtime-main", models: [{ id: "native" }] });
           main.setResponses([
-            fauxAssistantMessage([fauxToolCall("pstack_capabilities", {
-              names: ["pstack-visible-probe", "pstack-hidden-probe"]
-            }, { id: "capability-check" })], { stopReason: "toolUse" }),
-            fauxAssistantMessage("Capabilities checked."),
+            fauxAssistantMessage("Mode enabled."),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
               model: "pstack-runtime-judge/native", question: "Review the supplied text.", context: "A short document."
             }, { id: "opinion-check" })], { stopReason: "toolUse" }),
@@ -279,12 +278,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
               model: "pstack-runtime-judge/native:max", question: "Review the supplied text."
             }, { id: "opinion-suffix-check" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Model selection checked."),
-            fauxAssistantMessage("Mode checked."),
-            fauxAssistantMessage([fauxToolCall("pstack-toggle-probe", {}, { id: "toggle-hidden" })], { stopReason: "toolUse" }),
-            fauxAssistantMessage([fauxToolCall("pstack_capabilities", {
-              names: ["pstack-hidden-probe"]
-            }, { id: "capability-after-refresh" })], { stopReason: "toolUse" }),
-            fauxAssistantMessage("Refreshed capabilities checked.")
+            fauxAssistantMessage("Mode checked.")
           ]);
           const judge = fauxProvider({ provider: "pstack-runtime-judge", models: [{ id: "native", reasoning: true }] });
           const opinion = (_context, options) =>
@@ -292,17 +286,6 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           judge.setResponses([opinion, opinion]);
           pi.registerProvider(main.provider);
           pi.registerProvider(judge.provider);
-          for (const name of ["pstack-visible-probe", "pstack-hidden-probe"]) {
-            pi.registerTool({ name, label: name, description: name, parameters: Type.Object({}),
-              async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; } });
-          }
-          pi.registerTool({ name: "pstack-policy-probe", label: "policy", description: "policy",
-            parameters: Type.Object({}), prepareLoadout: () => ({ hiddenDeclarations: hidden ? ["pstack-hidden-probe"] : [] }),
-            async execute() { return { content: [{ type: "text", text: "ok" }], details: {} }; } });
-          pi.registerTool({ name: "pstack-toggle-probe", label: "toggle", description: "toggle",
-            parameters: Type.Object({}), async execute() { hidden = true; return { content: [], details: {} }; } });
-          pi.registerCommand("pstack-test-hide", { handler: async () => { hidden = true; } });
-          pi.registerCommand("pstack-test-show", { handler: async () => { hidden = false; } });
           pi.registerCommand("pstack-test-navigate", { handler: async (id, ctx) => {
             await ctx.navigateTree(id.trim(), { summarize: false });
           } });
@@ -310,7 +293,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
       `);
       const runtimeArgs = [...args.filter((arg) => arg !== "--no-session"), "-e", runtimeProbe,
         "--provider", "pstack-runtime-main", "--model", "native"];
-      await withRpc(cli, runtimeArgs, options, async (request, events, waitForEvent) => {
+      await withRpc(cli, runtimeArgs, options, async (request, events, waitForEvent, respond) => {
         async function command(message) {
           const before = events.length;
           const result = await request({ type: "prompt", message });
@@ -331,16 +314,27 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           }
         }
         assert.match(await command("/pstack-mode status"), /mode is off/);
-        assert.match(await command("/pstack-mode on"), /mode is on/);
+        const pick = async (value) => {
+          const before = events.length;
+          const pending = request({ type: "prompt", message: "/pstack-mode" });
+          const dialog = await Promise.race([
+            pending,
+            waitForEvent((event) => event.method === "select" && events.indexOf(event) >= before),
+          ]);
+          assert.equal(dialog?.method, "select", JSON.stringify(dialog));
+          assert.deepEqual(dialog.options, ["on", "status"]);
+          respond({ id: dialog.id, ...(value ? { value } : { cancelled: true }) });
+          assert.equal((await pending).success, true);
+        };
+        await pick();
+        assert.match(await command("/pstack-mode status"), /mode is off/);
+        await pick("on");
+        assert.equal(events.findLast((event) => event.method === "setStatus" && event.statusKey === "pstack-mode")?.statusText, "pstack: on");
         const entries = await request({ type: "get_entries" });
         const enabledEntry = entries.data.entries.findLast((entry) => entry.type === "custom" && entry.customType === "pstack-mode" && entry.data.enabled);
         assert.ok(enabledEntry);
 
-        await command("/pstack-test-hide");
-        const capabilities = await run("Check the pstack loadout.", "capability-check");
-        assert.equal(capabilities.isError, false, JSON.stringify(capabilities));
-        assert.ok(capabilities.result.details.tools.some(({ name, parameters }) => name === "pstack-visible-probe" && parameters));
-        assert.ok(!JSON.stringify(capabilities.result).includes("pstack-hidden-probe"), JSON.stringify(capabilities));
+        await run("Check the enabled mode.");
         const messages = await request({ type: "get_messages" });
         assert.ok(messages.data.messages.some((message) => message.role === "system" &&
           message.sections?.pstack_mode?.includes("Persistent pstack mode is on.")), JSON.stringify(messages));
@@ -358,16 +352,12 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.match(suffixed.result.content[0].text, /Pass reasoning separately/);
 
         assert.match(await command("/pstack-mode off"), /mode is off/);
+        assert.equal(events.findLast((event) => event.method === "setStatus" && event.statusKey === "pstack-mode")?.statusText, undefined);
         await command(`/pstack-test-navigate ${enabledEntry.id}`);
         assert.match(await command("/pstack-mode status"), /mode is on/);
         await run("Continue on the restored branch.");
         const state = await request({ type: "get_state" });
         assert.ok(state.data.sessionFile);
-        await command("/pstack-test-show");
-        const refreshed = await run("Recheck after the tool loadout refreshes.", "capability-after-refresh");
-        assert.equal(refreshed.isError, false, JSON.stringify(refreshed));
-        assert.match(refreshed.result.details.visibility, /unknown/);
-        assert.ok(!JSON.stringify(refreshed.result).includes("pstack-hidden-probe"), JSON.stringify(refreshed));
         assert.equal((await request({ type: "new_session" })).success, true);
         assert.match(await command("/pstack-mode status"), /mode is off/);
         assert.equal((await request({ type: "switch_session", sessionPath: state.data.sessionFile })).success, true);
@@ -406,7 +396,6 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             assert.ok(read && !read.isError, JSON.stringify(read));
             const content = read.result.content.map((part) => part.text ?? "").join("\n");
             assert.match(content, /Pi execution contract/);
-            if (delegationSkills.includes(name)) assert.match(content, /inline route/);
           }
         });
     });

@@ -5,11 +5,11 @@ description: "Use for \"how does X work\", code walkthroughs before changing som
 
 # How
 
-Read [the Pi execution contract](../../docs/harness/pi.md) and select the authorized delegated or inline route. Recheck before delegation. Report self-performed work and any loss of independence, isolation, model diversity, or parallelism.
+Read [the Pi execution contract](../../docs/harness/pi.md) once when needed for this session.
 
 Explore the codebase to answer "how does X work?" questions. Produce architectural explanations at the level of a senior engineer onboarding onto a subsystem, enough to build a working mental model, not so much that it reads like annotated source code.
 
-Use authorized read-only explorers and an explainer when a provider can supply them. Honor available `how explorer` and `how explainer` model choices from `~/.pi/agent/pstack-models.md`; otherwise inherit the session model. Without a usable provider, read the same sources and perform the same exploration and synthesis yourself. Label the explanation self-performed, not an independent review.
+Use authorized read-only explorers and an explainer when independent perspectives or parallel investigation help. Honor available `how explorer` and `how explainer` model choices from `~/.pi/agent/pstack-models.md`; otherwise inherit the session model. For inline work, read the sources and explain them yourself. Identify the route only when the user requested independent exploration or it materially limits the answer.
 
 ## 1. Assess complexity
 
@@ -30,7 +30,7 @@ Once the exploration is complete, synthesize with `references/explainer-prompt.m
 
 ## 4. Present
 
-Present the explanation, verify its source citations, and identify whether it was self-performed.
+Present the explanation and verify its source citations.
 
 ## Output format
 

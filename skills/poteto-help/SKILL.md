@@ -10,8 +10,8 @@ Read [the Pi execution contract](../../docs/harness/pi.md). Answer the user's he
 ## Get started
 
 1. Install the package as described in `<pstack>/README.md`. It supplies skills for the latest supported Pi hosts; it does not require Cursor at runtime.
-2. Invoke `/skill:poteto-mode` for a task, or use `/pstack-mode on`, `off`, and `status` to manage the persistent mode for the current session branch. Respect resource exclusions. A clear prompt names the goal, proof, and any real hold.
-3. Run `/skill:setup-pstack` only if the user wants per-role model choices. Without those choices, workflows inherit the session model. Independent delegation is optional; when unavailable, workflows run the same substantive checks inline and label the loss of independence. Live interaction, real approvals, and required external gates still need their actual prerequisites.
+2. Invoke `/skill:poteto-mode` for a task, or open `/pstack-mode` to manage the persistent mode for the current session branch. The command also accepts `on`, `off`, and `status` directly. Respect resource exclusions. A clear prompt names the goal, proof, and any real hold.
+3. Run `/skill:setup-pstack` only if the user wants per-role model choices. Without those choices, workflows inherit the session model. Delegate when an independent perspective or parallel work helps; otherwise run the substantive checks inline. Review verdicts identify whether the review was independent or self-performed. Live interaction, real approvals, and required external gates still need their actual prerequisites.
 
 Use the installed skill and [playbook index](../poteto-mode/SKILL.md) for current behavior. The references below provide example prompts and do not imply a scheduler, provider, or model exists.
 
