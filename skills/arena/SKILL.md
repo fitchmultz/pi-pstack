@@ -20,13 +20,13 @@ Every candidate gets the same prompt, so the prompt is the contract.
 
 ## Phase B: Candidates
 
-With an authorized provider, launch candidates with its actual schema and lifecycle. Give each the same task, shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming alternatives considered and rejected. Read actual completed results.
+With an authorized provider, launch candidates together in the background using its actual schema and lifecycle. Give each the same task, shared grounding, its own output path, and instructions to produce the artifact and a short rationale naming alternatives considered and rejected. Continue independent work or end the turn until completion notifications arrive. Read actual completed results.
 
 Without a usable provider, create the same candidate artifacts serially in their own locations. Record that there was no parallel race or independent author. If a candidate produces no output, report the dropout; create a replacement when the required candidate count is not met.
 
 ## Phase C: Cross-judge
 
-After all candidates finish, request an independent read-only judge when an authorized provider and suitable model are available. Give it the rubric and candidate paths; it scores each criterion and recommends a base with rationale. Do not start it while candidates are still writing.
+After all candidates finish, launch an independent read-only judge in the background when an authorized provider and suitable model are available. Give it the rubric and candidate paths; it scores each criterion and recommends a base with rationale. Do not start it while candidates are still writing.
 
 Otherwise score each candidate yourself against the same rubric and state that the judge was not independent. An optional `pstack_opinion` may provide a text-only perspective on supplied material, but cannot inspect files or count as a tool-using judge.
 

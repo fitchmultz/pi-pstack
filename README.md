@@ -30,11 +30,17 @@ The bundled workflows and playbooks can use authorized delegates or run inline. 
 
 With the profile-based `pi-subagents` npm package, discover its advertised `subagents_enable` loader and profiles before delegating. With `@fitchmultz/pi-subagents`, use its actual `delegate` and run-control tools. Availability does not prove permission, completion, or model diversity.
 
+Delegated workers, reviewers, candidates, judges, and continuations run in the background. Launch independent work together, continue the main task, and use completion notifications rather than polling. If the next step needs a pending result, end the turn without claiming the task is complete. Both bundled profiles select background execution. Provider-specific launch, resume, and cancellation behavior is described in [Keep the main agent responsive](./docs/harness/pi.md#keep-the-main-agent-responsive).
+
 Optional providers include `pi-subagents` for delegation, `pi-ask-question` for dialogs, `pi-posthorse` for notes/history, `pi-agent-skills` for additional cleanup/browser guidance, `macuse` for native app driving, and the Pi fork's `background_command` for detached finite watchers. Use only available tools and their actual schemas. Ordinary questions, task-owned files, native shell commands, and repository-owned verification drivers cover their corresponding standalone cases. A missing required live driver or scheduler remains a real gap.
 
 Use Pi's visible tools and advertised discovery to find capabilities. The package exposes `pstack_opinion` to ask a configured `provider/model` for a text-only opinion on supplied material. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
 
 `pstack_opinion` accepts an optional `reasoning` field for that request, without changing global settings. For example, pass `model: "provider/model-id"` and `reasoning: "max"` as separate fields, not `model: "provider/model-id:max"`.
+
+In persistent sessions on the Pi fork, `pstack_opinion` returns a background receipt immediately. Continue independent work while Pi waits for the model. Pi delivers the answer or error automatically and records its usage once. A receipt is not a completed opinion.
+
+Call the tool directly for background work. To await the answer, pass `background: false`; nested callers such as `codemode` must use that option and own background execution themselves. Official Pi and one-shot print/JSON sessions default to foreground. Explicit `background: true` requires the fork's native background-run API and a host that stays open for completion. Stopping, reloading, leaving the session branch, or exiting cancels pending opinions. Runs do not survive a process restart.
 
 `/skill:make-bot-ui` guides creation of a user-owned browser UI, authenticated webhook, and dedicated Pi RPC session. It starts no listener when pstack loads. A requested remote-access or unattended deployment still needs the user's real network and host setup.
 

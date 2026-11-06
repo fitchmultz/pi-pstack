@@ -92,6 +92,8 @@ The summaries below guide ordinary work. Read a leaf skill when its detailed pro
 
 Use the [Pi execution contract](../../docs/harness/pi.md) for each delegated step. Give an authorized provider the complete task, scope, evidence, authority, and output path using its actual schema. When the provider supports package profiles, discover `poteto-agent` or another requested role; otherwise supply its role instructions in the assignment. Honor user and project restrictions. A launch receipt is not a completed result.
 
+Keep delegation in the background, including resumed workers and model consultations. Launch independent work together, then continue your own work. If only a pending result remains, end the turn and let its completion notification resume you. Do not block a foreground tool or poll for completion. Follow the adapter's provider-specific launch and cancellation controls.
+
 Use configured Pi model-role choices when available; otherwise inherit the current session model. Choose only real provider/model IDs. Do not invent a model family or silently call repeated work a diverse panel.
 
 Delegate when an independent perspective or parallel work helps. Otherwise perform the task and checks yourself. Identify self-review when reporting a review verdict; ordinary inline work needs no disclaimer. Review actual delegate results and diffs before integrating them. Resume an existing run when its retained context is useful.

@@ -267,11 +267,11 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           main.setResponses([
             fauxAssistantMessage("Mode enabled."),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
-              model: "pstack-runtime-judge/native", question: "Review the supplied text.", context: "A short document."
+              model: "pstack-runtime-judge/native", background: false, question: "Review the supplied text.", context: "A short document."
             }, { id: "opinion-check" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Opinion received."),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
-              model: "pstack-runtime-judge/native", reasoning: "max", question: "Review the supplied text."
+              model: "pstack-runtime-judge/native", background: false, reasoning: "max", question: "Review the supplied text."
             }, { id: "opinion-reasoning-check" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Reasoned opinion received."),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
@@ -363,6 +363,115 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.equal((await request({ type: "switch_session", sessionPath: state.data.sessionFile })).success, true);
         assert.match(await command("/pstack-mode status"), /mode is on/);
       });
+    });
+    await t.test("opinions return before inference and deliver once, or cancel with the session", async (t) => {
+      const opinionProbe = join(temp, "opinion-probe.mjs");
+      writeFileSync(opinionProbe, `
+        import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          let release;
+          const main = fauxProvider({ provider: "pstack-async-main", models: [{ id: "native" }] });
+          const judge = fauxProvider({ provider: "pstack-async-judge", models: [{ id: "native", reasoning: true }] });
+          main.setResponses([
+            fauxAssistantMessage([fauxToolCall("opinion_host", {}, { id: "host-check" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage("Host checked."),
+          ]);
+          pi.registerTool({ name: "opinion_host", label: "Host", description: "Inspect host support.",
+            parameters: { type: "object", properties: {} },
+            async execute(_id, _params, _signal, _update, ctx) {
+              return { content: [{ type: "text", text: String(typeof ctx.runInBackground === "function") }],
+                details: {} };
+            }
+          });
+          pi.registerCommand("opinion-prepare", { handler: async (kind, ctx) => {
+            main.appendResponses([
+              fauxAssistantMessage([fauxToolCall("pstack_opinion", {
+                model: "pstack-async-judge/native", reasoning: "max",
+                question: "Review this.", context: "Supplied material."
+              }, { id: "async-" + kind })], { stopReason: "toolUse" }),
+              fauxAssistantMessage("Main continued while the opinion was pending."),
+              ...(kind === "cancel" ? [] : [fauxAssistantMessage("Opinion delivered.")])
+            ]);
+            judge.appendResponses([async (_context, options) => {
+              ctx.ui.notify("judge-started", "info");
+              await new Promise((resolve) => {
+                release = resolve;
+                options.signal.addEventListener("abort", () => {
+                  ctx.ui.notify("judge-aborted", "info");
+                  resolve();
+                }, { once: true });
+              });
+              return fauxAssistantMessage("Opinion answer. Reasoning: " + options.reasoning, {
+                stopReason: kind === "error" ? "error" : "stop",
+                ...(kind === "error" ? { errorMessage: "Judge failed." } : {})
+              });
+            }]);
+          } });
+          pi.registerCommand("opinion-release", { handler: async () => { release(); } });
+          pi.registerProvider(main.provider);
+          pi.registerProvider(judge.provider);
+        }
+      `);
+      await withRpc(cli, [...args, "-e", opinionProbe, "--provider", "pstack-async-main", "--model", "native"],
+        options, async (request, events, waitForEvent) => {
+          assert.equal((await request({ type: "prompt", message: "Check host support." })).success, true);
+          const host = await waitForEvent((event) => event.type === "tool_execution_end" && event.toolCallId === "host-check");
+          await waitForEvent((event) => event.type === "agent_settled");
+          if (host.result.content[0].text !== "true") {
+            t.skip("This host has no native background tool runs; foreground opinions are checked separately.");
+            return;
+          }
+          for (const kind of ["success", "error", "cancel"]) {
+            assert.equal((await request({ type: "prompt", message: `/opinion-prepare ${kind}` })).success, true);
+            const before = events.length;
+            assert.equal((await request({ type: "prompt", message: "Ask for an opinion." })).success, true);
+            await waitForEvent((event) => events.indexOf(event) >= before &&
+              event.method === "notify" && event.message === "judge-started");
+            let watchdog;
+            try {
+              const settled = await Promise.race([
+                waitForEvent((event) => events.indexOf(event) >= before && event.type === "agent_settled"),
+                new Promise((resolve) => { watchdog = setTimeout(() => resolve(undefined), 5000); }),
+              ]);
+              assert.ok(settled, "Main must continue before the pending opinion is released");
+              const receipt = events.slice(before).find((event) =>
+                event.type === "tool_execution_end" && event.toolCallId === `async-${kind}`);
+              assert.equal(receipt.isError, false, JSON.stringify(receipt));
+              assert.equal(receipt.result.details.runId, `async-${kind}`);
+              assert.equal(receipt.result.usage, undefined);
+              assert.ok(!events.slice(before).some((event) => event.message?.customType === "pstack-opinion"));
+              const continued = events.slice(before).find((event) => event.type === "message_end" &&
+                event.message.role === "assistant" && event.message.content.some((part) =>
+                  part.type === "text" && part.text === "Main continued while the opinion was pending."));
+              assert.ok(continued);
+              if (kind === "cancel") {
+                assert.equal((await request({ type: "abort" })).success, true);
+                await waitForEvent((event) => events.indexOf(event) >= before &&
+                  event.method === "notify" && event.message === "judge-aborted");
+              } else {
+                assert.equal((await request({ type: "prompt", message: "/opinion-release" })).success, true);
+                const completion = await waitForEvent((event) => events.indexOf(event) >= before &&
+                  event.type === "message_end" && event.message.customType === "pstack-opinion");
+                assert.equal(completion.message.details.runId, `async-${kind}`);
+                assert.equal(completion.message.details.isError, kind === "error");
+                assert.match(completion.message.content.map((part) => part.text).join(""),
+                  kind === "error" ? /Judge failed/ : /Opinion answer.*Reasoning: max/);
+                await waitForEvent((event) => events.indexOf(event) > events.indexOf(completion) &&
+                  event.type === "agent_settled");
+              }
+              const entries = (await request({ type: "get_entries" })).data.entries;
+              assert.equal(entries.filter((entry) => entry.type === "custom_message" &&
+                entry.customType === "pstack-opinion" && entry.details.runId === `async-${kind}`).length,
+              kind === "cancel" ? 0 : 1);
+              const usage = entries.filter((entry) => entry.type === "usage" && entry.kind === "pstack-opinion");
+              assert.equal(usage.length, ["success", "error", "cancel"].indexOf(kind) + 1);
+              if (kind !== "cancel") assert.ok(usage.at(-1).usage.totalTokens > 0);
+            } finally {
+              clearTimeout(watchdog);
+              await request({ type: "abort" });
+            }
+          }
+        });
     });
     await t.test("each user-facing skill reaches Pi directly and through a nested read without delegation", async () => {
       const workflowSkills = expected.filter((name) => !name.startsWith("principle-"));
@@ -523,6 +632,9 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         const listed = results.find(({ toolCallId }) => toolCallId === "profiles");
         assert.deepEqual(listed.result.details.agentCapabilities.agents
           .filter(({ source }) => source === "package").map(({ name }) => name).sort(), ["comment-sicko", "poteto-agent"]);
+        for (const profile of listed.result.details.agentCapabilities.agents.filter(({ source }) => source === "package")) {
+          assert.equal(profile.execution.defaultAsync, true, `${profile.name} must default to background execution`);
+        }
         for (const name of ["comment-sicko", "poteto-agent"]) {
           const result = results.find(({ toolCallId }) => toolCallId === name);
           const text = result.result.content.find(({ type }) => type === "text").text;
@@ -562,7 +674,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
       }
     });
 
-    await t.test("configured fitchmultz pi-subagents package admits delegation and completes a delegated run", {
+    await t.test("configured fitchmultz pi-subagents launches and continues without blocking the parent", {
       skip: !process.env.PI_FITCH_SUBAGENTS_INDEX && "Set PI_FITCH_SUBAGENTS_INDEX to qualify the configured provider",
     }, async () => {
       const entry = realpathSync(process.env.PI_FITCH_SUBAGENTS_INDEX);
@@ -596,36 +708,68 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
 
         // Pi's built-in faux model answers offline, both here and in the provider's real child process.
         const scripted = agentFor("faux-agent");
+        const releaseChild = join(temp, "release-child");
         writeFileSync(join(scripted.env.PI_CODING_AGENT_DIR, "extensions", "faux.js"), `
+          import { existsSync } from "node:fs";
+          import { setTimeout } from "node:timers/promises";
           import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
           const text = ({ content }) => typeof content === "string" ? content : content.map((part) => part.text ?? "").join("");
-          function reply({ messages }) {
+          async function reply({ messages }, options) {
             const last = text(messages.at(-1));
-            if (last === "pstack-child-assignment") return fauxAssistantMessage("PSTACK_CHILD_RESULT");
+            if (last === "pstack-child-assignment" || last === "pstack-child-followup") {
+              while (!existsSync(${JSON.stringify(releaseChild)})) await setTimeout(20, undefined, { signal: options.signal });
+              return fauxAssistantMessage("PSTACK_CHILD_RESULT");
+            }
             if (last.startsWith('<skill name="how"')) {
               return fauxAssistantMessage(fauxToolCall("delegate", { prompt: "pstack-child-assignment" }), { stopReason: "toolUse" });
+            }
+            if (last.startsWith("pstack-continue:")) {
+              return fauxAssistantMessage(fauxToolCall("agent_runs", {
+                action: "continue", id: last.slice("pstack-continue:".length), prompt: "pstack-child-followup"
+              }), { stopReason: "toolUse" });
             }
             return fauxAssistantMessage(last.includes("PSTACK_CHILD_RESULT") ? "PSTACK_PARENT_DONE" : "PSTACK_PARENT_WAITING");
           }
           export default function (pi) {
             const model = fauxProvider({ provider: "pstack-faux", models: [{ id: "native" }] });
-            model.setResponses([reply, reply, reply]);
+            model.setResponses(Array(10).fill(reply));
             pi.registerProvider(model.provider);
           }
         `);
-        await withRpc(cli, [...args, "--provider", "pstack-faux", "--model", "native"], scripted, async (request, _events, waitForEvent) => {
-          const started = await request({ type: "prompt", message: "/skill:how audit" });
-          assert.equal(started.success, true, JSON.stringify(started));
-          assert.equal(started.data.disposition, "started");
-          // agent_end ends every run, including a failed one. Pi steers the provider's completion notice into
-          // the prompt's run while it is still streaming; otherwise the notice starts the next run.
-          const launched = await waitForEvent((event) => event.type === "agent_end");
-          assert.ok(launched?.messages.some(({ role, toolName, isError }) => role === "toolResult" && toolName === "delegate" && !isError),
-            `delegate did not launch the child: ${JSON.stringify(launched?.messages.slice(-2))}`);
-          const notified = launched.messages.some(({ role, customType }) => role === "custom" && customType === "agent-completion");
-          const relayed = notified ? launched : await waitForEvent((event) => event.type === "agent_end" && event !== launched);
-          assert.ok(relayed?.messages.some(({ role, content }) => role === "assistant" && content.some((part) => part.text === "PSTACK_PARENT_DONE")),
-            `The parent did not relay its delegated child's result: ${JSON.stringify(relayed?.messages.slice(-2))}`);
+        await withRpc(cli, [...args, "--provider", "pstack-faux", "--model", "native"], scripted, async (request, events, waitForEvent) => {
+          let runId;
+          for (const toolName of ["delegate", "agent_runs"]) {
+            rmSync(releaseChild, { force: true });
+            const before = events.length;
+            const started = await request({ type: "prompt",
+              message: runId ? `pstack-continue:${runId}` : "/skill:how audit" });
+            assert.equal(started.success, true, JSON.stringify(started));
+            assert.equal(started.data.disposition, "started");
+            let watchdog;
+            try {
+              const settled = await Promise.race([
+                waitForEvent((event) => events.indexOf(event) >= before && event.type === "agent_settled"),
+                new Promise((resolve) => { watchdog = setTimeout(() => resolve(undefined), 5000); }),
+              ]);
+              assert.ok(settled, `${toolName} must not wait for the child's result`);
+              const receipt = events.slice(before).find((event) => event.type === "tool_execution_end" && event.toolName === toolName);
+              assert.equal(receipt?.isError, false, JSON.stringify(receipt));
+              runId = receipt.result.details.id;
+              assert.ok(runId);
+              assert.equal(receipt.result.details.completed, false);
+              assert.ok(!events.slice(before).some((event) => event.message?.customType === "agent-completion"));
+            } finally {
+              clearTimeout(watchdog);
+              writeFileSync(releaseChild, "finish");
+            }
+            const completion = await waitForEvent((event) => events.indexOf(event) >= before &&
+              event.type === "message_end" && event.message.customType === "agent-completion");
+            assert.equal(completion.message.details.id, runId);
+            assert.match(completion.message.content, /PSTACK_CHILD_RESULT/);
+            await waitForEvent((event) => events.indexOf(event) > events.indexOf(completion) && event.type === "agent_settled");
+            assert.ok(events.slice(before).some((event) => event.type === "message_end" &&
+              event.message.role === "assistant" && event.message.content.some((part) => part.text === "PSTACK_PARENT_DONE")));
+          }
         });
       } finally {
         rmSync(broker, { recursive: true, force: true });
@@ -644,13 +788,23 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
       });
     });
 
-    await t.test("print mode can run the inline route without a delegation provider", () => {
+    await t.test("print mode keeps inline work and default opinions in the foreground", () => {
       const printProbe = join(temp, "print-probe.mjs");
       writeFileSync(printProbe, `
-        import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+        import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
         export default function(pi) {
           const model = fauxProvider({ provider: "pstack-print-probe", models: [{ id: "native" }] });
-          model.setResponses([fauxAssistantMessage("PSTACK_PRINT_INLINE")]);
+          model.setResponses([
+            fauxAssistantMessage(fauxToolCall("pstack_opinion", {
+              model: "pstack-print-probe/native", question: "Review this text."
+            }), { stopReason: "toolUse" }),
+            fauxAssistantMessage("PSTACK_PRINT_OPINION"),
+            ({ messages }) => {
+              const opinion = messages.findLast((message) => message.role === "toolResult" && message.toolName === "pstack_opinion");
+              return fauxAssistantMessage(opinion?.content.some((part) => part.text?.includes("PSTACK_PRINT_OPINION"))
+                ? "PSTACK_PRINT_INLINE" : "Opinion missing from foreground result.");
+            }
+          ]);
           pi.registerProvider(model.provider);
         }
       `);
