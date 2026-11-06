@@ -1,0 +1,66 @@
+# Opinion model contract
+
+`pstack_opinion` is a single text consultation, not a second tool-using Pi agent. This inventory separates what the code enforces from what the prompt asks the model to do. The card renderer does not change this contract.
+
+## Scope and sources
+
+The audited call is [extensions/index.js:172–224 at 10ddc15][call], the implementation shipped in PR #28. These pinned line references remain valid when renderer registration moves the surrounding lines. The renderer change adds an import and registration only; it leaves the tool schema, prompt, request, and result handling unchanged.
+
+Host contracts were checked against official Pi **1.5.0** and fork **e6c04cb27845611fb0be62652b7e03e2fc4caf74**, the latest release and fork head checked on 2026-11-06. A registered provider can have its own server-side behavior. Omitting Pi tools is not a sandbox around provider code or its service.
+
+## Limit inventory
+
+“Deliberate” below means the restriction implements the documented supplied-text consultation, or follows the selected native API. It does not mean that broader capabilities would be impossible or undesirable in a different tool.
+
+| Limitation or capability | Kind | Evidence and enforcement | Assessment |
+| --- | --- | --- | --- |
+| No host tools are offered: no file reads or writes, shell, browser, MCP, or delegation. | Tool exclusion | `extensions/index.js:199–202` supplies no `tools`. There is no `executeTool` or agent loop. Pi's [context normalization][normalize] only adds tool declarations when supplied. This is enforced by the request and absence of execution, not merely the “no tools” prompt. | Deliberate. This is one all-tools exclusion, not a selective allowlist. |
+| No independent local repository inspection, test execution, UI driving, or live verification through Pi. | Capability unavailable | `extensions/index.js:199–202` and the absence of a tool-execution loop. The prompt at line 200 also states the limitation. | Deliberate consequence of no tools. “Cannot verify an application” is too broad if read as “cannot analyze supplied evidence.” |
+| No inherited conversation, previous tool results, parent system prompt, project instructions, skills, or automatic file retrieval. | Other exclusion: context | `extensions/index.js:197–202` constructs one user message from `question` and optional `context`, with a separate fixed system prompt. No parent messages or resource-loader output are copied. | Deliberate isolation. A path or URL in the text is not automatically opened. The caller must supply relevant material. |
+| Input is text only; there is no image, audio, document-attachment, or structured multimodal input field. | Other exclusion: input modalities | String fields at `extensions/index.js:186–187`, closed schema at line 191, string message content at line 201. | Deliberate text-only interface. A vision-capable model does not receive image blocks through this tool. |
+| One explicitly named registered chat model per call. No default parent-model selection, fuzzy matching, or automatic alternate-model retry is implemented here. | Capability boundary: model selection | `extensions/index.js:182,193–196` requires `provider/model` and resolves it with `modelRegistry.find`. Native [ModelRegistry.find][registry] delegates to the host runtime; `streamSimple` requires a chat model. | Deliberate explicit selection. It does not restrict model families, providers, or the session's configured model scope itself. Authentication and provider routing remain host-owned. A registered virtual model can still route through Pi. |
+| Reasoning can be requested at `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; no custom token budget or literal `off` parameter. | Capability boundary: request options | `extensions/index.js:183–185,202` validates those values and forwards them. This matches native [`SimpleStreamOptions.reasoning`][simple-options] and [`ThinkingLevel`][thinking-levels]. Omission passes `undefined`; it does not copy the parent's reasoning level. | Deliberate native API use, not an invented cap. The provider decides how a supported setting maps to inference. Omitting reasoning is not a portable promise that a reasoning-capable model will perform no internal reasoning. |
+| No caller-selected system prompt or extra inference controls such as temperature, maximum output tokens, thinking budgets, or deferred-provider mode. | Other exclusion: request controls | `extensions/index.js:181–191,199–202` exposes a closed parameter set and forwards only cancellation and reasoning. | Deliberate small interface. Model/provider defaults still apply; the tool does not impose its own numeric limits. |
+| The model is asked for a text-only opinion and to distinguish observations from uncertainty. | Capability guidance, not a hard constraint | Fixed prompt at `extensions/index.js:200`. No response schema or semantic validator checks that the answer is an opinion, accurate, cautious, or grounded. | Deliberate instructions, prompt-only. They do not guarantee factual accuracy or prohibit code, calculations, Markdown, recommendations, or use of learned knowledge in the text answer. |
+| One provider response; no tool round trips, interactive follow-up, retained child conversation, or resume handle. | Capability unavailable: agent lifecycle | One `streamSimple(...).result()` at `extensions/index.js:199–202`, followed by result construction. The run ID at line 218 belongs to background delivery, not a resumable model chat. | Deliberate one-shot consultation. A later opinion call starts another supplied-text request. |
+| Only final text blocks are returned. Thinking blocks, tool-call blocks, and any other non-text blocks are not included in the opinion result. | Other exclusion: output projection | `extensions/index.js:203` filters by `part.type === "text"`. | Deliberate text result, but this is output filtering, not prevention of reasoning. A model can reason internally or emit thinking that the parent never sees. Usage is retained at lines 207 and 210. |
+| No token-by-token opinion progress reaches the parent or card. | Capability unavailable: streaming presentation | `.result()` at `extensions/index.js:202` waits for the final response; `_onUpdate` at line 192 is unused. | Deliberate completion-only delivery. The underlying model request still streams through Pi. This does not make the main agent wait when the background route is used. |
+| An error, abort, or attempted tool use returns an error result instead of the partial answer; no requested tool is executed. | Other exclusion: unsuccessful output | `extensions/index.js:205–207` returns the diagnostic and usage, not the extracted text. | Deliberate failure handling. Dropping partial text is a lossy policy, not a provider requirement. |
+| Background work is owned by the current session/process; direct top-level calls only. It is cancelled on native session abort, reload, branch departure, disposal, or exit. | Capability boundary: background lifecycle | `extensions/index.js:212–220` delegates to [native background runs][background]. The host enforces caller ownership and cancellation. | Deliberate native ownership. It is not durable work that survives process exit. |
+| Background opinions default on only in persistent fork TUI/RPC sessions. Official Pi and one-shot print/JSON default to foreground; an unsupported explicit background request fails. | Capability boundary: host/mode | `extensions/index.js:212–218`. Nested callers must use foreground within their own background owner. | Deliberate compatibility behavior. It does not remove official Pi's ability to obtain an opinion. |
+
+## What is not limited by pstack
+
+There is no pstack-specific input length, answer length, token, time, cost, concurrency, model-family, or provider allowlist in this call. No `maxTokens`, temperature, timeout, or extra retry loop is installed at `extensions/index.js:199–202`. This is not a claim of unlimited service: context windows, output limits, reasoning support, request authentication, provider policies, and native transport behavior still apply.
+
+The model can analyze supplied code, propose edits in text, identify contradictions, perform reasoning, and discuss supplied test output. Pstack cannot guarantee correctness, require exclusive reliance on the supplied material, or prevent a configured provider from implementing capabilities on its own server. It offers no host execution mechanism for actions proposed in the answer.
+
+## Findings and minimal recommendations
+
+These are recommendations only. The renderer change does not implement them or alter the limitation set.
+
+1. **Overbroad prompt wording.** At `extensions/index.js:200`, replace “cannot … verify an application” with “cannot independently inspect or execute the application; you can analyze only the evidence supplied here.” Keep the distinction between reviewing evidence and performing live verification.
+2. **Redundant but useful orientation.** “You have no tools” at line 200 repeats the enforced no-tools request. It is not the enforcement mechanism. Keeping the sentence helps avoid misleading claims; no new guard is needed.
+3. **Incomplete-stop reporting.** `extensions/index.js:205–210` rejects only `error`, `aborted`, and `toolUse`. A native `length` response retains its text and names `length`, but is not marked as an error, so the background envelope calls it completed. Native types also include `pending` and `deferred`; this tool does not request deferred mode or implement handle recovery. Recommend explicitly describing an output-limit response as incomplete while preserving its text, and reporting unsupported nonfinal outcomes rather than implying a finished opinion. Do not add an agent loop or custom provider recovery. This is a source-level finding, not a claim that every provider returns these outcomes here.
+4. **Lossy unsuccessful answers.** Lines 205–207 discard any partial text on an error, abort, or tool-use stop. If partial analysis is valuable, return it alongside the error without treating it as complete. That would be a separate output-policy decision.
+
+No arbitrary numeric cap or selective tool exclusion was found. Text-only input, explicit model selection, and a single non-tool response are product choices supported by the documented purpose. They should not be silently expanded as part of a rendering fix.
+
+## Completion-card contract
+
+Both supported hosts expose `registerMessageRenderer(customType, renderer)`. Their [official renderer contract][official-renderer] and [fork renderer contract][fork-renderer] pass the message, `expanded`, `outputPad`, and keybinding hints. The fork also passes optional `compactView`; official Pi omits it. The renderer uses `compactView = false` when omitted.
+
+The host does not export one universal configurable card-height limit. Its generic tool-result fallback uses **10 preview lines**: [official source][official-tool] and [fork source][fork-tool]. Pstack uses that same allowance but applies the public `truncateToVisualLines` helper after Markdown layout so a long paragraph cannot evade it by wrapping. The title, padding, and expand hint are outside the ten body lines. The fork's compact tool presentation keeps **two nonempty rows**, so the compact opinion card uses one title row and one body row. Expanded cards show the full Markdown in either mode. Pi's own compact Activity group can also hide the card until the group is opened.
+
+Only presentation is shortened. The original custom-message content remains unchanged in the journal and model context. Ctrl+O uses Pi's native `app.tools.expand` action, including remapped key hints. Clicking the card invokes the host's tools-expanded control. There is no new keyboard parser or stored opinion copy.
+
+[call]: https://github.com/fitchmultz/pi-pstack/blob/10ddc15641a8bd666dcda1ee83b96962b40e5c61/extensions/index.js#L172-L224
+[normalize]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/ai/src/utils/transcript.ts
+[registry]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/coding-agent/src/core/model-registry.ts
+[simple-options]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/ai/src/types.ts
+[thinking-levels]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/ai/src/providers/model-schema.ts
+[background]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/coding-agent/docs/extensions.md#background-tool-runs
+[official-renderer]: https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/src/core/extensions/types.ts
+[fork-renderer]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/coding-agent/src/core/extensions/types.ts
+[official-tool]: https://github.com/earendil-works/pi/blob/v1.5.0/packages/coding-agent/src/modes/interactive/components/tool-execution.ts
+[fork-tool]: https://github.com/fitchmultz/pi/blob/e6c04cb27845611fb0be62652b7e03e2fc4caf74/packages/coding-agent/src/modes/interactive/components/tool-execution.ts#L25

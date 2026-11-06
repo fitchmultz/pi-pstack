@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { registerOpinionRenderer } from "./opinion-renderer.js";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const UPSTREAM_FILE = join(PACKAGE_ROOT, "upstream.json");
@@ -80,6 +81,7 @@ async function fetchLatestUpstreamCommit(signal) {
 }
 
 export default function piPstackExtension(pi) {
+  registerOpinionRenderer(pi);
   let activeController;
   let modeEnabled = false;
   let modeRequested = false;

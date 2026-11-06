@@ -41,7 +41,7 @@ function resolveHostIndex() {
 }
 
 const hostIndex = resolveHostIndex();
-const { DefaultResourceLoader, SettingsManager } = await import(hostIndex);
+const { CustomMessageComponent, DefaultResourceLoader, SettingsManager, initTheme } = await import(hostIndex);
 const root = fileURLToPath(new URL("..", import.meta.url));
 const upstream = JSON.parse(readFileSync(join(root, "upstream.json"), "utf8"));
 const delegationSkills = [
@@ -166,6 +166,46 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
     }
     assert.deepEqual(loader.getExtensions().errors, []);
     assert.equal(loader.getExtensions().extensions.length, 1);
+    await t.test("opinion completion cards bound wrapped previews and retain the full expanded content", () => {
+      initTheme("dark");
+      const renderer = loader.getExtensions().extensions[0].messageRenderers.get("pstack-opinion");
+      assert.equal(typeof renderer, "function");
+      for (const content of [
+        Array.from({ length: 30 }, (_, i) => `Opinion line ${i + 1}`).join("\n"),
+        "A long opinion with 中文 and emoji 🧭. ".repeat(80),
+      ]) {
+        for (const isError of [false, true]) {
+          const text = `${content}\nOPINION END`;
+          const message = { role: "custom", customType: "pstack-opinion", display: true,
+            content: [{ type: "text", text }], details: { isError }, timestamp: 0 };
+          const original = structuredClone(message);
+          const card = new CustomMessageComponent(message, renderer, undefined, 2);
+          for (const width of [80, 32, 120]) {
+            const collapsed = card.render(width);
+            // Native fallback tool output shows ten preview lines, plus its hint and shell.
+            assert.ok(collapsed.length <= 15, `Unbounded preview at width ${width}: ${collapsed.length}`);
+            assert.match(collapsed.join("\n"), /to expand/);
+            assert.doesNotMatch(collapsed.join("\n"), /OPINION END/);
+            card.setExpanded(true);
+            assert.match(card.render(width).join("\n"), /OPINION END/);
+            assert.ok(card.render(width).length > collapsed.length);
+            card.setExpanded(false);
+            card.invalidate();
+          }
+          if (typeof card.setCompactView === "function") {
+            card.setCompactView(true);
+            // Native compact tools show two nonempty rows, plus the message's leading spacer.
+            assert.equal(card.render(80).length, 3);
+            card.setExpanded(true);
+            assert.match(card.render(80).join("\n"), /OPINION END/);
+            card.setExpanded(false);
+            card.setCompactView(false);
+            assert.ok(card.render(80).length > 3);
+          }
+          assert.deepEqual(message, original, "Rendering must not trim the delivered opinion");
+        }
+      }
+    });
     writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [packedRoot] }));
     const env = {
       HOME: temp,
