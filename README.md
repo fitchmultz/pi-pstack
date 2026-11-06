@@ -40,6 +40,8 @@ Use Pi's visible tools and advertised discovery to find capabilities. The packag
 
 In persistent sessions on the Pi fork, `pstack_opinion` returns a background receipt immediately. Continue independent work while Pi waits for the model. Pi delivers the answer or error automatically and records its usage once. A receipt is not a completed opinion.
 
+Delivered opinions use a bounded card preview. Ctrl+O expands the full answer, and the Pi fork's compact view uses two rows. The complete opinion stays in the session. See [Opinion model contract](./docs/opinion-model-contract.md) for the enforced limits, prompt-only instructions, source references, and recommendations.
+
 Call the tool directly for background work. To await the answer, pass `background: false`; nested callers such as `codemode` must use that option and own background execution themselves. Official Pi and one-shot print/JSON sessions default to foreground. Explicit `background: true` requires the fork's native background-run API and a host that stays open for completion. Stopping, reloading, leaving the session branch, or exiting cancels pending opinions. Runs do not survive a process restart.
 
 `/skill:make-bot-ui` guides creation of a user-owned browser UI, authenticated webhook, and dedicated Pi RPC session. It starts no listener when pstack loads. A requested remote-access or unattended deployment still needs the user's real network and host setup.
