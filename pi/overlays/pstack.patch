@@ -1314,7 +1314,7 @@ index cc7a4e6828f5bfc3bcbf5954876358074718f45c..2318dff237e3b879e58da244f249d179
 +- `/skill:reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
 +- `/skill:bro` restates the last reply in plain words.
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..297e1e7f2504954978cb7f160c3734cec55d8d35 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..7bc85a64ed016bfe1de6e8b8223cdd6fa899c6e1 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
 @@ -1,57 +1,56 @@
@@ -1324,7 +1324,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..297e1e7f2504954978cb7f160c3734ce
 -disable-model-invocation: true
 -icon: crown
 -color: yellow
-+description: "poteto's style: concise answers, deliberate subagents, simple code, verified work. Use for poteto, /poteto-mode, or this style."
++description: "poteto's style: concise answers, deliberate subagents, simple code, verified work. Use for poteto, /skill:poteto-mode, or this style."
  ---
  
  # Poteto mode
