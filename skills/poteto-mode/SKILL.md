@@ -1,6 +1,6 @@
 ---
 name: poteto-mode
-description: "poteto's working style: concise, detailed answers, deliberate subagents, unslopped prose, simple code, and verified work."
+description: "poteto's style: concise answers, deliberate subagents, simple code, verified work. Use when asked for poteto, /skill:poteto-mode, or this working style."
 ---
 
 # Poteto mode
