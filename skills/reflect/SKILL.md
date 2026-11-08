@@ -1,6 +1,7 @@
 ---
 name: reflect
 description: Review the active transcript through three lenses, surface learnings, and route each to a concrete skill edit. Use when the user says reflect.
+disable-model-invocation: true
 ---
 
 # Reflect

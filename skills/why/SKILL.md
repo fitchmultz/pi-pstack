@@ -1,6 +1,6 @@
 ---
 name: why
-description: "Investigate design rationale, regressions, postmortems, or data-backed thresholds using available evidence, and return cited decisions and tradeoffs. Use how for runtime behavior."
+description: "Find the cited rationale behind a design, regression, postmortem, or threshold. Use how for runtime behavior."
 ---
 
 # Why

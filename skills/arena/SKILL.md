@@ -1,6 +1,6 @@
 ---
 name: arena
-description: "Compare candidates for the same task, pick a base, and graft the strongest parts of the others. Use for /skill:arena or when one attempt would lock in the wrong shape."
+description: "Compare candidate solutions to one task, pick a base, and graft in the strongest parts of the others."
 ---
 
 # Arena

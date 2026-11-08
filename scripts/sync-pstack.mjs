@@ -29,7 +29,17 @@ const ADAPTER = "docs/harness/pi.md";
 const OUTPUTS = ["skills", "agents", "LICENSE", "plugin.json"];
 const STAGE = join(ROOT, ".pstack-sync");
 const LINK = /\]\(([^)\s]+)\)/g;
-const advertised = (skill) => !skill.startsWith("principle-");
+// User-invoked workflows stay runnable through /skill:<name> and skill links but are not listed to the model.
+const COMMAND_ONLY_SKILLS = new Set([
+  "automate-me",
+  "in-your-own-words",
+  "ketchup-video",
+  "maintain-verification-skill",
+  "poteto-help",
+  "reflect",
+  "setup-pstack",
+]);
+const advertised = (skill) => !skill.startsWith("principle-") && !COMMAND_ONLY_SKILLS.has(skill);
 const DESCRIPTION_IN_BODY_SKILLS = new Set([
   "principle-exhaust-the-design-space",
   "principle-encode-lessons-in-structure",

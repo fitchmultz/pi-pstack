@@ -158,9 +158,11 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
       assert.ok(expected.includes(name), `Missing shipped skill: ${name}`);
     }
     assert.deepEqual(skills.map(({ name }) => name).sort(), expected);
+    const commandOnly = ["automate-me", "in-your-own-words", "ketchup-video", "maintain-verification-skill",
+      "poteto-help", "reflect", "setup-pstack"];
     assert.deepEqual(skills.filter(({ disableModelInvocation }) => !disableModelInvocation)
       .map(({ name }) => name).sort(),
-    expected.filter((name) => !name.startsWith("principle-")));
+    expected.filter((name) => !name.startsWith("principle-") && !commandOnly.includes(name)));
     for (const skill of skills) {
       assert.equal(realpathSync(skill.sourceInfo.path), realpathSync(join(packedRoot, "skills", skill.name, "SKILL.md")));
     }
