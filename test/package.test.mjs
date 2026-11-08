@@ -40,6 +40,19 @@ test("sync-pstack --check passes and all skills have valid normalized frontmatte
     encoding: "utf8",
   });
 
+  assert.match(
+    readFileSync(path.join(skillsDir, "typescript-best-practices", "SKILL.md"), "utf8"),
+    /^description: TypeScript best practices for types, signatures, and validation\. Use when writing, refactoring, or reviewing \.ts or \.tsx code\.$/m,
+  );
+  assert.match(
+    readFileSync(path.join(skillsDir, "poteto-mode", "SKILL.md"), "utf8"),
+    /^description: "poteto's style: concise answers, deliberate subagents, simple code, verified work\. Use for poteto, \/poteto-mode, or this style\."$/m,
+  );
+  assert.match(
+    readFileSync(path.join(skillsDir, "unslop", "SKILL.md"), "utf8"),
+    /^description: "Cut AI tells and filler from prose when asked to unslop or clean up writing\."$/m,
+  );
+
   const skills = readdirSync(skillsDir).sort();
   for (const skill of skills) {
     const source = readFileSync(path.join(skillsDir, skill, "SKILL.md"), "utf8");

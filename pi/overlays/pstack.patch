@@ -1314,7 +1314,7 @@ index cc7a4e6828f5bfc3bcbf5954876358074718f45c..2318dff237e3b879e58da244f249d179
 +- `/skill:reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
 +- `/skill:bro` restates the last reply in plain words.
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..ce4e3f9075d0211444eb69841686e103b77c01a2 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..297e1e7f2504954978cb7f160c3734cec55d8d35 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
 @@ -1,57 +1,56 @@
@@ -1324,7 +1324,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..ce4e3f9075d0211444eb69841686e103
 -disable-model-invocation: true
 -icon: crown
 -color: yellow
-+description: "poteto's working style: concise, detailed answers, deliberate subagents, unslopped prose, simple code, and verified work."
++description: "poteto's style: concise answers, deliberate subagents, simple code, verified work. Use for poteto, /poteto-mode, or this style."
  ---
  
  # Poteto mode
@@ -3367,12 +3367,14 @@ index 3e6d26109376cd66439c87ed48b4033df8d78a3a..d964bf9b6f54851e0d1e85e02bf3cb0f
  ## Vary the rhythm
  
 diff --git a/skills/typescript-best-practices/SKILL.md b/skills/typescript-best-practices/SKILL.md
-index e1e5aa7c97ed39c425d60d933a96424a3f14539e..279a6369d45f431c2bf940e47ca4fb157412fdea 100644
+index e1e5aa7c97ed39c425d60d933a96424a3f14539e..caa1febb9958a48a405baba4893176e82d87abce 100644
 --- a/skills/typescript-best-practices/SKILL.md
 +++ b/skills/typescript-best-practices/SKILL.md
-@@ -2,11 +2,12 @@
+@@ -1,12 +1,13 @@
+ ---
  name: typescript-best-practices
- description: TypeScript best practices. Use when reading or editing any .ts or .tsx file.
+-description: TypeScript best practices. Use when reading or editing any .ts or .tsx file.
++description: TypeScript best practices for types, signatures, and validation. Use when writing, refactoring, or reviewing .ts or .tsx code.
  paths: ["**/*.ts", "**/*.tsx"]
 -disable-model-invocation: true
  ---
@@ -3385,14 +3387,15 @@ index e1e5aa7c97ed39c425d60d933a96424a3f14539e..279a6369d45f431c2bf940e47ca4fb15
  
  | Rule | Summary |
 diff --git a/skills/unslop/SKILL.md b/skills/unslop/SKILL.md
-index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..2ac87ae2ff137b6e207ddee549ca7b41b41bdcc8 100644
+index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d1298a0c4 100644
 --- a/skills/unslop/SKILL.md
 +++ b/skills/unslop/SKILL.md
 @@ -1,11 +1,12 @@
  ---
  name: unslop
- description: Cut AI tells from any writing.
+-description: Cut AI tells from any writing.
 -disable-model-invocation: true
++description: "Cut AI tells and filler from prose when asked to unslop or clean up writing."
  ---
  
  # Unslop

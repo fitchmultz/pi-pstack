@@ -1,6 +1,6 @@
 ---
 name: unslop
-description: Cut AI tells from any writing.
+description: "Cut AI tells and filler from prose when asked to unslop or clean up writing."
 ---
 
 # Unslop
