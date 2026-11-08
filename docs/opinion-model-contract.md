@@ -4,7 +4,7 @@
 
 ## Scope and sources
 
-The audited call is [extensions/index.js:172–224 at 10ddc15][call], the implementation shipped in PR #28. These pinned line references remain valid when renderer registration moves the surrounding lines. The renderer change adds an import and registration only; it leaves the tool schema, prompt, request, and result handling unchanged.
+The audited call is [extensions/index.js:172–224 at 10ddc15][call], the implementation shipped in PR #28. These pinned line references remain valid when renderer registration moves the surrounding lines. The renderer change adds an import and registration only; it leaves the tool schema, prompt, request, and result handling unchanged. Deferred exposure changes only how the parent model loads the tool.
 
 Host contracts were checked against official Pi **1.5.0** and fork **e6c04cb27845611fb0be62652b7e03e2fc4caf74**, the latest release and fork head checked on 2026-11-06. A registered provider can have its own server-side behavior. Omitting Pi tools is not a sandbox around provider code or its service.
 
