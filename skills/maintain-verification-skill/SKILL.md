@@ -1,6 +1,7 @@
 ---
 name: maintain-verification-skill
 description: "Keep a project's verification skill and feature map honest by reading source, driving every feature, and shipping at most one PR of proven corrections."
+disable-model-invocation: true
 ---
 
 # Maintain a verification skill

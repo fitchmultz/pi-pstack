@@ -72,7 +72,7 @@ index e1d2df2e8c3c4954b87ee1b29655c898bc7ee699..1fdf95f5aa5ade7db1afe5baefdf0a79
 +2. Navigate to a leaf `principle-*` skill in sibling `../principle-*/SKILL.md` whenever you apply that principle.
 +3. Follow project `AGENTS.md` and Ponytail constraints (including preserving `ponytail:` ceiling comments and mandatory evidence/pushback gates).
 diff --git a/skills/architect/SKILL.md b/skills/architect/SKILL.md
-index 88e23ca105b89e67f4085d0e676c40d4b170a623..5a71da5a5c5f945d7d1ca772dd845eb4d9f23536 100644
+index 88e23ca105b89e67f4085d0e676c40d4b170a623..ed45b017fb168c0e670bc300aabfcd452ef27fc9 100644
 --- a/skills/architect/SKILL.md
 +++ b/skills/architect/SKILL.md
 @@ -1,16 +1,17 @@
@@ -80,7 +80,7 @@ index 88e23ca105b89e67f4085d0e676c40d4b170a623..5a71da5a5c5f945d7d1ca772dd845eb4
  name: architect
 -description: "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape."
 -disable-model-invocation: true
-+description: "Sketch types, signatures, and module structure before code, then stay in the loop while implementation fills in. Use for /skill:architect, 'architect this', 'design this', or non-trivial work where jumping to code would lock in the wrong shape."
++description: "Sketch types, signatures, and modules before coding non-trivial work, then steer the implementation. Use for 'design this'."
  ---
  
  # Architect
@@ -130,7 +130,7 @@ index b1ad21aef22e80d718c361787190b599eb359d6c..a1474b141b637276ef247636180ba580
  You are producing one candidate design in architect's parallel exploration. Read the **architect** skill in full first. That's the workflow you're inside. Output a candidate design package: type sketch, function signatures, module map, and prose rationale shaped per [`rationale-template.md`](rationale-template.md).
  
 diff --git a/skills/arena/SKILL.md b/skills/arena/SKILL.md
-index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..bccd986ae112eb1a1d9e42d370047e21cf2ca166 100644
+index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..4aabc0d788066d45d961292ca8c5cfd93923c221 100644
 --- a/skills/arena/SKILL.md
 +++ b/skills/arena/SKILL.md
 @@ -1,12 +1,13 @@
@@ -138,7 +138,7 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..bccd986ae112eb1a1d9e42d370047e21
  name: arena
 -description: "Spawn N parallel candidates at the same task, pick a base, graft the strongest parts of the losers into it. Use for /arena, 'arena this', 'throw it in the arena', or when one attempt at a non-trivial artifact would lock in the wrong shape."
 -disable-model-invocation: true
-+description: "Compare candidates for the same task, pick a base, and graft the strongest parts of the others. Use for /skill:arena or when one attempt would lock in the wrong shape."
++description: "Compare candidate solutions to one task, pick a base, and graft in the strongest parts of the others."
  ---
  
  # Arena
@@ -183,15 +183,15 @@ index 7580c3c9a7770d81b9dd7a537d9caa7362c04279..bccd986ae112eb1a1d9e42d370047e21
  Pick the base a future maintainer can extend most easily without breaking invariants. When two feel tied, prefer the cleaner boundary or smaller API, per the Laziness Protocol.
  
 diff --git a/skills/automate-me/SKILL.md b/skills/automate-me/SKILL.md
-index 50971b894688b1e1923458996b89f2a9961feeb3..d98c089d7d9559c36409b857b2630d38f6d25fcb 100644
+index 50971b894688b1e1923458996b89f2a9961feeb3..1750f87d80531990ec04b3549d586bdf61f64e2d 100644
 --- a/skills/automate-me/SKILL.md
 +++ b/skills/automate-me/SKILL.md
-@@ -1,20 +1,21 @@
+@@ -1,20 +1,22 @@
  ---
  name: automate-me
 -description: "Use for \"automate me\", \"create/update/refresh my -mode skill\", \"turn/capture my preferences or working style into a skill\", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill via create-skill + unslop, optionally pulling fresh evidence from recent transcripts."
--disable-model-invocation: true
 +description: "Use for \"automate me\", \"create/update/refresh my -mode skill\", \"turn/capture my preferences or working style into a skill\", or wanting agents to follow how the user works. Drafts or revises a personal -mode skill, optionally using scoped recent history."
+ disable-model-invocation: true
  ---
  
  # Automate me
@@ -212,7 +212,7 @@ index 50971b894688b1e1923458996b89f2a9961feeb3..d98c089d7d9559c36409b857b2630d38
  
  - Update the existing skill (default for repeat runs)
  - Start fresh (rare, ask why before doing it)
-@@ -26,9 +27,9 @@ Update mode changes the rest of the flow:
+@@ -26,9 +28,9 @@ Update mode changes the rest of the flow:
  
  ### 1. Mine their history
  
@@ -224,7 +224,7 @@ index 50971b894688b1e1923458996b89f2a9961feeb3..d98c089d7d9559c36409b857b2630d38
  
  - Response preferences (length, tone, format, "dumb it down" corrections)
  - Delegation habits (subagents, models, specialized workflows, parallelism)
-@@ -41,11 +42,9 @@ Cross-check across slices before elevating a signal. Patterns seen in 2+ slices
+@@ -41,11 +43,9 @@ Cross-check across slices before elevating a signal. Patterns seen in 2+ slices
  
  ### 2. Ask the user directly
  
@@ -238,7 +238,7 @@ index 50971b894688b1e1923458996b89f2a9961feeb3..d98c089d7d9559c36409b857b2630d38
  
  ### 3. Cluster findings
  
-@@ -64,17 +63,17 @@ The **poteto-mode** skill shows the shape. Read it for granularity. Don't copy i
+@@ -64,17 +64,17 @@ The **poteto-mode** skill shows the shape. Read it for granularity. Don't copy i
  
  ### 4. Draft the skill
  
@@ -260,7 +260,7 @@ index 50971b894688b1e1923458996b89f2a9961feeb3..d98c089d7d9559c36409b857b2630d38
  
  Show the draft to the user and take feedback. Expect multiple iterations. Cut ruthlessly. A mode skill is not a manual.
  
-@@ -93,12 +92,12 @@ Work in a worktree off main. Commit and open a PR. Don't push to main directly.
+@@ -93,12 +93,12 @@ Work in a worktree off main. Commit and open a PR. Don't push to main directly.
  
  ## Evaluation
  
@@ -276,14 +276,15 @@ index 50971b894688b1e1923458996b89f2a9961feeb3..d98c089d7d9559c36409b857b2630d38
  - User wants to capture one narrow workflow (e.g. "how I write commit messages"). That's a regular skill, not a mode skill.
  
 diff --git a/skills/benchmark-checklist/SKILL.md b/skills/benchmark-checklist/SKILL.md
-index e901d1fdbc9ffce53e94d6514be7d9a22e771a1a..7aa2ca1da893dacdd440b3845d87b2e8e10014bb 100644
+index e901d1fdbc9ffce53e94d6514be7d9a22e771a1a..4bcb4a463707382c2a70cf3d17aeea5665301553 100644
 --- a/skills/benchmark-checklist/SKILL.md
 +++ b/skills/benchmark-checklist/SKILL.md
 @@ -1,11 +1,12 @@
  ---
  name: benchmark-checklist
- description: "Vet a perf measurement (limiter, tuning, limits, errors, repeatability, relevance, and whether the work happened) before you report or act on it. Use when you run a benchmark or report a speedup or regression you measured."
+-description: "Vet a perf measurement (limiter, tuning, limits, errors, repeatability, relevance, and whether the work happened) before you report or act on it. Use when you run a benchmark or report a speedup or regression you measured."
 -disable-model-invocation: true
++description: "Vet a performance number you measured (limiter, tuning, errors, repeatability, relevance) before reporting or acting on it."
  ---
  
  # Benchmark checklist
@@ -326,7 +327,7 @@ index b1701b778639c08bfc306291d70170c525c66a68..8622cde0f45414191d430261125a9102
 +
  Restate your last message. Stop using jargon and speak coherently. State it more simply and concisely, like one human talking to another.
 diff --git a/skills/correct/SKILL.md b/skills/correct/SKILL.md
-index c45e06f48a0982ae19f92c6e83a8cd05988097a3..74ad9e650291d037f377cb0afcdc76a43b0ec519 100644
+index c45e06f48a0982ae19f92c6e83a8cd05988097a3..84d8933d3c02e9ae285f384d8d1c76229591786d 100644
 --- a/skills/correct/SKILL.md
 +++ b/skills/correct/SKILL.md
 @@ -1,11 +1,12 @@
@@ -334,7 +335,7 @@ index c45e06f48a0982ae19f92c6e83a8cd05988097a3..74ad9e650291d037f377cb0afcdc76a4
  name: correct
 -description: "Find the mistakes agents keep repeating in this repo and make each one impossible. Try architecture first, then types, then a lint whose error names the fix, then a test, and write docs last. Prove each check fails on a real past mistake. Repeat this each time the operator corrects you. Use for /correct."
 -disable-model-invocation: true
-+description: "Find the mistakes agents keep repeating in this repo and make each one impossible. Try architecture first, then types, then a lint whose error names the fix, then a test, and write docs last. Prove each check fails on a real past mistake. Repeat this each time the operator corrects you. Use for /skill:correct."
++description: "When agents repeat a mistake, make it impossible: architecture, then types, a lint, a test, docs last, proven on the real mistake."
  ---
  
  # Correct
@@ -424,7 +425,7 @@ index 140d033a001e8d27acd14b06004506c43053b199..43c681c68ae73d21f7528dee0ce21937
 -Point the user at `/maintain-verification-skill` for keeping the map honest as the app changes. Suggest a cadence only if they ask.
 +Point the user at `/skill:maintain-verification-skill` for keeping the map honest as the app changes. Suggest a cadence only if they ask.
 diff --git a/skills/figure-it-out/SKILL.md b/skills/figure-it-out/SKILL.md
-index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..eff5c5652ff0eecc9f1222c122a80fe0cafa3950 100644
+index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..3e5b1602bc8d5bc46018b9e236ba64352a9715a3 100644
 --- a/skills/figure-it-out/SKILL.md
 +++ b/skills/figure-it-out/SKILL.md
 @@ -1,16 +1,17 @@
@@ -432,7 +433,7 @@ index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..eff5c5652ff0eecc9f1222c122a80fe0
  name: figure-it-out
 -description: "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions. Use for /figure-it-out or 'figure it out'."
 -disable-model-invocation: true
-+description: "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions. Use for /skill:figure-it-out or 'figure it out'."
++description: "Plan and run large or multi-part work with no narrower playbook: scaled rigor, a hypothesis loop, and a decision log."
  ---
  
  # Figure it out
@@ -481,14 +482,15 @@ index 0d04c2e69b75b22ff1a9a1d8ab339580a5fbbfed..eff5c5652ff0eecc9f1222c122a80fe0
  
  ## Phase D: Keep the audit trail
 diff --git a/skills/how/SKILL.md b/skills/how/SKILL.md
-index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..5c4bba4f116eb50713f726393ea21ed24b87dfcf 100644
+index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..2d84b50163c7e498c2a4b6f042e6a564ff3724d8 100644
 --- a/skills/how/SKILL.md
 +++ b/skills/how/SKILL.md
 @@ -1,35 +1,36 @@
  ---
  name: how
- description: "Use for \"how does X work\", code walkthroughs before changing something, and placement / ownership / layering questions (\"where should this live\", \"which package owns this\", \"is this the right layer\"). Explains subsystem architecture, runtime flow, onboarding mental models. Use why for motivation."
+-description: "Use for \"how does X work\", code walkthroughs before changing something, and placement / ownership / layering questions (\"where should this live\", \"which package owns this\", \"is this the right layer\"). Explains subsystem architecture, runtime flow, onboarding mental models. Use why for motivation."
 -disable-model-invocation: true
++description: "Explain how code works: architecture, runtime flow, pre-change walkthroughs, and where code belongs. Use why for motivation."
  ---
  
  # How
@@ -528,29 +530,30 @@ index 67edc340d4d8a9c7ab0b9e08c663e0e63b8d9125..5c4bba4f116eb50713f726393ea21ed2
  ## Output format
  
 diff --git a/skills/in-your-own-words/SKILL.md b/skills/in-your-own-words/SKILL.md
-index 4b2a476a9017863032c8dba9d12f0a2026943292..f17a69663163cd7556e832bc4272181e5382d1c5 100644
+index 4b2a476a9017863032c8dba9d12f0a2026943292..edd9b2a537787cfd12429c047b3b66e86a90a07a 100644
 --- a/skills/in-your-own-words/SKILL.md
 +++ b/skills/in-your-own-words/SKILL.md
-@@ -1,7 +1,8 @@
+@@ -1,7 +1,9 @@
  ---
  name: in-your-own-words
 -description: "Restate in your own words what you think the user's goals are and what problem they're trying to solve. Use for /in-your-own-words."
--disable-model-invocation: true
 +description: "Restate in your own words what you think the user's goals are and what problem they're trying to solve. Use for /skill:in-your-own-words."
+ disable-model-invocation: true
  ---
  
 +Read [the Pi execution contract](../../docs/harness/pi.md).
 +
  Restate in your own words what you think the user's goals are and what problem they're trying to solve.
 diff --git a/skills/interrogate/SKILL.md b/skills/interrogate/SKILL.md
-index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..f38dbdd6555b96369988183e732e50d3d5acfd24 100644
+index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..fd95c4c07381d24e0bb2bc037f3ede41f4c63848 100644
 --- a/skills/interrogate/SKILL.md
 +++ b/skills/interrogate/SKILL.md
 @@ -1,20 +1,21 @@
  ---
  name: interrogate
- description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Adversaries try to break a change or design, and only findings proven by a run survive."
+-description: "Use for \"interrogate\", \"adversarial review\", \"multi-model review\", \"challenge this\", \"stress test this code\", \"find blind spots\", or \"tear this apart\". Adversaries try to break a change or design, and only findings proven by a run survive."
 -disable-model-invocation: true
++description: "Adversarial or multi-model review that tries to break a change or design; only findings proven by a run survive."
  ---
  
  # Interrogate
@@ -586,15 +589,15 @@ index 169f5b478f4cb53a4c5ab6046576034b4b07cfe8..f38dbdd6555b96369988183e732e50d3
 +- **Findings**: for each verified finding, the command, its output, how it breaks the intent, and the review lens that found it. Say "no verified findings" when none survive.
 +- **Dropped**: for each lens, the count of dropped findings and why. State whether the passes were independent or self-performed.
 diff --git a/skills/ketchup-video/SKILL.md b/skills/ketchup-video/SKILL.md
-index c0c614288dea9f413a418064d7e7d37791dd9e5e..917b9fe18e330dd8bf5e8ce5bc9d9e1b2d5acd62 100644
+index c0c614288dea9f413a418064d7e7d37791dd9e5e..b2be1b43129c22e6b85ff92203f516f996d019f6 100644
 --- a/skills/ketchup-video/SKILL.md
 +++ b/skills/ketchup-video/SKILL.md
-@@ -1,12 +1,13 @@
+@@ -1,12 +1,14 @@
  ---
  name: ketchup-video
 -description: "Catch the user up like /ketchup, with a short subtitled video of slides for what happened and the waiting calls as text under it. Use for /ketchup-video."
--disable-model-invocation: true
 +description: "Catch the user up like /skill:ketchup, with a short subtitled video of slides for what happened and the waiting calls as text under it. Use for /skill:ketchup-video."
+ disable-model-invocation: true
  ---
  
  # Ketchup video
@@ -607,7 +610,7 @@ index c0c614288dea9f413a418064d7e7d37791dd9e5e..917b9fe18e330dd8bf5e8ce5bc9d9e1b
  ## Slides
  
 diff --git a/skills/ketchup/SKILL.md b/skills/ketchup/SKILL.md
-index 9eef27f92f8029137a7bfa7378305b075df9dc4f..7d3c396122a573fa2723e91f945b1c072cecd967 100644
+index 9eef27f92f8029137a7bfa7378305b075df9dc4f..5867994ece08d83c8c89e80602863c19c03a1dc0 100644
 --- a/skills/ketchup/SKILL.md
 +++ b/skills/ketchup/SKILL.md
 @@ -1,14 +1,15 @@
@@ -615,7 +618,7 @@ index 9eef27f92f8029137a7bfa7378305b075df9dc4f..7d3c396122a573fa2723e91f945b1c07
  name: ketchup
 -description: "Catch the user up on what changed in this chat since their last message, in plain words and small visuals. List every item waiting on them with what they need to decide it from the reply alone. Use for /ketchup."
 -disable-model-invocation: true
-+description: "Catch the user up on what changed in this chat since their last message, in plain words and small visuals. List every item waiting on them with what they need to decide it from the reply alone. Use for /skill:ketchup."
++description: "Catch the user up on what changed since their last message, in plain words, and list each decision waiting on them."
  ---
  
  # Ketchup
@@ -674,15 +677,15 @@ index 5d2f7f2228a3b771ca5b03124fc265ddfc53c5fc..b6294bbfcd9dabbed1ec7936396af429
  2. **Run it as it is.** Run each check once before you change anything, and record the result. A pass here does not tell you that the code is correct. It tells you that the old description still holds. A failure here can be drift or a bug. Do not decide which until step 5.
  
 diff --git a/skills/maintain-verification-skill/SKILL.md b/skills/maintain-verification-skill/SKILL.md
-index a2680b91fead45a0b4963d8c367a854956bea59d..2d09708359f28d49396327cdd18a6189915ebca2 100644
+index a2680b91fead45a0b4963d8c367a854956bea59d..1fa0aeeeea3946b908f13e5861e5d8f2fd474e8e 100644
 --- a/skills/maintain-verification-skill/SKILL.md
 +++ b/skills/maintain-verification-skill/SKILL.md
-@@ -1,12 +1,13 @@
+@@ -1,12 +1,14 @@
  ---
  name: maintain-verification-skill
 -description: "Periodic pass that keeps a project's verification skill and feature map honest: parallel source readers per feature, one live session driving every feature, at most one PR of proven corrections. Use for /maintain-verification-skill or \"audit the verify skill\"."
--disable-model-invocation: true
 +description: "Keep a project's verification skill and feature map honest by reading source, driving every feature, and shipping at most one PR of proven corrections."
+ disable-model-invocation: true
  ---
  
  # Maintain a verification skill
@@ -694,7 +697,7 @@ index a2680b91fead45a0b4963d8c367a854956bea59d..2d09708359f28d49396327cdd18a6189
  
  ## Outcomes
  
-@@ -22,13 +23,13 @@ Only edit the verification skill's own directory (its SKILL.md, features/, and a
+@@ -22,13 +24,13 @@ Only edit the verification skill's own directory (its SKILL.md, features/, and a
  
  ## Pass
  
@@ -963,15 +966,15 @@ index a07ce9dfc657bdf1b2bdf3f7619225e7faac091b..1aa4be26a34d39d77348cc971df34f5c
  5. Constraint comments say `do not remove`, `do not change wording`, or `talk to X before changing`. Leave keeps about things we cannot change. Offer the cheapest in-scope type, runtime, test, or CI lint. Wait for interactive approval. Unattended and eval require caller pre-approval. If approved, encode then delete. Otherwise delete, report the constraint open, and sketch out-of-scope work.
  6. Report the deletion count, restored comments, reruns, architect sketch, fixes, encoding offers, encodings, unenforced constraints, and other open work.
 diff --git a/skills/poteto-help/SKILL.md b/skills/poteto-help/SKILL.md
-index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..c5134b44234d7281ca822f876ecc35e5365355f4 100644
+index a0604c9c4e63c7f798f19f33acd8a74ccb5b8531..b6ac0956200965f4208cdd96261d44e19ffe1498 100644
 --- a/skills/poteto-help/SKILL.md
 +++ b/skills/poteto-help/SKILL.md
-@@ -1,163 +1,111 @@
+@@ -1,163 +1,112 @@
  ---
  name: poteto-help
 -description: Guides users through pstack setup, /poteto-mode, and picking the skill, playbook, or principle for a task. Type /poteto-help with a question.
--disable-model-invocation: true
 +description: Guides users through pstack setup, /skill:poteto-mode, and picking the skill, playbook, or principle for a task. Type /skill:poteto-help with a question.
+ disable-model-invocation: true
  ---
  
  # Poteto help
@@ -1311,7 +1314,7 @@ index cc7a4e6828f5bfc3bcbf5954876358074718f45c..2318dff237e3b879e58da244f249d179
 +- `/skill:reflect capture what we learned so the next run doesn't repeat it.` Approve only edits that change a future decision.
 +- `/skill:bro` restates the last reply in plain words.
 diff --git a/skills/poteto-mode/SKILL.md b/skills/poteto-mode/SKILL.md
-index 2dd5e76fde228141d3fe78b0b09ca68456b49531..acb3e9006936d1b4cea16d62d111523cf1ae7a3c 100644
+index 2dd5e76fde228141d3fe78b0b09ca68456b49531..ce4e3f9075d0211444eb69841686e103b77c01a2 100644
 --- a/skills/poteto-mode/SKILL.md
 +++ b/skills/poteto-mode/SKILL.md
 @@ -1,57 +1,56 @@
@@ -1321,7 +1324,7 @@ index 2dd5e76fde228141d3fe78b0b09ca68456b49531..acb3e9006936d1b4cea16d62d111523c
 -disable-model-invocation: true
 -icon: crown
 -color: yellow
-+description: poteto's agent style for concise, detailed responses, deliberate subagents, unslopped prose, simple code, and verified work. Use for poteto, /skill:poteto-mode, or requests to work in this style.
++description: "poteto's working style: concise, detailed answers, deliberate subagents, unslopped prose, simple code, and verified work."
  ---
  
  # Poteto mode
@@ -2887,14 +2890,15 @@ index 9fa08b0b17d536ce751fffa90134be8fb03699c7..e690e66fdf15fd71e3542bbb5bc056da
  
  - **Brand semantic primitives.** `UserId` and `OrderId` are strings underneath but should not be interchangeable. Give each its own type, such as a branded intersection in TypeScript or a newtype elsewhere. Validate once at creation, trust the type downstream. If two arguments share a primitive type but mean different things, brand them.
 diff --git a/skills/recall/SKILL.md b/skills/recall/SKILL.md
-index cd8cc20790d90579e632626fe6db2b1fff593eea..e93ae8db46eb1d044f732cf1082568a14f0cf1de 100644
+index cd8cc20790d90579e632626fe6db2b1fff593eea..effd1115e16c2ef4b8893a868b788198ab8181ec 100644
 --- a/skills/recall/SKILL.md
 +++ b/skills/recall/SKILL.md
 @@ -1,23 +1,24 @@
  ---
  name: recall
- description: "Reconstruct your recent working context from your own chat history, live state, and the shared record (user reports, prior fixes, incidents), then hand back a tight current-state brief. Use for 'recall my work on X', 'catch me up', 'what have I been working on', 'where did I leave off', before starting or resuming work."
+-description: "Reconstruct your recent working context from your own chat history, live state, and the shared record (user reports, prior fixes, incidents), then hand back a tight current-state brief. Use for 'recall my work on X', 'catch me up', 'what have I been working on', 'where did I leave off', before starting or resuming work."
 -disable-model-invocation: true
++description: "Rebuild recent working context from history, live state, and shared records into a brief. For 'where did I leave off'."
  ---
  
  # Recall
@@ -2921,15 +2925,15 @@ index cd8cc20790d90579e632626fe6db2b1fff593eea..e93ae8db46eb1d044f732cf1082568a1
  6. Write the brief to the contract below. Group by thread. Stay on the named topic.
  
 diff --git a/skills/reflect/SKILL.md b/skills/reflect/SKILL.md
-index 9bb153bd2121e49d73a7af7d55ef372079889e62..44a9718beb54b5b5ff76ea67efdb315e76bcb8aa 100644
+index 9bb153bd2121e49d73a7af7d55ef372079889e62..156e8d1f0444aeb826c84b6a4198510bc18fcc05 100644
 --- a/skills/reflect/SKILL.md
 +++ b/skills/reflect/SKILL.md
-@@ -1,42 +1,35 @@
+@@ -1,42 +1,36 @@
  ---
  name: reflect
 -description: Spawn three parallel review subagents over the active transcript, surface learnings, and route each to a concrete edit on an existing skill. Use when the user says reflect.
--disable-model-invocation: true
 +description: Review the active transcript through three lenses, surface learnings, and route each to a concrete skill edit. Use when the user says reflect.
+ disable-model-invocation: true
  ---
  
  # Reflect
@@ -2981,7 +2985,7 @@ index 9bb153bd2121e49d73a7af7d55ef372079889e62..44a9718beb54b5b5ff76ea67efdb315e
  
  ## 4. Structural enforcement check
  
-@@ -48,14 +41,14 @@ Present the synthesizer's full Accepted / Rejected / Backlog output and wait for
+@@ -48,14 +42,14 @@ Present the synthesizer's full Accepted / Rejected / Backlog output and wait for
  
  File each Backlog item to your team's devex or backlog tracker without waiting. Only the Accepted list waits for approval.
  
@@ -3062,14 +3066,15 @@ index a839db4318798c51539c319cb90387ce02557225..24a40cc2dd66c257e19bacc8ee3d7b7d
  Two finding shapes are valid:
  - The parent invoked the skill and you found a real gap in its body. Route to the skill's relevant section.
 diff --git a/skills/setup-pstack/SKILL.md b/skills/setup-pstack/SKILL.md
-index 91f1127f8b14415fef9698b02a64d3d0bdef4f54..390a27bc1f461a08636911c5ed64bfb63fa3f4e3 100644
+index 91f1127f8b14415fef9698b02a64d3d0bdef4f54..1cebc415d5939c117a871fcfee840037efcf3ab4 100644
 --- a/skills/setup-pstack/SKILL.md
 +++ b/skills/setup-pstack/SKILL.md
-@@ -1,78 +1,19 @@
+@@ -1,78 +1,20 @@
  ---
  name: setup-pstack
 -description: Configure which models pstack uses per role and at what reasoning budget. Detects your available models and writes an always-applied rule that overrides the skill defaults. Use for /setup-pstack, "configure pstack models", "pstack budget", or changing pstack's model choices.
 +description: Configure pstack's optional per-role model choices and reasoning budget for Pi. Use for /skill:setup-pstack, "configure pstack models", or changing pstack's model choices.
++disable-model-invocation: true
  ---
  
  # Setup pstack
@@ -3171,7 +3176,7 @@ index 5b4a7b104e709f8cded1726541be42431c334164..b2255f183eba7b7b156605094af02a09
  
  1. Say what a top professional in this field would do here that I'm not asking for.
 diff --git a/skills/show-me-your-work/SKILL.md b/skills/show-me-your-work/SKILL.md
-index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..1431c819acb5195b67a164a8cb9aedd312dff754 100644
+index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..8436d6e637eff960f5e9e1aea861ced5f55bc082 100644
 --- a/skills/show-me-your-work/SKILL.md
 +++ b/skills/show-me-your-work/SKILL.md
 @@ -1,11 +1,12 @@
@@ -3179,7 +3184,7 @@ index ada1bba1e51356de0e0d4da1d13ba5a56ba9c7cb..1431c819acb5195b67a164a8cb9aedd3
  name: show-me-your-work
 -description: "Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). Local by default; commit it when a reviewer needs the trail to trust the result. Use for /show-me-your-work, autonomous or multi-phase runs, or work a human reviews after stepping away."
 -disable-model-invocation: true
-+description: "Keep a reviewable decision trail for long-running or unattended work: a TSV log with one row per decision (what, why, evidence, result). Local by default; commit it when a reviewer needs the trail to trust the result. Use for /skill:show-me-your-work, autonomous or multi-phase runs, or work a human reviews after stepping away."
++description: "Keep a TSV decision log (what, why, evidence, result) for long, unattended, or multi-phase work a human reviews later."
  ---
  
  # Show me your work
@@ -3235,7 +3240,7 @@ index f5a64a8db4b8a5957ac5e76e051b1823cecd4d5e..9eae0128fbad3afc41264362f1b7f20a
  
  ## Run
 diff --git a/skills/swarm/SKILL.md b/skills/swarm/SKILL.md
-index 9cd32247b4f381bb020cbbf0fc546ba71407d558..8a15db018d0d779aae559109477f50c4ff34933c 100644
+index 9cd32247b4f381bb020cbbf0fc546ba71407d558..ae343815a2fca2c80c0dd372db3f2ed83ab4d235 100644
 --- a/skills/swarm/SKILL.md
 +++ b/skills/swarm/SKILL.md
 @@ -1,14 +1,15 @@
@@ -3243,7 +3248,7 @@ index 9cd32247b4f381bb020cbbf0fc546ba71407d558..8a15db018d0d779aae559109477f50c4
  name: swarm
 -description: "Fan out N parallel workers, drain them, and return one report. Use for /swarm, 'swarm this', or parallel coverage, races, gauntlets, and exploration."
 -disable-model-invocation: true
-+description: "Cover slices or compare candidates and return one report. Use for /skill:swarm, coverage, races, gauntlets, and exploration."
++description: "Cover slices or compare candidates and return one report. Use for coverage, races, gauntlets, and exploration."
  ---
  
  # Swarm
@@ -3286,14 +3291,15 @@ index 9cd32247b4f381bb020cbbf0fc546ba71407d558..8a15db018d0d779aae559109477f50c4
  ## Phase D: Report
  
 diff --git a/skills/tdd/SKILL.md b/skills/tdd/SKILL.md
-index ca6f24c963001d9d518db2936dfe3d12f29b4e94..f68220f23ac4b15e16c4fa553e266cd738a88464 100644
+index ca6f24c963001d9d518db2936dfe3d12f29b4e94..762339da081bec053f85e1b7707c80d170481484 100644
 --- a/skills/tdd/SKILL.md
 +++ b/skills/tdd/SKILL.md
 @@ -1,11 +1,12 @@
  ---
  name: tdd
- description: "Use only when the user explicitly asks for TDD, a failing test, or a regression test, OR when the bug has an obvious cheap local test target. Skip when the test path is unclear, expensive, integration-heavy, or not requested."
+-description: "Use only when the user explicitly asks for TDD, a failing test, or a regression test, OR when the bug has an obvious cheap local test target. Skip when the test path is unclear, expensive, integration-heavy, or not requested."
 -disable-model-invocation: true
++description: "Use only when the user asks for TDD or a regression test, or the bug has an obvious, cheap local test target."
  ---
  
  # TDD Bug Fix
@@ -3333,7 +3339,7 @@ index 25369f3f554ed6b5826340ae3eee688fac0bda80..ae40626778e2eb3f39910ce2e15c179d
  Write every response through the **unslop** skill, in plain spoken English, the way you'd explain it to a colleague. Be tight, not terse. Cut filler and hedging, keep the part that makes it click. State the concrete mechanism, not a metaphor, a framing, or a preview of what is coming. This is the target density: "Virtualization runs in two parts, one for rendering and one for loading from disk. When an item scrolls out past the buffer, both its DOM node and its in-memory data are evicted." Normal sentence case, not all-lowercase. No em dashes. Prefer periods over commas. Keep each sentence to one or two commas. If clauses pile up, split them into separate sentences. Give each concept one name and keep it. Avoid mirror sentences ("A without B, or B without A") and tidy closers ("the rest follows", "it all falls out"). The words in these steps are directions to you, not labels to print. Don't echo the structure as headers or stock phrases.
  
 diff --git a/skills/technical-writing/SKILL.md b/skills/technical-writing/SKILL.md
-index 3e6d26109376cd66439c87ed48b4033df8d78a3a..ad1e071779bbf264c23667dadabad23bbf2c9589 100644
+index 3e6d26109376cd66439c87ed48b4033df8d78a3a..d964bf9b6f54851e0d1e85e02bf3cb0fb656c886 100644
 --- a/skills/technical-writing/SKILL.md
 +++ b/skills/technical-writing/SKILL.md
 @@ -1,11 +1,12 @@
@@ -3341,7 +3347,7 @@ index 3e6d26109376cd66439c87ed48b4033df8d78a3a..ad1e071779bbf264c23667dadabad23b
  name: technical-writing
 -description: "Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. Use for /technical-writing or when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages."
 -disable-model-invocation: true
-+description: "Layered technical-writing standard: Diátaxis structure, Google developer style sentences, STE instruction rules, Global English syntax. Use for /skill:technical-writing or when writing or reviewing docs, RFCs, readmes, PR descriptions, or commit messages."
++description: "Technical-writing standard (Diátaxis, Google style, STE, Global English) for docs, RFCs, READMEs, PR descriptions, and commits."
  ---
  
  # Technical writing
@@ -3397,7 +3403,7 @@ index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..2ac87ae2ff137b6e207ddee549ca7b41
  
  ## Patterns to detect and fix
 diff --git a/skills/why/SKILL.md b/skills/why/SKILL.md
-index b5fe93f8b78f58b06e0bf245a6b5b8faae4300e8..0c52f09822754f674bd0b7204eac6f10a71b9275 100644
+index b5fe93f8b78f58b06e0bf245a6b5b8faae4300e8..0f5943a45753d239b015ab53edb0615ff781a5b1 100644
 --- a/skills/why/SKILL.md
 +++ b/skills/why/SKILL.md
 @@ -1,16 +1,15 @@
@@ -3405,7 +3411,7 @@ index b5fe93f8b78f58b06e0bf245a6b5b8faae4300e8..0c52f09822754f674bd0b7204eac6f10
  name: why
 -description: "Use for 'why does X work this way', 'why we picked Y', design rationale, regressions, postmortems, or data-backed thresholds. Discovers available MCPs and queries each evidence category (source control, issue tracker, long-form docs, real-time chat, infrastructure observability, error tracking, product analytics warehouse) in parallel, then returns a cited read on decisions and tradeoffs. Use how for runtime behavior."
 -disable-model-invocation: true
-+description: "Investigate design rationale, regressions, postmortems, or data-backed thresholds using available evidence, and return cited decisions and tradeoffs. Use how for runtime behavior."
++description: "Find the cited rationale behind a design, regression, postmortem, or threshold. Use how for runtime behavior."
  ---
  
  # Why

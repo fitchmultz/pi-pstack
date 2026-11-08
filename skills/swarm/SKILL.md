@@ -1,6 +1,6 @@
 ---
 name: swarm
-description: "Cover slices or compare candidates and return one report. Use for /skill:swarm, coverage, races, gauntlets, and exploration."
+description: "Cover slices or compare candidates and return one report. Use for coverage, races, gauntlets, and exploration."
 ---
 
 # Swarm

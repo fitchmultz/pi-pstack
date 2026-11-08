@@ -1,6 +1,6 @@
 ---
 name: figure-it-out
-description: "Design an auditable playbook when no narrower one fits: a large migration, an ambitious multi-part change, or work a human reviews after stepping away. Scales rigor to the task, runs a hypothesis loop, and logs decisions. Use for /skill:figure-it-out or 'figure it out'."
+description: "Plan and run large or multi-part work with no narrower playbook: scaled rigor, a hypothesis loop, and a decision log."
 ---
 
 # Figure it out
