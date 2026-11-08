@@ -106,6 +106,15 @@ function activateToolSearch(pi, ctx) {
   }
 }
 
+/** Whether the agent can call pstack_opinion: it is declared, or an active tool_search or codemode reaches it. */
+function opinionReachable(pi) {
+  const tools = pi.getAllTools();
+  const active = pi.getActiveTools();
+  return !tools.some((tool) => tool.name === "pstack_opinion") || active.includes("pstack_opinion") ||
+    tools.some((tool) => (tool.name === "tool_search" || tool.name === "codemode") &&
+      tool.reachesTools !== undefined && active.includes(tool.name));
+}
+
 export default function piPstackExtension(pi) {
   registerOpinionRenderer(pi);
   let activeController;
@@ -135,13 +144,22 @@ export default function piPstackExtension(pi) {
     updateModeStatus(ctx);
   };
 
+  // Like Pi's own MCP extension, warn once when nothing can reach the deferred tool.
+  let warnedUnreachable = false;
+  const settleToolSearch = (ctx) => {
+    activateToolSearch(pi, ctx);
+    if (warnedUnreachable || opinionReachable(pi)) return;
+    warnedUnreachable = true;
+    ctx.ui.notify("pstack_opinion is only reachable from the tool_search or codemode tool, but neither is active; it cannot be called.", "warning");
+  };
+
   pi.on("session_start", (_event, ctx) => {
     restoreMode(ctx);
-    activateToolSearch(pi, ctx);
+    settleToolSearch(ctx);
   });
   pi.on("session_tree", (_event, ctx) => {
     restoreMode(ctx);
-    activateToolSearch(pi, ctx);
+    settleToolSearch(ctx);
   });
 
   pi.registerCommand("pstack-mode", {

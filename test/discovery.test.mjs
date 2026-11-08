@@ -465,6 +465,18 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.ok(await toolSearchActive(), "Tree navigation must restore tool_search");
       });
     });
+    await t.test("pstack warns when no active tool can reach pstack_opinion", async () => {
+      const unreachable = (event) => event.method === "notify" && event.message?.startsWith("pstack_opinion is only reachable");
+      await withRpc(cli, [...args, "--exclude-tools", "tool_search", "-e", probe], options, async (request, events) => {
+        const { active } = await readToolState(request, events);
+        assert.ok(!active.includes("tool_search") && !active.includes("codemode"), JSON.stringify(active));
+        assert.equal(events.filter(unreachable).length, 1, JSON.stringify(events.filter((event) => event.method === "notify")));
+      });
+      await withRpc(cli, [...args, "-e", probe], options, async (request, events) => {
+        assert.ok((await readToolState(request, events)).active.includes("tool_search"));
+        assert.ok(!events.some(unreachable));
+      });
+    });
     await t.test("opinions return before inference and deliver once, or cancel with the session", async (t) => {
       const opinionProbe = join(temp, "opinion-probe.mjs");
       writeFileSync(opinionProbe, `
