@@ -467,16 +467,49 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.ok(await toolSearchActive(), "Tree navigation must restore tool_search");
       });
     });
-    await t.test("pstack warns when no active tool can reach pstack_opinion", async () => {
+    await t.test("pstack warns as a run starts when no active tool can reach pstack_opinion", async () => {
+      const warnProbe = join(temp, "pstack-warn-probe.mjs");
+      writeFileSync(warnProbe, `
+        import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          const main = fauxProvider({ provider: "pstack-warn-main", models: [{ id: "native" }] });
+          main.setResponses([fauxAssistantMessage("Done."), fauxAssistantMessage("Done again.")]);
+          pi.registerProvider(main.provider);
+        }
+      `);
       const unreachable = (event) => event.method === "notify" && event.message?.startsWith("pstack_opinion is only reachable");
-      await withRpc(cli, [...args, "--exclude-tools", "tool_search", "-e", probe], options, async (request, events) => {
+      const warnArgs = [...args, "-e", probe, "-e", warnProbe, "--provider", "pstack-warn-main", "--model", "native"];
+      const runAndCountWarnings = async (request, events, waitForEvent) => {
+        const before = events.length;
+        assert.equal((await request({ type: "prompt", message: "Reply." })).success, true);
+        assert.ok(await waitForEvent((event) => event.type === "agent_settled" && events.indexOf(event) >= before));
+        return events.filter(unreachable).length;
+      };
+      await withRpc(cli, [...warnArgs, "--exclude-tools", "tool_search"], options, async (request, events, waitForEvent) => {
         const { active } = await readToolState(request, events);
         assert.ok(!active.includes("tool_search") && !active.includes("codemode"), JSON.stringify(active));
-        assert.equal(events.filter(unreachable).length, 1, JSON.stringify(events.filter((event) => event.method === "notify")));
+        assert.equal(await runAndCountWarnings(request, events, waitForEvent), 1,
+          JSON.stringify(events.filter((event) => event.method === "notify")));
+        assert.equal(await runAndCountWarnings(request, events, waitForEvent), 1, "A later run must not warn again");
       });
-      await withRpc(cli, [...args, "-e", probe], options, async (request, events) => {
+      await withRpc(cli, warnArgs, options, async (request, events, waitForEvent) => {
         assert.ok((await readToolState(request, events)).active.includes("tool_search"));
-        assert.ok(!events.some(unreachable));
+        assert.equal(await runAndCountWarnings(request, events, waitForEvent), 0);
+      });
+      // Pi's MCP extension loads after packages and activates codemode for a configured server in its
+      // own session_start handler.
+      const mcpAgent = join(temp, "mcp-agent");
+      mkdirSync(mcpAgent);
+      writeFileSync(join(mcpAgent, "settings.json"), JSON.stringify({ packages: [packedRoot] }));
+      writeFileSync(join(mcpAgent, "mcp.json"), JSON.stringify({
+        mcpServers: { probe: { command: process.execPath, args: ["-e", "process.exit(0)"] } },
+      }));
+      await withRpc(cli, [...warnArgs, "--exclude-tools", "tool_search"],
+        { ...options, env: { ...env, PI_CODING_AGENT_DIR: mcpAgent } }, async (request, events, waitForEvent) => {
+        const { active } = await readToolState(request, events);
+        assert.ok(!active.includes("tool_search") && active.includes("codemode"), JSON.stringify(active));
+        assert.equal(await runAndCountWarnings(request, events, waitForEvent), 0,
+          JSON.stringify(events.filter((event) => event.method === "notify")));
       });
     });
     await t.test("opinions return before inference and deliver once, or cancel with the session", async (t) => {
