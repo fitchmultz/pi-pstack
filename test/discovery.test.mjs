@@ -306,6 +306,8 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           const main = fauxProvider({ provider: "pstack-runtime-main", models: [{ id: "native" }] });
           main.setResponses([
             fauxAssistantMessage("Mode enabled."),
+            fauxAssistantMessage([fauxToolCall("tool_search", { query: "pstack_opinion" }, { id: "load-opinion" })],
+              { stopReason: "toolUse" }),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
               model: "pstack-runtime-judge/native", background: false, question: "Review the supplied text.", context: "A short document."
             }, { id: "opinion-check" })], { stopReason: "toolUse" }),
@@ -331,7 +333,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           } });
         }
       `);
-      const runtimeArgs = [...args.filter((arg) => arg !== "--no-session"), "-e", runtimeProbe,
+      const runtimeArgs = [...args.filter((arg) => arg !== "--no-session"), "-e", runtimeProbe, "-e", probe,
         "--provider", "pstack-runtime-main", "--model", "native"];
       await withRpc(cli, runtimeArgs, options, async (request, events, waitForEvent, respond) => {
         async function command(message) {
@@ -378,7 +380,14 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         const messages = await request({ type: "get_messages" });
         assert.ok(messages.data.messages.some((message) => message.role === "system" &&
           message.sections?.pstack_mode?.includes("Persistent pstack mode is on.")), JSON.stringify(messages));
+        const initial = await readToolState(request, events);
+        assert.ok(initial.active.includes("tool_search"), JSON.stringify(initial.active));
+        assert.ok(!initial.active.includes("pstack_opinion"), JSON.stringify(initial.active));
+        assert.equal(initial.tools.find(({ name }) => name === "pstack_opinion")?.exposure, "deferred");
+        const loadedFrom = events.length;
         const opinion = await run("Ask for a text opinion.", "opinion-check");
+        const load = events.slice(loadedFrom).find((event) => event.type === "tool_execution_end" && event.toolCallId === "load-opinion");
+        assert.equal(load?.isError, false, JSON.stringify(load));
         assert.equal(opinion.isError, false, JSON.stringify(opinion));
         assert.match(opinion.result.content[0].text, /Text-only opinion.*The document is clear/s);
         assert.match(opinion.result.content[0].text, /Reasoning: default/);
@@ -404,6 +413,70 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.match(await command("/pstack-mode status"), /mode is on/);
       });
     });
+    await t.test("tree navigation restores tool_search unless the branch recorded removing it", async () => {
+      const treeProbe = join(temp, "pstack-tree-probe.mjs");
+      writeFileSync(treeProbe, `
+        import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+        export default function(pi) {
+          const main = fauxProvider({ provider: "pstack-tree-main", models: [{ id: "native" }] });
+          main.setResponses(["One.", "Two.", "Three.", "Four."].map((text) => fauxAssistantMessage(text)));
+          pi.registerProvider(main.provider);
+          pi.registerCommand("pstack-test-tool-search", { handler: async (state) => {
+            const others = pi.getActiveTools().filter((name) => name !== "tool_search");
+            pi.setActiveTools(state.trim() === "on" ? [...others, "tool_search"] : others);
+          } });
+          pi.registerCommand("pstack-test-navigate", { handler: async (id, ctx) => {
+            await ctx.navigateTree(id.trim(), { summarize: false });
+          } });
+        }
+      `);
+      const treeArgs = [...args.filter((arg) => arg !== "--no-session"), "-e", treeProbe, "-e", probe,
+        "--provider", "pstack-tree-main", "--model", "native"];
+      await withRpc(cli, treeArgs, options, async (request, events, waitForEvent) => {
+        const handled = async (message) => assert.equal((await request({ type: "prompt", message })).success, true);
+        const prompt = async (message) => {
+          const before = events.length;
+          await handled(message);
+          await waitForEvent((event) => event.type === "agent_settled" && events.indexOf(event) >= before);
+        };
+        const navigateTo = async (text) => {
+          const entries = (await request({ type: "get_entries" })).data.entries;
+          const entry = entries.findLast((item) => item.type === "message" && item.message.role === "user" &&
+            JSON.stringify(item.message.content).includes(text));
+          assert.ok(entry, text);
+          await handled(`/pstack-test-navigate ${entry.id}`);
+        };
+        const toolSearchActive = async () => (await readToolState(request, events)).active.includes("tool_search");
+
+        assert.ok(await toolSearchActive());
+        await prompt("First.");
+        await handled("/pstack-test-tool-search off");
+        await prompt("Second.");
+        await navigateTo("Second.");
+        assert.ok(!(await toolSearchActive()), "A recorded removal must keep tool_search off");
+
+        // A first prompt recorded without tool_search stands in for a branch saved before activation.
+        assert.equal((await request({ type: "new_session" })).success, true);
+        await handled("/pstack-test-tool-search off");
+        await prompt("Third.");
+        await handled("/pstack-test-tool-search on");
+        await prompt("Fourth.");
+        await navigateTo("Third.");
+        assert.ok(await toolSearchActive(), "Tree navigation must restore tool_search");
+      });
+    });
+    await t.test("pstack warns when no active tool can reach pstack_opinion", async () => {
+      const unreachable = (event) => event.method === "notify" && event.message?.startsWith("pstack_opinion is only reachable");
+      await withRpc(cli, [...args, "--exclude-tools", "tool_search", "-e", probe], options, async (request, events) => {
+        const { active } = await readToolState(request, events);
+        assert.ok(!active.includes("tool_search") && !active.includes("codemode"), JSON.stringify(active));
+        assert.equal(events.filter(unreachable).length, 1, JSON.stringify(events.filter((event) => event.method === "notify")));
+      });
+      await withRpc(cli, [...args, "-e", probe], options, async (request, events) => {
+        assert.ok((await readToolState(request, events)).active.includes("tool_search"));
+        assert.ok(!events.some(unreachable));
+      });
+    });
     await t.test("opinions return before inference and deliver once, or cancel with the session", async (t) => {
       const opinionProbe = join(temp, "opinion-probe.mjs");
       writeFileSync(opinionProbe, `
@@ -413,7 +486,8 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           const main = fauxProvider({ provider: "pstack-async-main", models: [{ id: "native" }] });
           const judge = fauxProvider({ provider: "pstack-async-judge", models: [{ id: "native", reasoning: true }] });
           main.setResponses([
-            fauxAssistantMessage([fauxToolCall("opinion_host", {}, { id: "host-check" })], { stopReason: "toolUse" }),
+            fauxAssistantMessage([fauxToolCall("opinion_host", {}, { id: "host-check" }),
+              fauxToolCall("tool_search", { query: "pstack_opinion" }, { id: "load-opinion" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Host checked."),
           ]);
           pi.registerTool({ name: "opinion_host", label: "Host", description: "Inspect host support.",
@@ -835,6 +909,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         export default function(pi) {
           const model = fauxProvider({ provider: "pstack-print-probe", models: [{ id: "native" }] });
           model.setResponses([
+            fauxAssistantMessage(fauxToolCall("tool_search", { query: "pstack_opinion" }), { stopReason: "toolUse" }),
             fauxAssistantMessage(fauxToolCall("pstack_opinion", {
               model: "pstack-print-probe/native", question: "Review this text."
             }), { stopReason: "toolUse" }),

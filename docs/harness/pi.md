@@ -34,7 +34,7 @@ Launch delegated work in the background, including reviewers, explorers, candida
 
 - With `@fitchmultz/pi-subagents`, `delegate` and `agent_runs({ action: "continue", ... })` return receipts without waiting for completion. Do not add unsupported `async` or `wait` fields.
 - With the profile-based `pi-subagents` package, use `async: true` for launches and outer workflow calls. Its `action: "resume"` starts a background continuation; use `steer` for guidance to a running child. A workflow may await its own children, but the outer workflow must stay in the background.
-- Use `pstack_opinion` for supplied-text consultations only, with its background route below. It does not replace a worker that needs tools.
+- Use `pstack_opinion` for supplied-text consultations only, with its background route below. It does not replace a worker that needs tools. It is deferred; load it with `tool_search` before the first call.
 - After a receipt, continue independent work. If the next step needs the result and no independent work remains, end the turn with the work identified as pending. Let the completion notification resume the main agent. Do not hold a tool open, sleep, or poll for model completion.
 - Inspect the completed result before using it. A launch receipt, queued steer, or stop acknowledgement does not prove completion, compliance, or process exit. Follow the provider's actual cancellation controls.
 

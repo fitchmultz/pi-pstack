@@ -80,6 +80,41 @@ async function fetchLatestUpstreamCommit(signal) {
   }
 }
 
+/** Replays the branch's recorded tool loadout (Pi docs/session-format.md) for one tool. */
+function removedOnBranch(ctx, name) {
+  let removed = false;
+  for (const entry of ctx.sessionManager.getBranch()) {
+    if (entry.type !== "message" || entry.message.role !== "system") continue;
+    if (entry.message.toolsRemoved?.some((tool) => tool.name === name)) removed = true;
+    if (entry.message.toolsAdded?.some((tool) => tool.name === name)) removed = false;
+  }
+  return removed;
+}
+
+/**
+ * Pi's own MCP extension activates tool_search when it registers deferred tools, since only
+ * tool_search declares them. Only a registered tool_search that reaches other tools qualifies.
+ * Pi restores each branch's recorded loadout before session_start and session_tree; a branch
+ * that recorded removing tool_search keeps it off, as Pi keeps any recorded removal.
+ */
+function activateToolSearch(pi, ctx) {
+  const active = pi.getActiveTools();
+  if (!active.includes("tool_search") &&
+      pi.getAllTools().some((tool) => tool.name === "tool_search" && tool.reachesTools !== undefined) &&
+      !removedOnBranch(ctx, "tool_search")) {
+    pi.setActiveTools([...active, "tool_search"]);
+  }
+}
+
+/** Whether the agent can call pstack_opinion: it is declared, or an active tool_search or codemode reaches it. */
+function opinionReachable(pi) {
+  const tools = pi.getAllTools();
+  const active = pi.getActiveTools();
+  return !tools.some((tool) => tool.name === "pstack_opinion") || active.includes("pstack_opinion") ||
+    tools.some((tool) => (tool.name === "tool_search" || tool.name === "codemode") &&
+      tool.reachesTools !== undefined && active.includes(tool.name));
+}
+
 export default function piPstackExtension(pi) {
   registerOpinionRenderer(pi);
   let activeController;
@@ -109,8 +144,23 @@ export default function piPstackExtension(pi) {
     updateModeStatus(ctx);
   };
 
-  pi.on("session_start", (_event, ctx) => restoreMode(ctx));
-  pi.on("session_tree", (_event, ctx) => restoreMode(ctx));
+  // Like Pi's own MCP extension, warn once when nothing can reach the deferred tool.
+  let warnedUnreachable = false;
+  const settleToolSearch = (ctx) => {
+    activateToolSearch(pi, ctx);
+    if (warnedUnreachable || opinionReachable(pi)) return;
+    warnedUnreachable = true;
+    ctx.ui.notify("pstack_opinion is only reachable from the tool_search or codemode tool, but neither is active; it cannot be called.", "warning");
+  };
+
+  pi.on("session_start", (_event, ctx) => {
+    restoreMode(ctx);
+    settleToolSearch(ctx);
+  });
+  pi.on("session_tree", (_event, ctx) => {
+    restoreMode(ctx);
+    settleToolSearch(ctx);
+  });
 
   pi.registerCommand("pstack-mode", {
     description: "Manage persistent poteto mode for this session branch",
@@ -174,6 +224,7 @@ export default function piPstackExtension(pi) {
   pi.registerTool({
     name: "pstack_opinion",
     label: "Pstack text opinion",
+    exposure: "deferred",
     description: "Ask one configured Pi model for a text-only opinion. Runs in the background by default in persistent Pi fork sessions; the answer arrives automatically.",
     promptSnippet: "Request a background text-only model opinion, not a tool-using review.",
     promptGuidelines: [
