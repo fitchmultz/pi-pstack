@@ -1,6 +1,7 @@
 ---
 name: setup-pstack
 description: Configure pstack's optional per-role model choices and reasoning budget for Pi. Use for /skill:setup-pstack, "configure pstack models", or changing pstack's model choices.
+disable-model-invocation: true
 ---
 
 # Setup pstack
