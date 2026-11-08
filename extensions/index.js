@@ -144,22 +144,23 @@ export default function piPstackExtension(pi) {
     updateModeStatus(ctx);
   };
 
-  // Like Pi's own MCP extension, warn once when nothing can reach the deferred tool.
-  let warnedUnreachable = false;
-  const settleToolSearch = (ctx) => {
-    activateToolSearch(pi, ctx);
-    if (warnedUnreachable || opinionReachable(pi)) return;
-    warnedUnreachable = true;
-    ctx.ui.notify("pstack_opinion is only reachable from the tool_search or codemode tool, but neither is active; it cannot be called.", "warning");
-  };
-
   pi.on("session_start", (_event, ctx) => {
     restoreMode(ctx);
-    settleToolSearch(ctx);
+    activateToolSearch(pi, ctx);
   });
   pi.on("session_tree", (_event, ctx) => {
     restoreMode(ctx);
-    settleToolSearch(ctx);
+    activateToolSearch(pi, ctx);
+  });
+
+  // Like Pi's own MCP extension, warn once when nothing can reach the deferred tool. Check as a run
+  // starts: extensions that load later, such as Pi's MCP extension, can still activate tool_search
+  // or codemode in their own session_start handlers.
+  let warnedUnreachable = false;
+  pi.on("before_agent_start", (_event, ctx) => {
+    if (warnedUnreachable || opinionReachable(pi)) return;
+    warnedUnreachable = true;
+    ctx.ui.notify("pstack_opinion is only reachable from the tool_search or codemode tool, but neither is active; it cannot be called.", "warning");
   });
 
   pi.registerCommand("pstack-mode", {
