@@ -38,7 +38,7 @@ checks on 6e9e001: 4 passed, 0 failed, 0 pending, 2 skipped
 expected checks: all present (1 workflow that every push starts, 1 required check)
 reviewers:
   Greptile: 5/5 on 6e9e001
-  TARS review: passed on 6e9e001
+  Review bot: passed on 6e9e001
 unresolved review threads: 1
   app/lib/dedup.ts:208 @reviewer: Use the existing indexed predicate ...
 merge: MERGEABLE; GitHub merge state CLEAN; review decision none

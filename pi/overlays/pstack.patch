@@ -3407,7 +3407,7 @@ index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d
  ## Patterns to detect and fix
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..dd1530f957255f5180b5e9ee489390a3e720a0d3
+index 0000000000000000000000000000000000000000..464aac983444a784b7ccdd2ca068f8ff7e702fe9
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
 @@ -0,0 +1,89 @@
@@ -3451,7 +3451,7 @@ index 0000000000000000000000000000000000000000..dd1530f957255f5180b5e9ee489390a3
 +expected checks: all present (1 workflow that every push starts, 1 required check)
 +reviewers:
 +  Greptile: 5/5 on 6e9e001
-+  TARS review: passed on 6e9e001
++  Review bot: passed on 6e9e001
 +unresolved review threads: 1
 +  app/lib/dedup.ts:208 @reviewer: Use the existing indexed predicate ...
 +merge: MERGEABLE; GitHub merge state CLEAN; review decision none

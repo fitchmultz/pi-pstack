@@ -20,14 +20,14 @@ const CURSOR = "Cursor Automation: PR Bug Review - Maintained Repos";
 const CONFIG = {
   "*": { gh: "gh-personal" },
   fitchmultz: { reviewers: [{ name: DURABLE, check: DURABLE }, { name: "Cursor automation", check: CURSOR }] },
-  workos: {
+  acme: {
     gh: "gh-work",
     reviewers: [{
       name: "Greptile", author: "greptile-apps[bot]", verdict: "Confidence Score: (\\d+/\\d+)",
       pass: "5/5", commit: "/commit/([0-9a-f]{40})",
     }],
   },
-  "workos/alto": { mergeWithoutApproval: true, reviewers: [{ name: "TARS review", check: "TARS review" }] },
+  "acme/app": { mergeWithoutApproval: true, reviewers: [{ name: "Review bot", check: "Review bot" }] },
 };
 
 // The `on:` sections of fitchmultz/pi's workflows on 2026-11-10 (paths shortened).
@@ -178,7 +178,7 @@ test("a commit without checks is waited on, then reported as unknown, never as r
   assert.equal(verdict(never)[0], "UNKNOWN: no checks on this commit, and nothing says whether any are expected");
 });
 
-// workos/alto#1857 on 2026-11-10: 15 checks passed, but none of the nine
+// A private repository on 2026-11-10: 15 checks passed, but none of the nine
 // required Depot CI checks had been reported 75 minutes after the push.
 test("required status checks that were never reported keep the pull request from READY", () => {
   const rules = [
@@ -187,29 +187,29 @@ test("required status checks that were never reported keep the pull request from
   ];
   const state = {
     pullRequest: open({ mergeStateStatus: "BLOCKED", reviewDecision: "REVIEW_REQUIRED" }), rules,
-    checkRuns: [check("TARS review", "success")], statuses: [{ context: "alto-verify", state: "success", target_url: "" }],
-    comments: [{ user: { login: "greptile-apps[bot]" }, updated_at: "2026-11-10T16:30:56Z", body: `Confidence Score: 5/5 (https://github.com/workos/alto/commit/${HEAD})` }],
+    checkRuns: [check("Review bot", "success")], statuses: [{ context: "app-verify", state: "success", target_url: "" }],
+    comments: [{ user: { login: "greptile-apps[bot]" }, updated_at: "2026-11-10T16:30:56Z", body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})` }],
   };
-  const missing = watch([state], { repo: "workos/alto" });
+  const missing = watch([state], { repo: "acme/app" });
   assert.equal(missing.code, 5);
   assert.equal(missing.lines[0],
     "BLOCKED: not ready; waiting for: 2 required checks not reported (Depot CI / verify, Depot CI / checks)");
 
-  const reported = watch([{ ...state, checkRuns: [...state.checkRuns, check("Depot CI / verify", "success"), check("Depot CI / checks", "success")] }], { repo: "workos/alto" });
+  const reported = watch([{ ...state, checkRuns: [...state.checkRuns, check("Depot CI / verify", "success"), check("Depot CI / checks", "success")] }], { repo: "acme/app" });
   assert.equal(reported.code, 0);
   assert.deepEqual(reported.lines.slice(3), [
     "checks on abe04d4: 4 passed, 0 failed, 0 pending, 0 skipped",
     "expected checks: all present (2 required checks)",
     "reviewers:",
     "  Greptile: 5/5 on abe04d4",
-    "  TARS review: passed on abe04d4",
+    "  Review bot: passed on abe04d4",
     "unresolved review threads: 0",
     "merge: MERGEABLE; GitHub merge state BLOCKED; review decision REVIEW_REQUIRED (configuration allows a merge without approval)",
   ]);
 
   // Without that setting, the review that GitHub requires blocks.
-  const comments = [{ ...state.comments[0], body: state.comments[0].body.replace("workos/alto", "workos/authkit") }];
-  const unapproved = watch([{ ...state, rules: [], comments }], { repo: "workos/authkit" });
+  const comments = [{ ...state.comments[0], body: state.comments[0].body.replace("acme/app", "acme/other") }];
+  const unapproved = watch([{ ...state, rules: [], comments }], { repo: "acme/other" });
   assert.equal(unapproved.code, 6);
   assert.equal(unapproved.lines[0], "BLOCKED: GitHub requires an approving review");
   assert.equal(unapproved.lines.at(-1), "merge: MERGEABLE; GitHub merge state BLOCKED; review decision REVIEW_REQUIRED");
@@ -218,8 +218,8 @@ test("required status checks that were never reported keep the pull request from
 test("the GitHub CLI comes from the owner's configuration, and WATCH_PR_GH overrides it", () => {
   const state = { pullRequest: open(), checkRuns: reviewersPassed() };
   assert.deepEqual(watch([state]).gh, ["gh-personal"]);
-  assert.deepEqual(watch([state], { repo: "workos/alto" }).gh, ["gh-work"]);
-  assert.deepEqual(watch([state], { repo: "workos/alto", env: { WATCH_PR_GH: "gh-other" } }).gh, ["gh-other"]);
+  assert.deepEqual(watch([state], { repo: "acme/app" }).gh, ["gh-work"]);
+  assert.deepEqual(watch([state], { repo: "acme/app", env: { WATCH_PR_GH: "gh-other" } }).gh, ["gh-other"]);
   assert.deepEqual(watch([state], { config: null }).gh, ["gh"]);
   const reads = watch([state]).calls;
   assert.ok(reads.length > 0 && reads.every(({ argv }) => argv[0] === "api" && !argv.some((arg) => /^(-X|--method|--input)$/.test(arg))),
@@ -229,36 +229,36 @@ test("the GitHub CLI comes from the owner's configuration, and WATCH_PR_GH overr
 test("a reviewer signs off only on the head commit", () => {
   const greptile = (score, sha) => ({
     user: { login: "greptile-apps[bot]" }, updated_at: "2026-11-10T16:30:56Z",
-    body: `<h2>Confidence Score: ${score}</h2>\n<sub>Last reviewed commit: ["fix"](https://github.com/workos/alto/commit/${sha})</sub>`,
+    body: `<h2>Confidence Score: ${score}</h2>\n<sub>Last reviewed commit: ["fix"](https://github.com/acme/app/commit/${sha})</sub>`,
   });
-  const run = (state) => watch([{ pullRequest: open(), ...state }], { repo: "workos/alto" });
-  const tars = [check("TARS review", "success")];
+  const run = (state) => watch([{ pullRequest: open(), ...state }], { repo: "acme/app" });
+  const bot = [check("Review bot", "success")];
 
-  const stale = run({ checkRuns: tars, comments: [greptile("5/5", OLD)] });
+  const stale = run({ checkRuns: bot, comments: [greptile("5/5", OLD)] });
   assert.equal(stale.code, 5);
   assert.equal(stale.lines[0], "BLOCKED: not ready; waiting for: Greptile: 5/5 on 11a9aa0, not on this commit");
 
-  const low = run({ checkRuns: tars, comments: [greptile("3/5", HEAD)] });
+  const low = run({ checkRuns: bot, comments: [greptile("3/5", HEAD)] });
   assert.equal(low.code, 8);
   assert.equal(low.lines[0], "BLOCKED: Greptile did not sign off: 3/5 on abe04d4 (needs 5/5)");
 
   const notStarted = run({ checkRuns: [check("build", "success")], comments: [greptile("5/5", HEAD)] });
   assert.equal(notStarted.code, 5);
-  assert.equal(notStarted.lines[0], "BLOCKED: not ready; waiting for: TARS review: not started on abe04d4");
+  assert.equal(notStarted.lines[0], "BLOCKED: not ready; waiting for: Review bot: not started on abe04d4");
 
   // A rule that cannot be evaluated is not a sign-off.
-  const noCommit = run({ checkRuns: tars, comments: [{ ...greptile("5/5", HEAD), body: "Confidence Score: 5/5" }] });
+  const noCommit = run({ checkRuns: bot, comments: [{ ...greptile("5/5", HEAD), body: "Confidence Score: 5/5" }] });
   assert.equal(noCommit.code, 9);
   assert.equal(noCommit.lines[0], "UNKNOWN: Greptile: 5/5, but its text does not name a commit");
 
   // The score can also be the body of a review, which GitHub ties to a commit.
-  const review = run({ checkRuns: tars, reviews: [{ user: { login: "greptile-apps[bot]" }, submitted_at: "2026-11-10T16:30:56Z", commit_id: HEAD, body: "Confidence Score: 5/5" }] });
+  const review = run({ checkRuns: bot, reviews: [{ user: { login: "greptile-apps[bot]" }, submitted_at: "2026-11-10T16:30:56Z", commit_id: HEAD, body: "Confidence Score: 5/5" }] });
   assert.equal(review.code, 0);
   assert.ok(review.lines.includes("  Greptile: 5/5 on abe04d4"));
 
-  const misspelled = watch([{ pullRequest: open() }], { config: { workos: { reviewer: [] } }, repo: "workos/alto" });
+  const misspelled = watch([{ pullRequest: open() }], { config: { acme: { reviewer: [] } }, repo: "acme/app" });
   assert.equal(misspelled.code, 64);
-  assert.match(misspelled.err, /"workos" has the unknown key "reviewer"/);
+  assert.match(misspelled.err, /"acme" has the unknown key "reviewer"/);
 });
 
 test("blockers keep the packaged watcher's exit codes", () => {
@@ -311,7 +311,7 @@ test("blockers keep the packaged watcher's exit codes", () => {
   assert.equal(watch([{ pullRequest: open() }], { args: ["--interval", "0"] }).code, 64);
 });
 
-// workos/rag-slack-bot#565: one cancelled and one successful run of verify.yml on the same commit.
+// Seen on a real pull request: one cancelled and one successful run of verify.yml on the same commit.
 test("a workflow that ran again on the commit counts once for each job name", () => {
   const runs = [
     { id: 42853700001, path: ".github/workflows/verify.yml", event: "pull_request", check_suite_id: 116058344570, status: "completed", conclusion: "cancelled" },
@@ -333,10 +333,10 @@ test("a workflow that ran again on the commit counts once for each job name", ()
   assert.equal(restarted.lines[0], "BLOCKED: not ready; waiting for: 1 check pending");
   assert.ok(restarted.lines.includes("  pending: workflow verify.yml"));
 
-  // workos/alto#1854: a later run of the same workflow and event held a different job. Both jobs count.
+  // Seen on a real pull request: a later run of the same workflow and event held a different job. Both jobs count.
   const relabeled = watch([{
     pullRequest: open(), runs: [{ ...runs[0], conclusion: "failure" }, runs[1]],
-    checkRuns: [...reviewersPassed(), check("TARS verification task", "failure", 116058344570), check("TARS verification unchanged", "success", 116058673261)],
+    checkRuns: [...reviewersPassed(), check("Verification task", "failure", 116058344570), check("Verification unchanged", "success", 116058673261)],
   }]);
   assert.equal(relabeled.code, 4);
   assert.ok(relabeled.lines.includes("checks on abe04d4: 3 passed, 1 failed, 0 pending, 0 skipped"));
