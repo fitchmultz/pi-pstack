@@ -56,7 +56,7 @@ An explicitly requested foreground script may wait. A one-shot host that exits b
 | `/deslop` | Apply the code-cleanup procedure below. A separately installed `deslop` skill is optional. |
 | `control-cli` | Use the repository's real CLI/TUI driver or a discovered terminal-control capability. A bounded CLI command can run through native `bash`; interactive TUI proof requires a PTY or equivalent driver. No `interactive-testing` skill is assumed. |
 | `control-ui` | Use a repository-owned UI harness or available browser/native-app tools. `dogfood` and `macuse` skills are optional, not prerequisites supplied by Pi. Stop if the required live interaction cannot be driven. |
-| `/loop` | For a finite watcher, use `background_command` if available, or a bounded native `bash` command such as `gh pr checks --watch`. Neither a foreground command nor a task checklist supplies persistent periodic wakeups. If the workflow needs unattended recurring wakes and no scheduler is available, report the missing capability and stop that phase. |
+| `/loop` | For a finite watcher, use `background_command` if available, or a bounded native `bash` command. To wait on a GitHub pull request, use the `watch-pr` skill's watcher, not a hand-written loop. Neither a foreground command nor a task checklist supplies persistent periodic wakeups. If the workflow needs unattended recurring wakes and no scheduler is available, report the missing capability and stop that phase. |
 | `/create-skill` | Write `SKILL.md` in `.pi/skills/<name>/` or `~/.pi/agent/skills/<name>/`, following existing repository skill checks. `/reload` refreshes native discovery. No separate authoring skill is required. |
 | `Grep`, `Glob` | Native `bash` with `rg` / `find`, and `read` for file contents. |
 
