@@ -76,7 +76,7 @@ function filtersOf(event, filters) {
 
 // The reader below covers the YAML that pull request triggers use: block and
 // flow mappings and sequences, and plain or quoted scalars. Anchors, aliases,
-// tags, block scalars and tabs raise Unreadable so the caller never guesses.
+// tags, block scalars and tab indentation raise Unreadable so the caller never guesses.
 // Other events' settings are skipped, not parsed: they can hold any YAML.
 
 const KEY = /^("[^"]*"|'[^']*'|[^\s:'"&*!|>{[-][^:]*?)\s*:(?:\s+(.*))?$/;
@@ -88,14 +88,15 @@ function readOn(text) {
     const line = stripComment(raw).trimEnd();
     if (!line.trim()) continue;
     const indent = line.length - line.trimStart().length;
-    if (line.slice(0, indent).includes("\t")) throw new Unreadable("tab indentation");
-    lines.push({ indent, text: line.slice(indent) });
+    lines.push({ indent, text: line.slice(indent), tab: line.slice(0, indent).includes("\t") });
   }
   const start = lines.findIndex(({ indent, text }) => indent === 0 && /^(?:on|"on"|'on')\s*:/.test(text));
   if (start === -1) throw new Unreadable("no on key");
   let end = start + 1;
   while (end < lines.length && (lines[end].indent > 0 || isItem(lines[end].text))) end++;
   const section = lines.slice(start, end);
+  // A tab elsewhere in the file, such as in a job's script, does not change the triggers.
+  if (section.some((line) => line.tab)) throw new Unreadable("tab indentation");
   const rest = section[0].text.replace(/^[^:]*:/, "").trim();
   if (rest !== "" || section.length === 1 || isItem(section[1].text)) {
     const [value, next] = mappingValue(section, 0, rest);

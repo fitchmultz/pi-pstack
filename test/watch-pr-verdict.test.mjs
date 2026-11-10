@@ -397,6 +397,10 @@ test("workflow triggers decide whether a push must start a run", () => {
     ["on:\n  workflow_dispatch:\n    inputs:\n      pr:\n        description: |\n          Number: of the pull_request\n", "never"],
     ["on:\n  pull_request: &filters\n    branches: [main]\n", "unreadable"],
     ["name: no triggers\njobs: {}\n", "unreadable"],
+    // A tab counts only inside the `on:` section, not in a job's script.
+    ["on:\n\tpull_request:\n", "unreadable"],
+    ["on:\n  schedule:\n  - cron: '0 3 * * *'\njobs:\n  build:\n    steps:\n    - run: |\n        cat > Makefile <<'EOF'\n        all:\n        \tmake it\n        EOF\n", "never"],
+    ["on: pull_request\njobs:\n  build:\n    steps:\n    - run: |\n        \techo tab\n", "always"],
   ]) assert.equal(classifyWorkflow(text, "main").kind, kind, text);
 
   const unreadable = watch([{ pullRequest: open(), checkRuns: reviewersPassed(), workflows: { "ci.yml": "on:\n  pull_request: &filters\n    branches: [main]\n" } }]);
