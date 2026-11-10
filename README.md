@@ -4,7 +4,7 @@ Pi package adapter for [Cursor's `pstack`](https://github.com/cursor/plugins/tre
 
 ## What this package provides
 
-- **All 58 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:create-formal-verification-skill`, `/skill:maintain-formal-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`. The principles and the command-only skills (`automate-me`, `in-your-own-words`, `ketchup-video`, `maintain-verification-skill`, `poteto-help`, `reflect`, and `setup-pstack`) stay out of the model's skill list; run them with `/skill:<name>` or through another skill's link.
+- **All 58 core `pstack` skills** (`./skills`), including `/skill:poteto-mode` (23 playbooks), all 24 `principle-*` skills, `/skill:how`, `/skill:why`, `/skill:architect`, `/skill:arena`, `/skill:swarm`, `/skill:interrogate`, `/skill:tdd`, `/skill:bro`, `/skill:unslop`, `/skill:no-comments`, `/skill:ketchup`, `/skill:recall`, `/skill:reflect`, `/skill:correct`, `/skill:teach`, `/skill:sharpen`, `/skill:in-your-own-words`, `/skill:figure-it-out`, `/skill:show-me-your-work`, `/skill:technical-writing`, `/skill:typescript-best-practices`, `/skill:benchmark-checklist`, `/skill:blast-radius`, `/skill:create-verification-skill`, `/skill:maintain-verification-skill`, `/skill:create-formal-verification-skill`, `/skill:maintain-formal-verification-skill`, `/skill:automate-me`, and `/skill:setup-pstack`. The package adds one Pi-owned skill, `/skill:watch-pr`. The principles and the command-only skills (`automate-me`, `in-your-own-words`, `ketchup-video`, `maintain-verification-skill`, `poteto-help`, `reflect`, and `setup-pstack`) stay out of the model's skill list; run them with `/skill:<name>` or through another skill's link.
 - **Optional delegation profiles** (`./agents`): `poteto-agent` and `comment-sicko`. The profile-based `pi-subagents` npm package discovers them through `pi.subagents.agents` in the manifest. The top-level `subagents.agents` alias is retained for older adapters; native Pi does not consume either profile-metadata key. `@fitchmultz/pi-subagents` does not read profiles: its `delegate` tool takes the complete assignment, so include a profile's instructions or readable path as [`docs/harness/pi.md`](./docs/harness/pi.md) describes. No sibling's generic profiles are assumed or copied.
 - **Pi harness adapter** ([`docs/harness/pi.md`](./docs/harness/pi.md)): defines task scope, workflow selection, native tool/path mappings, capability checks, standalone code cleanup, model inheritance, and `ponytail:` / `AGENTS.md` protections. Ordinary changes do not require architecture competitions or new tools. Explicit workflows preserve their checks and artifacts, with inline work labeled when an independent panel is unavailable.
 - **Automated upstream sync & notifications**:
@@ -48,9 +48,21 @@ Call the tool directly for background work. To await the answer, pass `backgroun
 
 The bundled profiles inherit the session model instead of pinning a credentialed provider. Existing explicit choices in `~/.pi/agent/pstack-models.md` still take precedence. Diverse-model panels require actual available models; they do not invent routes or silently collapse to one family.
 
-## GitHub CLI selection for watch-pr
+## Waiting on a pull request
 
-The bundled `skills/poteto-mode/scripts/watch-pr/watch-pr` helper uses `gh` by default. On hosts with account-routing wrappers, explicitly select the appropriate executable for the repository:
+`/skill:watch-pr` is a Pi-owned skill; it is not part of upstream `pstack`. Its watcher, `skills/watch-pr/scripts/watch-pr.mjs`, waits until one GitHub pull request is ready to merge or blocked. It runs on Node without other dependencies and only reads from GitHub.
+
+```bash
+node /path/to/pi-pstack/skills/watch-pr/scripts/watch-pr.mjs https://github.com/OWNER/REPO/pull/123
+```
+
+The last output is a verdict of at most 20 lines and 2048 bytes: `READY`, `MERGED`, `BLOCKED: <reason>` or `UNKNOWN: <reason>`, then the head commit, check counts, required reviewers, unresolved review threads and merge state. A commit whose expected checks have not started is never `READY`. [The skill](skills/watch-pr/SKILL.md) lists the exit codes and the decision rules.
+
+`watch-pr.json` in the Pi agent directory selects the GitHub CLI and the required reviewers for each owner or repository. Start from [the example](skills/watch-pr/config.example.json). Without the file, the watcher runs `gh` and requires no reviewer.
+
+## GitHub CLI selection for the stack watcher
+
+The upstream `skills/poteto-mode/scripts/watch-pr/watch-pr` helper watches stacks and merge queues. It does not read `watch-pr.json`, and it uses `gh` by default. On hosts with account-routing wrappers, explicitly select the appropriate executable for the repository:
 
 ```bash
 WATCH_PR_GH=gh-personal /path/to/pi-pstack/skills/poteto-mode/scripts/watch-pr/watch-pr --owner OWNER --repo REPO --pr 123 --status-only

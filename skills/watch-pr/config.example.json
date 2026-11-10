@@ -1,0 +1,19 @@
+{
+  "*": { "gh": "gh" },
+  "my-user": {
+    "reviewers": [{ "name": "Review bot", "check": "Review Bot / review" }]
+  },
+  "my-company": {
+    "gh": "gh-work",
+    "reviewers": [
+      {
+        "name": "Greptile",
+        "author": "greptile-apps[bot]",
+        "verdict": "Confidence Score: (\\d+/\\d+)",
+        "pass": "5/5",
+        "commit": "/commit/([0-9a-f]{40})"
+      }
+    ]
+  },
+  "my-company/admin-repo": { "mergeWithoutApproval": true }
+}
