@@ -8,7 +8,7 @@ paths: ["**/*.ts", "**/*.tsx"]
 
 Read [the Pi execution contract](../../docs/harness/pi.md).
 
-Apply the **type-system-discipline** principle skill first.
+Apply the [type-system-discipline](../principle-type-system-discipline/SKILL.md) principle skill first.
 
 | Rule | Summary |
 |------|---------|

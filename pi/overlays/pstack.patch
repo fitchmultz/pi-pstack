@@ -3367,10 +3367,10 @@ index 3e6d26109376cd66439c87ed48b4033df8d78a3a..d964bf9b6f54851e0d1e85e02bf3cb0f
  ## Vary the rhythm
  
 diff --git a/skills/typescript-best-practices/SKILL.md b/skills/typescript-best-practices/SKILL.md
-index e1e5aa7c97ed39c425d60d933a96424a3f14539e..caa1febb9958a48a405baba4893176e82d87abce 100644
+index e1e5aa7c97ed39c425d60d933a96424a3f14539e..50bf2b5f92c712dbf03c4edb243d256f2ee44bcd 100644
 --- a/skills/typescript-best-practices/SKILL.md
 +++ b/skills/typescript-best-practices/SKILL.md
-@@ -1,12 +1,13 @@
+@@ -1,13 +1,14 @@
  ---
  name: typescript-best-practices
 -description: TypeScript best practices. Use when reading or editing any .ts or .tsx file.
@@ -3381,11 +3381,13 @@ index e1e5aa7c97ed39c425d60d933a96424a3f14539e..caa1febb9958a48a405baba4893176e8
  
  # TypeScript best practices
  
+-Apply the **type-system-discipline** principle skill first.
 +Read [the Pi execution contract](../../docs/harness/pi.md).
 +
- Apply the **type-system-discipline** principle skill first.
++Apply the [type-system-discipline](../principle-type-system-discipline/SKILL.md) principle skill first.
  
  | Rule | Summary |
+ |------|---------|
 diff --git a/skills/unslop/SKILL.md b/skills/unslop/SKILL.md
 index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d1298a0c4 100644
 --- a/skills/unslop/SKILL.md
