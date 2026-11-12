@@ -3239,6 +3239,58 @@ index f5a64a8db4b8a5957ac5e76e051b1823cecd4d5e..9eae0128fbad3afc41264362f1b7f20a
  The chart shows how a system moves between states, in the words of the person who reads it. That person, the reader, decides whether the behavior is right.
  
  ## Run
+diff --git a/skills/statechart/scripts/statechart b/skills/statechart/scripts/statechart
+index 7d3aeb8c219bf20aea4cbc321892fca9cbd582f1..df66b25fc5e50449f4017011b333fa7f2784a551 100755
+--- a/skills/statechart/scripts/statechart
++++ b/skills/statechart/scripts/statechart
+@@ -16,7 +16,9 @@ version() {
+   }
+ }
+ node=$(version node)
+-if [ "$node" -ge 23006000 ] || { [ "$node" -ge 22018000 ] && [ "$node" -lt 23000000 ]; }; then
++if [ "$node" -ge 26013001 ] ||
++  { [ "$node" -ge 24022003 ] && [ "$node" -lt 25000000 ]; } ||
++  { [ "$node" -ge 22023005 ] && [ "$node" -lt 23000000 ]; }; then
+   exec node --disable-warning=ExperimentalWarning "$entry" "$@"
+ fi
+ if [ "$(version bun)" -ge 1001005 ]; then
+@@ -25,5 +27,5 @@ fi
+ if [ "$(version deno)" -ge 2000000 ]; then
+   exec deno run --quiet --no-prompt --allow-read --allow-write --allow-run --allow-env "$entry" "$@"
+ fi
+-echo "statechart needs Node 22.18 to 22.x, Node 23.6 or later, Bun 1.1.5 or later, or Deno 2.0 or later." >&2
++echo "statechart needs Node 22.23.5 to 22.x, Node 24.22.3 to 24.x, Node 26.13.1 or later, Bun 1.1.5 or later, or Deno 2.0 or later." >&2
+ exit 127
+diff --git a/skills/statechart/scripts/test/cli.test.ts b/skills/statechart/scripts/test/cli.test.ts
+index 97b71c30c228eafd55f599375f16be4f656f20e5..38e5141e8cdd119c2e63fa9a5eb55dbc5c29245d 100644
+--- a/skills/statechart/scripts/test/cli.test.ts
++++ b/skills/statechart/scripts/test/cli.test.ts
+@@ -171,6 +171,16 @@ test("the launcher runs statechart.ts on Bun 1.1.5 when PATH has no Node", () =>
+ for (const [what, bin] of [
+   ["has none", launcherTools],
+   ["has only a node that fails --version", unsetNode],
++  ...["22.23.4", "23.11.1", "24.22.2", "25.9.0", "26.13.0"].map(
++    (version): [string, () => string] => [
++      `has only vulnerable or EOL Node ${version}`,
++      () => {
++        const bin = launcherTools();
++        fs.writeFileSync(path.join(bin, "node"), `#!/bin/sh\necho v${version}\n`, { mode: 0o755 });
++        return bin;
++      },
++    ],
++  ),
+   ["has only Bun 1.1.4", fakeBun("1.1.4")],
+ ] satisfies [string, () => string][]) {
+   test(`the launcher stops with exit 127 and names only the runtimes when PATH ${what}`, () => {
+@@ -178,7 +188,7 @@ for (const [what, bin] of [
+     assert.equal(r.status, 127);
+     assert.equal(
+       r.stderr,
+-      "statechart needs Node 22.18 to 22.x, Node 23.6 or later, Bun 1.1.5 or later, or Deno 2.0 or later.\n",
++      "statechart needs Node 22.23.5 to 22.x, Node 24.22.3 to 24.x, Node 26.13.1 or later, Bun 1.1.5 or later, or Deno 2.0 or later.\n",
+     );
+     assert.deepEqual(r.files, []);
+   });
 diff --git a/skills/swarm/SKILL.md b/skills/swarm/SKILL.md
 index 9cd32247b4f381bb020cbbf0fc546ba71407d558..ae343815a2fca2c80c0dd372db3f2ed83ab4d235 100644
 --- a/skills/swarm/SKILL.md

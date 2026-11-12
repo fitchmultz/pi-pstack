@@ -14,6 +14,8 @@ Pi package adapter for [Cursor's `pstack`](https://github.com/cursor/plugins/tre
 
 ## Install
 
+Requires Node `^24.22.3 || >=26.13.1`, including the [November 2026 security fixes](https://nodejs.org/en/blog/vulnerability/november-2026-security-releases). CI uses the latest Node 24 patch.
+
 ```bash
 pi install git:github.com/fitchmultz/pi-pstack
 ```
@@ -109,7 +111,7 @@ CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync 
 
 It then runs `npm run smoke` on each host with `PI_FITCH_SUBAGENTS_INDEX` and `PI_SUBAGENTS_INDEX` set, so both provider subtests run there. The `@fitchmultz/pi-subagents` subtest loads that package through Pi settings and checks that `delegate` and `agent_runs` are active and come from that package, and that `/skill:how` reaches Pi's model check both with and without those tools. Pi's built-in faux model then drives one offline delegation from the parent to a real child process and back. To run it locally, set `PI_FITCH_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/dist/index.js` along with `PI_HOST_INDEX`; without that variable, this subtest is also skipped.
 
-Limits: the faux model proves delegation wiring, not live-model behavior, and no model credentials or paid inference calls are used. The script needs network access, Node 24.21.0 or later with npm (the provider's engine requirement; pi-pstack itself still supports Node 24.15.0 and later), and the fork installer's prerequisites, including tmux and Git 2.40 or later (the fork's source archive uses `git archive --mtime`). The fork build fetches its model catalog when it runs, so that catalog can differ from an installed release of the same commit; the offline smoke does not exercise live-model or catalog behavior. Change the pins only in `scripts/qualify-hosts.mjs`.
+Limits: the faux model proves delegation wiring, not live-model behavior, and no model credentials or paid inference calls are used. The script needs network access, Node 24.22.3 or later in the 24.x line with npm, and the fork installer's prerequisites, including tmux and Git 2.40 or later (the fork's source archive uses `git archive --mtime`). The fork build fetches its model catalog when it runs, so that catalog can differ from an installed release of the same commit; the offline smoke does not exercise live-model or catalog behavior. Change the pins only in `scripts/qualify-hosts.mjs`.
 
 ## License
 

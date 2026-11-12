@@ -27,6 +27,7 @@ jobs:
       - uses: actions/setup-node@v7.1.0
         with:
           node-version: "24"
+          check-latest: true
       - name: Clone upstream cursor/plugins
         run: git clone --filter=blob:none --no-checkout https://github.com/cursor/plugins.git "$RUNNER_TEMP/cursor-plugins"
       - name: Check whether the upstream pstack tree changed
