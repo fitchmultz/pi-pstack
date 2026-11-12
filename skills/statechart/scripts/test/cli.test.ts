@@ -171,6 +171,16 @@ test("the launcher runs statechart.ts on Bun 1.1.5 when PATH has no Node", () =>
 for (const [what, bin] of [
   ["has none", launcherTools],
   ["has only a node that fails --version", unsetNode],
+  ...["22.23.4", "23.11.1", "24.22.2", "25.9.0", "26.13.0"].map(
+    (version): [string, () => string] => [
+      `has only vulnerable or EOL Node ${version}`,
+      () => {
+        const bin = launcherTools();
+        fs.writeFileSync(path.join(bin, "node"), `#!/bin/sh\necho v${version}\n`, { mode: 0o755 });
+        return bin;
+      },
+    ],
+  ),
   ["has only Bun 1.1.4", fakeBun("1.1.4")],
 ] satisfies [string, () => string][]) {
   test(`the launcher stops with exit 127 and names only the runtimes when PATH ${what}`, () => {
@@ -178,7 +188,7 @@ for (const [what, bin] of [
     assert.equal(r.status, 127);
     assert.equal(
       r.stderr,
-      "statechart needs Node 22.18 to 22.x, Node 23.6 or later, Bun 1.1.5 or later, or Deno 2.0 or later.\n",
+      "statechart needs Node 22.23.5 to 22.x, Node 24.22.3 to 24.x, Node 26.13.1 or later, Bun 1.1.5 or later, or Deno 2.0 or later.\n",
     );
     assert.deepEqual(r.files, []);
   });

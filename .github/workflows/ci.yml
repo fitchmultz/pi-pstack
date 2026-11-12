@@ -21,10 +21,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          check-latest: true
       - name: Install worktree audit prerequisite
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.5.0
       - run: npm run check:compat
+      - name: Check standalone statechart runtime selection
+        run: node --test --test-name-pattern=launcher skills/statechart/scripts/test/cli.test.ts
       - name: Qualify the optional pi-subagents loader
         run: |
           PREFIX="$RUNNER_TEMP/pi-pstack-subagents"
@@ -39,6 +42,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          check-latest: true
       - name: Install the fork release test prerequisite
         run: sudo apt-get update && sudo apt-get install --yes tmux
       - name: Qualify official Pi, the Pi fork, and the configured fitchmultz/pi-subagents
