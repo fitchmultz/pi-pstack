@@ -26,6 +26,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.5.0
       - run: npm run check:compat
+      - name: Check standalone statechart runtime selection
+        run: node --test --test-name-pattern=launcher skills/statechart/scripts/test/cli.test.ts
       - name: Qualify the optional pi-subagents loader
         run: |
           PREFIX="$RUNNER_TEMP/pi-pstack-subagents"
