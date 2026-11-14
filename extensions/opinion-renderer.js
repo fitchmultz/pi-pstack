@@ -1,7 +1,7 @@
 import { getMarkdownTheme, truncateToVisualLines } from "@earendil-works/pi-coding-agent";
 import { Box, Markdown, MouseRegion, TruncatedText, truncateToWidth } from "@earendil-works/pi-tui";
 
-// Pi 1.5.0 tool-execution.ts: FALLBACK_PREVIEW_LINES; the fork's compact view keeps two rows.
+// Pi 1.5.2 tool-execution.ts: FALLBACK_PREVIEW_LINES; the fork's compact view keeps two rows.
 const PREVIEW_LINES = 10;
 
 export function registerOpinionRenderer(pi) {

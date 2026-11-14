@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { hash } from "node:crypto";
 import {
   chmodSync,
   cpSync,
@@ -403,7 +403,7 @@ function checkoutTree(repo, tree, destination, index) {
 }
 
 function hashFile(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex");
+  return hash("sha256", readFileSync(path), "hex");
 }
 
 function changes(repo, base, upstream, overlay) {

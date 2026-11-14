@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerOpinionRenderer } from "./opinion-renderer.js";
 
@@ -20,16 +20,6 @@ function ownsSkill(command, name) {
   } catch {
     return false;
   }
-}
-
-function getAgentDir() {
-  const raw = process.env.PI_CODING_AGENT_DIR;
-  if (!raw) return join(homedir(), ".pi", "agent");
-  if (raw === "~") return homedir();
-  if (raw.startsWith("~/") || raw.startsWith("~\\")) {
-    return join(homedir(), raw.slice(2));
-  }
-  return raw;
 }
 
 function getCachePath() {
