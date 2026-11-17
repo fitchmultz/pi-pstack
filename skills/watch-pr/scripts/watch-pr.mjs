@@ -171,6 +171,7 @@ async function main(argv, env) {
         const line = `waiting for the head to reach ${shortSha}: now ${view.facts.head.slice(0, 7)}`;
         if (line !== progress) log(line);
         progress = line;
+        failures = 0;
         await sleep();
         continue;
       }

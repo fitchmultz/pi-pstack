@@ -439,5 +439,20 @@ test("--sha waits for the pushed commit before evaluating anything", () => {
   assert.equal(glance.code, 5);
   assert.equal(glance.lines[0], `BLOCKED: not ready; waiting for: the head to reach ${HEAD.slice(0, 7)}`);
 
+  // A successful wait between failed reads resets the retry budget, so the failures are not "in a row".
+  const fail502 = { fail: { stderr: "gh: HTTP 502: Bad Gateway" } };
+  const recovered = watch([fail502, fail502, fail502, fail502, stale, fail502, landed], {
+    args: ["--sha", HEAD.slice(0, 7), "--interval", "0.05"],
+  });
+  assert.equal(recovered.code, 0);
+  assert.deepEqual(recovered.lines.map((line) => line.replace(/^\S+ /, "")).slice(0, 6), [
+    "retry 1/5: gh-personal api graphql exited 1: gh: HTTP 502: Bad Gateway",
+    "retry 2/5: gh-personal api graphql exited 1: gh: HTTP 502: Bad Gateway",
+    "retry 3/5: gh-personal api graphql exited 1: gh: HTTP 502: Bad Gateway",
+    "retry 4/5: gh-personal api graphql exited 1: gh: HTTP 502: Bad Gateway",
+    `waiting for the head to reach ${HEAD.slice(0, 7)}: now ${OLD.slice(0, 7)}`,
+    "retry 1/5: gh-personal api graphql exited 1: gh: HTTP 502: Bad Gateway",
+  ]);
+
   assert.equal(watch([{ pullRequest: open() }], { args: ["--sha", "zzzzzzz"] }).code, 64);
 });

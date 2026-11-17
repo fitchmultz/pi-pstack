@@ -17,6 +17,12 @@ let poll = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : -1;
 const query = argv.find((arg) => arg.startsWith("query=")) ?? "";
 if (query.includes("reviewThreads")) writeFileSync(counter, String(++poll));
 const state = polls[Math.min(poll, polls.length - 1)];
+// A poll entry may carry its own `{ fail: { stderr, body? } }` to fail only that poll.
+if (state.fail) {
+  if (state.fail.body) console.log(JSON.stringify(argv.includes("--slurp") ? [state.fail.body] : state.fail.body));
+  console.error(state.fail.stderr);
+  process.exit(1);
+}
 const print = (value) => console.log(JSON.stringify(value));
 const pullRequest = (node) => ({ data: { repository: { pullRequest: node } } });
 

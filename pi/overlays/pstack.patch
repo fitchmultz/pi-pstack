@@ -4530,10 +4530,10 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..839ae15d5a4fc769541d2e940272bd04de326765
+index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cffc4668ce
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,219 @@
 +#!/usr/bin/env node
 +// Waits until one pull request is ready to merge or blocked, then prints a
 +// short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
@@ -4707,6 +4707,7 @@ index 0000000000000000000000000000000000000000..839ae15d5a4fc769541d2e940272bd04
 +        const line = `waiting for the head to reach ${shortSha}: now ${view.facts.head.slice(0, 7)}`;
 +        if (line !== progress) log(line);
 +        progress = line;
++        failures = 0;
 +        await sleep();
 +        continue;
 +      }
