@@ -418,7 +418,7 @@ test("--sha waits for the pushed commit before evaluating anything", () => {
   const landed = { pullRequest: open(), checkRuns: reviewersPassed() };
 
   // The previous head's failed check is never judged; the verdict is about the requested commit.
-  const waited = watch([stale, landed], { args: ["--sha", HEAD.slice(0, 7), "--interval", "0.05", "--sha-grace", "10"] });
+  const waited = watch([stale, landed], { args: ["--sha", HEAD.slice(0, 7), "--interval", "0.05"] });
   assert.equal(waited.code, 0);
   assert.deepEqual(waited.lines.slice(0, 1).map((line) => line.replace(/^\S+ /, "")), [
     `waiting for the head to reach ${HEAD.slice(0, 7)}: now ${OLD.slice(0, 7)}`,
@@ -429,23 +429,15 @@ test("--sha waits for the pushed commit before evaluating anything", () => {
     `commit: ${HEAD} (head did not move during this watch)`,
   ]);
 
-  // A head that never reaches the requested commit is reported, not watched until the timeout.
-  const stuck = watch([stale], { args: ["--sha", HEAD, "--interval", "0.05", "--sha-grace", "0.2"] });
-  assert.equal(stuck.code, 6);
-  assert.deepEqual(verdict(stuck).slice(0, 2), [
-    `BLOCKED: the head is ${OLD.slice(0, 7)}, not the requested ${HEAD.slice(0, 7)}`,
-    "pr: https://github.com/fitchmultz/pi/pull/418",
-  ]);
+  // A head that does not reach the commit is waited for under the watch's own timeout.
+  const stuck = watch([stale], { args: ["--sha", HEAD, "--interval", "0.05", "--timeout", "0.3"] });
+  assert.equal(stuck.code, 5);
+  assert.equal(verdict(stuck)[0], `BLOCKED: timed out after 0.3 s; waiting for: the head to reach ${HEAD.slice(0, 7)}`);
 
   // --once takes one look: the head simply has not reached the commit yet.
   const glance = watch([stale], { args: ["--sha", HEAD, "--once"] });
   assert.equal(glance.code, 5);
   assert.equal(glance.lines[0], `BLOCKED: not ready; waiting for: the head to reach ${HEAD.slice(0, 7)}`);
-
-  // The overall timeout still ends a wait that has not reached its grace.
-  const brief = watch([stale], { args: ["--sha", HEAD, "--interval", "0.05", "--timeout", "0.2"] });
-  assert.equal(brief.code, 5);
-  assert.equal(verdict(brief)[0], `BLOCKED: timed out after 0.2 s; waiting for: the head to reach ${HEAD.slice(0, 7)}`);
 
   assert.equal(watch([{ pullRequest: open() }], { args: ["--sha", "zzzzzzz"] }).code, 64);
 });

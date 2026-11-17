@@ -9,7 +9,7 @@ import { ConfigError, configPath, loadConfig, settingsFor } from "./config.mjs";
 import { QueryError, createGitHub } from "./github.mjs";
 import { EXIT, assess, expectedChecks, render, reviewerStates, stillWaiting } from "./verdict.mjs";
 
-const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--sha-grace SECONDS] [--once]
+const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--once]
 
 Waits until the pull request is ready to merge or blocked. The last output is the verdict.
 
@@ -18,20 +18,16 @@ Waits until the pull request is ready to merge or blocked. The last output is th
   --timeout      give up after this many seconds; default 3600, 0 waits without limit
   --interval     seconds between polls; default 60
   --sha          evaluate only once the pull request head is this commit, full or short
-  --sha-grace    seconds to wait for the head to reach --sha; default 60
   --once         print the verdict for the current state and exit
 
 Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads, 4 failed checks,
-5 still waiting (timeout or --once), 6 draft, closed, changes requested, approval required, behind base,
-or a head that never reached --sha, 7 GitHub query failed, 8 a required reviewer did not sign off,
-9 unknown, 64 usage.
+5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft, closed,
+changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
+reviewer did not sign off, 9 unknown, 64 usage.
 `;
 
 // Consecutive failed polls before the watch gives up; the packaged poteto-mode watcher uses the same budget.
 const MAX_QUERY_FAILURES = 5;
-// Seconds between polls while waiting for the head to reach --sha: a head follows
-// its push within seconds, so the gate polls faster than --interval.
-const SHA_POLL_SECONDS = 5;
 
 class UsageError extends Error {}
 
@@ -62,7 +58,6 @@ async function parse(argv) {
         timeout: { type: "string", default: "3600" },
         interval: { type: "string", default: "60" },
         sha: { type: "string" },
-        "sha-grace": { type: "string", default: "60" },
         once: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -98,7 +93,6 @@ async function parse(argv) {
     timeout: seconds("timeout", values.timeout, { zero: true }),
     interval: seconds("interval", values.interval, { zero: false }),
     sha,
-    shaGrace: seconds("sha-grace", values["sha-grace"], { zero: true }),
     once: values.once,
   };
 }
@@ -109,7 +103,7 @@ async function main(argv, env) {
     process.stdout.write(USAGE);
     return 0;
   }
-  const { pr, timeout, interval, sha, shaGrace, once } = options;
+  const { pr, timeout, interval, sha, once } = options;
   const settingsPath = configPath(env);
   const settings = settingsFor(loadConfig(settingsPath), pr.owner, pr.repo);
   const executable = env.WATCH_PR_GH || settings.gh || "gh";
@@ -174,17 +168,10 @@ async function main(argv, env) {
           ].join("\n").concat("\n"));
           return EXIT.timeout;
         }
-        if (elapsed() >= shaGrace) {
-          process.stdout.write([
-            `BLOCKED: the head is ${view.facts.head.slice(0, 7)}, not the requested ${shortSha}`,
-            `pr: ${view.facts.url}`,
-          ].join("\n").concat("\n"));
-          return EXIT.mergeGate;
-        }
         const line = `waiting for the head to reach ${shortSha}: now ${view.facts.head.slice(0, 7)}`;
         if (line !== progress) log(line);
         progress = line;
-        await delay(1000 * Math.min(interval, SHA_POLL_SECONDS));
+        await sleep();
         continue;
       }
       outcome = assess(view, { firstLook: !once && !seen.has(view.facts.head) });
