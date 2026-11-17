@@ -1,12 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerOpinionRenderer } from "./opinion-renderer.js";
 
-const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const PACKAGE_ROOT = join(import.meta.dirname, "..");
 const UPSTREAM_FILE = join(PACKAGE_ROOT, "upstream.json");
 const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const API_URL = "https://api.github.com/repos/cursor/plugins/commits?path=pstack&per_page=1";

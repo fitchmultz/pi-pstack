@@ -19,9 +19,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, posix, relative, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = join(import.meta.dirname, "..");
 const REPOSITORY = "https://github.com/cursor/plugins";
 const VENDOR = "vendor/pstack";
 const OVERLAY = "pi/overlays/pstack.patch";
