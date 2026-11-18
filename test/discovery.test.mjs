@@ -204,7 +204,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             card.setCompactView(false);
             assert.ok(card.render(80).length > 3);
           }
-          if (typeof card.handleMouse === "function") {
+          if (Object.hasOwn(CustomMessageComponent.prototype, "handleMouse")) {
             const sibling = new CustomMessageComponent(message, renderer, undefined, 2);
             const click = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 10 };
             card.render(80);
