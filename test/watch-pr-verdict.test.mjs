@@ -311,6 +311,97 @@ test("blockers keep the packaged watcher's exit codes", () => {
   assert.equal(watch([{ pullRequest: open() }], { args: ["--interval", "0"] }).code, 64);
 });
 
+function primaryLimitOnLaterPage(state, reset) {
+  const message = "API rate limit exceeded for user ID 1234.";
+  return {
+    ...state,
+    fail: {
+      endpoint: "/check-runs?", firstPage: { check_runs: state.checkRuns },
+      firstHeaders: { "X-Ratelimit-Remaining": "1" },
+      status: 403, body: { message }, stderr: `gh: ${message} (HTTP 403)`,
+      headers: { "X-Ratelimit-Resource": "core", "X-Ratelimit-Remaining": "0", "X-Ratelimit-Reset": reset },
+    },
+  };
+}
+
+test("a reset inside the watch timeout resumes before the next ordinary poll", () => {
+  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const reset = Math.floor(Date.now() / 1000) + 2;
+  const result = watch([primaryLimitOnLaterPage(done, reset), done], { args: ["--timeout", "4"] });
+  assert.equal(result.code, 0, result.out);
+  assert.match(verdict(result)[0], /^READY/);
+  const reads = result.calls.filter(({ argv }) => argv[1].includes("/check-runs?"));
+  assert.equal(reads.length, 2);
+  assert.ok(reads[0].at < reset * 1000 && reads[1].at >= reset * 1000, "the retry waited for the reset");
+});
+
+test("a REST primary rate limit on a later page waits without spending query retries", () => {
+  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const limited = (reset) => primaryLimitOnLaterPage(done, reset);
+  const reset = Math.floor(Date.now() / 1000) + 60;
+  const timed = watch([limited(reset)], { args: ["--timeout", "0.6", "--interval", "0.05"] });
+  assert.equal(timed.code, 5);
+  assert.match(verdict(timed)[0], /^BLOCKED: timed out after 0.6 s; GitHub primary rate limit/);
+  assert.ok(timed.out.includes(new Date(reset * 1000).toISOString()));
+  assert.equal(timed.calls.filter(({ argv }) => argv[1].includes("/check-runs?")).length, 1);
+
+  const once = watch([limited(reset)]);
+  assert.equal(once.code, 7);
+  assert.match(once.lines[0], /^BLOCKED: GitHub query failed: GitHub primary rate limit/);
+  assert.equal(once.calls.filter(({ argv }) => argv[1].includes("/check-runs?")).length, 1);
+
+  const expired = limited(Math.floor(Date.now() / 1000) - 1);
+  const stale = watch([expired, done], { args: ["--timeout", "0.6"] });
+  assert.equal(stale.code, 5);
+  assert.equal(stale.calls.filter(({ argv }) => argv[1].includes("/check-runs?")).length, 1);
+
+  const recovered = watch([...Array(5).fill(expired), done], { args: ["--timeout", "0", "--interval", "0.05"] });
+  assert.equal(recovered.code, 0);
+  assert.match(verdict(recovered)[0], /^READY/);
+  assert.doesNotMatch(recovered.out, /retry \d\/5/);
+  assert.equal(recovered.calls.filter(({ argv }) => argv[1].includes("/check-runs?")).length, 6);
+});
+
+test("GraphQL rate reports use their own reset or Retry-After, not a failed CI verdict", () => {
+  const deadline = Math.floor(Date.now() / 1000) + 90;
+  for (const [kind, message, headers] of [
+    ["primary", "API rate limit exceeded", { "X-Ratelimit-Remaining": "0", "X-Ratelimit-Reset": deadline }],
+    ["secondary", "You have exceeded a secondary rate limit.", {
+      "Retry-After": "30", "X-Ratelimit-Remaining": "43", "X-Ratelimit-Reset": deadline,
+    }],
+  ]) {
+    const result = watch([], {
+      args: ["--timeout", "0.3", "--interval", "0.05"],
+      fail: { status: 200, headers, stderr: `gh: ${message}`, body: { errors: [{ type: "RATE_LIMITED", message }] } },
+    });
+    assert.equal(result.code, 5);
+    assert.match(verdict(result)[0], new RegExp(`^BLOCKED: timed out after 0.3 s; GitHub ${kind} rate limit`));
+    assert.equal(result.calls.length, 1);
+    if (kind === "secondary") assert.ok(!result.out.includes(new Date(deadline * 1000).toISOString()));
+  }
+
+  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const message = "You have exceeded a secondary rate limit.";
+  const restricted = { fail: {
+    endpoint: "graphql", status: 200, headers: { "Retry-After": "1" },
+    stderr: `gh: ${message}`, body: { errors: [{ type: "RATE_LIMITED", message }] },
+  } };
+  const resumed = watch([restricted, done], { args: ["--timeout", "4"] });
+  assert.equal(resumed.code, 0, resumed.out);
+  const reads = resumed.calls.filter(({ argv }) => argv.some((arg) => arg.includes("reviewThreads")));
+  assert.equal(reads.length, 2);
+  assert.ok(reads[1].at - reads[0].at >= 1000, "the retry waited for Retry-After");
+
+  const forbidden = watch([], { args: ["--interval", "0.05"], fail: {
+    status: 403, headers: { "X-Ratelimit-Remaining": "0", "X-Ratelimit-Reset": deadline },
+    stderr: "gh: Resource not accessible by personal access token (HTTP 403)",
+    body: { message: "Resource not accessible by personal access token" },
+  } });
+  assert.equal(forbidden.code, 7);
+  assert.match(verdict(forbidden)[0], /Resource not accessible by personal access token/);
+  assert.doesNotMatch(forbidden.out, /GitHub (primary|secondary) rate limit/);
+});
+
 // Seen on a real pull request: one cancelled and one successful run of verify.yml on the same commit.
 test("a workflow that ran again on the commit counts once for each job name", () => {
   const runs = [

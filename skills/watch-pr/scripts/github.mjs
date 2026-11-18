@@ -6,11 +6,27 @@ import { basename } from "node:path";
 
 /** A GitHub read that failed. `retryable` is false when repeating it cannot help. */
 export class QueryError extends Error {
-  constructor(message, { retryable = true } = {}) {
+  constructor(message, { retryable = true, rateLimit } = {}) {
     super(message);
     this.name = "QueryError";
     this.retryable = retryable;
+    this.rateLimit = rateLimit;
   }
+}
+
+/** Finish the in-flight reads before deciding whether and when to poll again. */
+export async function readTogether(reads) {
+  const results = await Promise.allSettled(reads);
+  const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
+  if (errors.length) {
+    const terminal = errors.find((error) => !(error instanceof QueryError) || !error.retryable);
+    const limits = errors.filter((error) => error.rateLimit);
+    // Preserve the longest reported pause when more than one request was limited.
+    const latest = limits.reduce((last, error) => !last ||
+      error.rateLimit.notBefore > last.rateLimit.notBefore ? error : last, null);
+    throw terminal ?? latest ?? errors[0];
+  }
+  return results.map((result) => result.value);
 }
 
 const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
@@ -42,14 +58,52 @@ function stateOf({ status, conclusion }) {
   return PASSED.has(conclusion) ? "passed" : SKIPPED.has(conclusion) ? "skipped" : "failed";
 }
 
-/** True when a GraphQL response says the repository or pull request does not exist for this account. */
-function notFound(stdout) {
+function parseJSON(text) {
   try {
-    // `--slurp` wraps the pages in an array.
-    return [JSON.parse(stdout)].flat().some((page) => page.errors?.some((error) => error.type === "NOT_FOUND"));
+    return JSON.parse(text);
   } catch {
-    return false;
+    return undefined;
   }
+}
+
+function responsePages(stdout) {
+  // `gh api --include --paginate --jq .` prints each response's status and
+  // headers, then one JSON value and a newline for each successful page.
+  const blocks = stdout.split(/^(?=HTTP\/[\d.]+ \d{3}\b)/m);
+  return blocks.filter(Boolean).map((block) => {
+    const [head, ...body] = block.split(/\r?\n\r?\n/);
+    const [line, ...fields] = head.split(/\r?\n/);
+    const headers = new Map(fields.map((field) => {
+      const colon = field.indexOf(":");
+      return [field.slice(0, colon).toLowerCase(), field.slice(colon + 1).trim()];
+    }));
+    return { status: Number(/^HTTP\/[\d.]+ (\d{3})\b/.exec(line)?.[1]), headers, body: parseJSON(body.join("\n\n")) };
+  });
+}
+
+function headerTime(value, from = 0) {
+  if (!/^\d+$/.test(value ?? "")) return;
+  const time = from + Number(value) * 1000;
+  if (Number.isFinite(new Date(time).getTime())) return time;
+}
+
+function rateLimitOf({ status, headers, body }, graphqlErrors) {
+  if (status !== 403 && status !== 429 && !(status === 200 && graphqlErrors.length)) return;
+  const receivedAt = Date.now();
+  const reset = headers.get("x-ratelimit-remaining") === "0"
+    ? headerTime(headers.get("x-ratelimit-reset")) : undefined;
+  const after = headerTime(headers.get("retry-after"), receivedAt);
+  const messages = [body?.message, ...graphqlErrors.map((error) => error.message)];
+  const secondary = messages.some((message) => /\bsecondary rate limit\b/i.test(message ?? ""));
+  // A plain 403 can also mean insufficient permissions, even when quota is low.
+  const quotaError = graphqlErrors.some((error) => error.type === "RATE_LIMITED") ||
+    /^API rate limit exceeded\b/i.test(body?.message ?? "") || status === 429;
+  if (!secondary && !quotaError) return;
+  if (!secondary && reset === undefined && after === undefined) return;
+  const kind = secondary ? "secondary" : reset !== undefined ? "primary" : null;
+  // GitHub asks for at least one minute when a secondary limit has no deadline.
+  const notBefore = Math.max(reset ?? -Infinity, after ?? -Infinity);
+  return { kind, notBefore: notBefore === -Infinity ? receivedAt + 60_000 : notBefore };
 }
 
 const segment = (value) => value.split("/").map(encodeURIComponent).join("/");
@@ -62,7 +116,10 @@ export const login = (value) => (value ?? "").replace(/\[bot\]$/, "").toLowerCas
 export function createGitHub(executable) {
   function run(args) {
     return new Promise((resolve, reject) => {
-      const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(executable, args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, NO_COLOR: "1" },
+      });
       let stdout = "";
       let stderr = "";
       child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
@@ -74,28 +131,34 @@ export function createGitHub(executable) {
   }
 
   async function json(args) {
-    const { code, stdout, stderr } = await run(args);
-    if (code !== 0) {
+    const { code, stdout, stderr } = await run([...args, "--include", "--jq", "."]);
+    const pages = responsePages(stdout);
+    const response = pages.at(-1);
+    const errors = response?.body?.errors;
+    const graphqlErrors = args[1] === "graphql" && Array.isArray(errors) ? errors : [];
+    if (code !== 0 || graphqlErrors.length) {
+      const rateLimit = response && rateLimitOf(response, graphqlErrors);
       const detail = stderr.trim().split(/\r?\n/, 1)[0].slice(0, 240);
+      const retryable = code !== 4 && response?.status !== 401 &&
+        !graphqlErrors.some((error) => ["NOT_FOUND", "FORBIDDEN", "UNAUTHORIZED"].includes(error.type));
       throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} exited ${code}${detail ? `: ${detail}` : ""}`,
-        { retryable: !notFound(stdout) });
+        { retryable, rateLimit: retryable ? rateLimit : undefined });
     }
-    try {
-      return JSON.parse(stdout);
-    } catch {
+    if (!pages.length || pages.some((page) => page.body === undefined)) {
       throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);
     }
+    return args.includes("--paginate") ? pages.map((page) => page.body) : pages[0].body;
   }
 
   /** All pages of a REST list, as an array of page bodies. */
-  const rest = (path) => json(["api", path, "--paginate", "--slurp"]);
+  const rest = (path) => json(["api", path, "--paginate"]);
 
   function graphql(query, variables, paginate = false) {
     const args = ["api", "graphql", "-f", `query=${query}`];
     for (const [name, value] of Object.entries(variables)) {
       args.push(typeof value === "number" ? "-F" : "-f", `${name}=${value}`);
     }
-    if (paginate) args.push("--paginate", "--slurp");
+    if (paginate) args.push("--paginate");
     return json(args);
   }
 
@@ -150,7 +213,7 @@ export function createGitHub(executable) {
      */
     async commitChecks(pr, sha) {
       const base = `repos/${pr.owner}/${pr.repo}`;
-      const [checkPages, statusPages, runPages] = await Promise.all([
+      const [checkPages, statusPages, runPages] = await readTogether([
         rest(`${base}/commits/${sha}/check-runs?per_page=100`),
         rest(`${base}/commits/${sha}/status?per_page=100`),
         rest(`${base}/actions/runs?head_sha=${sha}&per_page=100`),
@@ -231,7 +294,7 @@ export function createGitHub(executable) {
      */
     async requiredChecks(pr, baseRef) {
       const base = `repos/${pr.owner}/${pr.repo}`;
-      const [rulePages, branchPages] = await Promise.all([
+      const [rulePages, branchPages] = await readTogether([
         rest(`${base}/rules/branches/${segment(baseRef)}?per_page=100`),
         rest(`${base}/branches/${segment(baseRef)}`),
       ]);
@@ -248,7 +311,7 @@ export function createGitHub(executable) {
      */
     async reviewTexts(pr) {
       const base = `repos/${pr.owner}/${pr.repo}`;
-      const [commentPages, reviewPages] = await Promise.all([
+      const [commentPages, reviewPages] = await readTogether([
         rest(`${base}/issues/${pr.number}/comments?per_page=100`),
         rest(`${base}/pulls/${pr.number}/reviews?per_page=100`),
       ]);

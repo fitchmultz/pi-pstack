@@ -3461,10 +3461,10 @@ index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d
  ## Patterns to detect and fix
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..f0886ceacd7ba5f6050295e7300786887b8a3d8e
+index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0babda11cc
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,92 @@
 +---
 +name: watch-pr
 +description: "Wait for a GitHub PR's checks, reviews, or merge readiness with one background watcher, not a hand-written loop."
@@ -3488,11 +3488,13 @@ index 0000000000000000000000000000000000000000..f0886ceacd7ba5f6050295e730078688
 +
 +- Name the pull request by URL, or by number with `--repo OWNER/NAME`. A number without `--repo` refers to the `origin` remote of the current directory.
 +- `--timeout SECONDS` ends the watch after that time. The default is 3600. `0` waits without limit.
-+- `--interval SECONDS` is the time between reads. The default is 60.
++- `--interval SECONDS` is the time between ordinary polls. The default is 60.
 +- `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 +- `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
 +- Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 +- Start one job for each pull request.
++
++After a rate-limited read, the watcher uses a future reset or `Retry-After` instead of the ordinary polling interval. If that time has already passed, the watcher uses the ordinary interval to avoid retrying in a tight loop. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. These waits use no ordinary query retries and do not extend `--timeout`. With `--once`, the watcher reports the rate limit without waiting.
 +
 +## Read the verdict
 +
@@ -3518,7 +3520,7 @@ index 0000000000000000000000000000000000000000..f0886ceacd7ba5f6050295e730078688
 +| 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
 +| 3 | `BLOCKED: N unresolved review threads` | Fix or rebut each thread, then resolve it. |
 +| 4 | `BLOCKED: N checks failed` | The block links each failed check. |
-+| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | Something is still running, has not started, or the head has not reached the commit named by `--sha`. The line says what. |
++| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 +| 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
 +| 7 | `BLOCKED: GitHub query failed ...` | The watcher could not read GitHub. The block names the GitHub CLI it ran. |
 +| 8 | `BLOCKED: NAME did not sign off ...` | A required reviewer reported on this commit and did not pass. |
@@ -3698,10 +3700,10 @@ index 0000000000000000000000000000000000000000..c04b3782def97a5c97f42c4628afc787
 +}
 diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308512630ed
+index 0000000000000000000000000000000000000000..f9e7ae39a9a58bdc84749204a9f47c0cc9e32277
 --- /dev/null
 +++ b/skills/watch-pr/scripts/github.mjs
-@@ -0,0 +1,263 @@
+@@ -0,0 +1,326 @@
 +// Read-only GitHub queries for the watcher, through one GitHub CLI executable.
 +// Every REST read names the commit it is about, so one poll never mixes two heads.
 +
@@ -3710,11 +3712,27 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +
 +/** A GitHub read that failed. `retryable` is false when repeating it cannot help. */
 +export class QueryError extends Error {
-+  constructor(message, { retryable = true } = {}) {
++  constructor(message, { retryable = true, rateLimit } = {}) {
 +    super(message);
 +    this.name = "QueryError";
 +    this.retryable = retryable;
++    this.rateLimit = rateLimit;
 +  }
++}
++
++/** Finish the in-flight reads before deciding whether and when to poll again. */
++export async function readTogether(reads) {
++  const results = await Promise.allSettled(reads);
++  const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
++  if (errors.length) {
++    const terminal = errors.find((error) => !(error instanceof QueryError) || !error.retryable);
++    const limits = errors.filter((error) => error.rateLimit);
++    // Preserve the longest reported pause when more than one request was limited.
++    const latest = limits.reduce((last, error) => !last ||
++      error.rateLimit.notBefore > last.rateLimit.notBefore ? error : last, null);
++    throw terminal ?? latest ?? errors[0];
++  }
++  return results.map((result) => result.value);
 +}
 +
 +const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
@@ -3746,14 +3764,52 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +  return PASSED.has(conclusion) ? "passed" : SKIPPED.has(conclusion) ? "skipped" : "failed";
 +}
 +
-+/** True when a GraphQL response says the repository or pull request does not exist for this account. */
-+function notFound(stdout) {
++function parseJSON(text) {
 +  try {
-+    // `--slurp` wraps the pages in an array.
-+    return [JSON.parse(stdout)].flat().some((page) => page.errors?.some((error) => error.type === "NOT_FOUND"));
++    return JSON.parse(text);
 +  } catch {
-+    return false;
++    return undefined;
 +  }
++}
++
++function responsePages(stdout) {
++  // `gh api --include --paginate --jq .` prints each response's status and
++  // headers, then one JSON value and a newline for each successful page.
++  const blocks = stdout.split(/^(?=HTTP\/[\d.]+ \d{3}\b)/m);
++  return blocks.filter(Boolean).map((block) => {
++    const [head, ...body] = block.split(/\r?\n\r?\n/);
++    const [line, ...fields] = head.split(/\r?\n/);
++    const headers = new Map(fields.map((field) => {
++      const colon = field.indexOf(":");
++      return [field.slice(0, colon).toLowerCase(), field.slice(colon + 1).trim()];
++    }));
++    return { status: Number(/^HTTP\/[\d.]+ (\d{3})\b/.exec(line)?.[1]), headers, body: parseJSON(body.join("\n\n")) };
++  });
++}
++
++function headerTime(value, from = 0) {
++  if (!/^\d+$/.test(value ?? "")) return;
++  const time = from + Number(value) * 1000;
++  if (Number.isFinite(new Date(time).getTime())) return time;
++}
++
++function rateLimitOf({ status, headers, body }, graphqlErrors) {
++  if (status !== 403 && status !== 429 && !(status === 200 && graphqlErrors.length)) return;
++  const receivedAt = Date.now();
++  const reset = headers.get("x-ratelimit-remaining") === "0"
++    ? headerTime(headers.get("x-ratelimit-reset")) : undefined;
++  const after = headerTime(headers.get("retry-after"), receivedAt);
++  const messages = [body?.message, ...graphqlErrors.map((error) => error.message)];
++  const secondary = messages.some((message) => /\bsecondary rate limit\b/i.test(message ?? ""));
++  // A plain 403 can also mean insufficient permissions, even when quota is low.
++  const quotaError = graphqlErrors.some((error) => error.type === "RATE_LIMITED") ||
++    /^API rate limit exceeded\b/i.test(body?.message ?? "") || status === 429;
++  if (!secondary && !quotaError) return;
++  if (!secondary && reset === undefined && after === undefined) return;
++  const kind = secondary ? "secondary" : reset !== undefined ? "primary" : null;
++  // GitHub asks for at least one minute when a secondary limit has no deadline.
++  const notBefore = Math.max(reset ?? -Infinity, after ?? -Infinity);
++  return { kind, notBefore: notBefore === -Infinity ? receivedAt + 60_000 : notBefore };
 +}
 +
 +const segment = (value) => value.split("/").map(encodeURIComponent).join("/");
@@ -3766,7 +3822,10 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +export function createGitHub(executable) {
 +  function run(args) {
 +    return new Promise((resolve, reject) => {
-+      const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
++      const child = spawn(executable, args, {
++        stdio: ["ignore", "pipe", "pipe"],
++        env: { ...process.env, NO_COLOR: "1" },
++      });
 +      let stdout = "";
 +      let stderr = "";
 +      child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
@@ -3778,28 +3837,34 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +  }
 +
 +  async function json(args) {
-+    const { code, stdout, stderr } = await run(args);
-+    if (code !== 0) {
++    const { code, stdout, stderr } = await run([...args, "--include", "--jq", "."]);
++    const pages = responsePages(stdout);
++    const response = pages.at(-1);
++    const errors = response?.body?.errors;
++    const graphqlErrors = args[1] === "graphql" && Array.isArray(errors) ? errors : [];
++    if (code !== 0 || graphqlErrors.length) {
++      const rateLimit = response && rateLimitOf(response, graphqlErrors);
 +      const detail = stderr.trim().split(/\r?\n/, 1)[0].slice(0, 240);
++      const retryable = code !== 4 && response?.status !== 401 &&
++        !graphqlErrors.some((error) => ["NOT_FOUND", "FORBIDDEN", "UNAUTHORIZED"].includes(error.type));
 +      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} exited ${code}${detail ? `: ${detail}` : ""}`,
-+        { retryable: !notFound(stdout) });
++        { retryable, rateLimit: retryable ? rateLimit : undefined });
 +    }
-+    try {
-+      return JSON.parse(stdout);
-+    } catch {
++    if (!pages.length || pages.some((page) => page.body === undefined)) {
 +      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);
 +    }
++    return args.includes("--paginate") ? pages.map((page) => page.body) : pages[0].body;
 +  }
 +
 +  /** All pages of a REST list, as an array of page bodies. */
-+  const rest = (path) => json(["api", path, "--paginate", "--slurp"]);
++  const rest = (path) => json(["api", path, "--paginate"]);
 +
 +  function graphql(query, variables, paginate = false) {
 +    const args = ["api", "graphql", "-f", `query=${query}`];
 +    for (const [name, value] of Object.entries(variables)) {
 +      args.push(typeof value === "number" ? "-F" : "-f", `${name}=${value}`);
 +    }
-+    if (paginate) args.push("--paginate", "--slurp");
++    if (paginate) args.push("--paginate");
 +    return json(args);
 +  }
 +
@@ -3854,7 +3919,7 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +     */
 +    async commitChecks(pr, sha) {
 +      const base = `repos/${pr.owner}/${pr.repo}`;
-+      const [checkPages, statusPages, runPages] = await Promise.all([
++      const [checkPages, statusPages, runPages] = await readTogether([
 +        rest(`${base}/commits/${sha}/check-runs?per_page=100`),
 +        rest(`${base}/commits/${sha}/status?per_page=100`),
 +        rest(`${base}/actions/runs?head_sha=${sha}&per_page=100`),
@@ -3935,7 +4000,7 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +     */
 +    async requiredChecks(pr, baseRef) {
 +      const base = `repos/${pr.owner}/${pr.repo}`;
-+      const [rulePages, branchPages] = await Promise.all([
++      const [rulePages, branchPages] = await readTogether([
 +        rest(`${base}/rules/branches/${segment(baseRef)}?per_page=100`),
 +        rest(`${base}/branches/${segment(baseRef)}`),
 +      ]);
@@ -3952,7 +4017,7 @@ index 0000000000000000000000000000000000000000..45a4c921c793e600295a594c2c3fc308
 +     */
 +    async reviewTexts(pr) {
 +      const base = `repos/${pr.owner}/${pr.repo}`;
-+      const [commentPages, reviewPages] = await Promise.all([
++      const [commentPages, reviewPages] = await readTogether([
 +        rest(`${base}/issues/${pr.number}/comments?per_page=100`),
 +        rest(`${base}/pulls/${pr.number}/reviews?per_page=100`),
 +      ]);
@@ -4530,10 +4595,10 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cffc4668ce
+index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9765da22e
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,259 @@
 +#!/usr/bin/env node
 +// Waits until one pull request is ready to merge or blocked, then prints a
 +// short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
@@ -4542,7 +4607,7 @@ index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cf
 +import { setTimeout as delay } from "node:timers/promises";
 +import { parseArgs } from "node:util";
 +import { ConfigError, configPath, loadConfig, settingsFor } from "./config.mjs";
-+import { QueryError, createGitHub } from "./github.mjs";
++import { QueryError, createGitHub, readTogether } from "./github.mjs";
 +import { EXIT, assess, expectedChecks, render, reviewerStates, stillWaiting } from "./verdict.mjs";
 +
 +const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--once]
@@ -4552,7 +4617,7 @@ index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cf
 +  <number|url>   pull request number or URL (also --pr NUMBER)
 +  --repo         OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
 +  --timeout      give up after this many seconds; default 3600, 0 waits without limit
-+  --interval     seconds between polls; default 60
++  --interval     seconds between ordinary polls; default 60
 +  --sha          evaluate only once the pull request head is this commit, full or short
 +  --once         print the verdict for the current state and exit
 +
@@ -4671,7 +4736,7 @@ index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cf
 +      else return { ...view, waitingForHead: true };
 +    }
 +    view.startHead = startHead ??= facts.head;
-+    const [{ checks, runs }, files, required, texts] = await Promise.all([
++    const [{ checks, runs }, files, required, texts] = await readTogether([
 +      github.commitChecks(pr, facts.head),
 +      cached(workflowFiles, facts.head, () => github.workflowFiles(pr, facts.head)),
 +      cached(requiredChecks, facts.baseRef, () => github.requiredChecks(pr, facts.baseRef)),
@@ -4685,11 +4750,29 @@ index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cf
 +
 +  const started = performance.now() / 1000;
 +  const elapsed = () => performance.now() / 1000 - started;
-+  const timedOut = () => timeout > 0 && elapsed() >= timeout;
-+  const sleep = () => delay(1000 * (timeout > 0 ? Math.min(interval, Math.max(0, timeout - elapsed())) : interval));
++  const remaining = () => timeout > 0 ? Math.max(0, timeout - elapsed()) : Infinity;
++  const timedOut = () => remaining() === 0;
++  const sleep = () => delay(1000 * Math.min(interval, remaining()));
++  async function waitForRateLimit(elapsedDeadline) {
++    let seconds;
++    while ((seconds = Math.min(elapsedDeadline - elapsed(), remaining())) > 0) {
++      // Node turns a delay above its signed 32-bit timer limit into 1 ms.
++      await delay(Math.min(Math.ceil(1000 * seconds), 2 ** 31 - 1));
++    }
++  }
 +  const log = (text) => process.stdout.write(`${new Date().toISOString()} ${text}\n`);
++  function queryBlocked(exitCode, reason) {
++    process.stdout.write([
++      `BLOCKED: ${reason}`,
++      `pr: https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}`,
++      `github cli: ${executable} (${source})`,
++    ].join("\n").concat("\n"));
++    return exitCode;
++  }
 +  const seen = new Set();
 +  let failures = 0;
++  let secondaryFailures = 0;
++  let previousSecondaryWait = 0;
 +  let progress = null;
 +  for (;;) {
 +    let view;
@@ -4708,6 +4791,7 @@ index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cf
 +        if (line !== progress) log(line);
 +        progress = line;
 +        failures = 0;
++        secondaryFailures = previousSecondaryWait = 0;
 +        await sleep();
 +        continue;
 +      }
@@ -4716,17 +4800,38 @@ index 0000000000000000000000000000000000000000..91ade2fa15e3680ed8ffaf357c32f0cf
 +      if (outcome.kind === "ready" && (await github.head(pr)) !== view.facts.head) continue;
 +      seen.add(view.facts.head);
 +      failures = 0;
++      secondaryFailures = previousSecondaryWait = 0;
 +    } catch (error) {
 +      if (!(error instanceof QueryError)) throw error;
++      if (error.rateLimit) {
++        const { kind, notBefore } = error.rateLimit;
++        const description = `GitHub ${kind ? `${kind} ` : ""}rate limit; retry no earlier than ${new Date(notBefore).toISOString()}`;
++        if (once) return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}`);
++        if (timedOut()) return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
++        const untilReset = (notBefore - Date.now()) / 1000;
++        let wait = untilReset > 0 ? untilReset : interval;
++        if (kind === "secondary") {
++          // GitHub asks for exponential backoff and a separate stop on repeated secondary limits.
++          if (++secondaryFailures >= MAX_QUERY_FAILURES) {
++            return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}; hit ${secondaryFailures} secondary limits`);
++          }
++          wait = previousSecondaryWait = Math.max(wait, previousSecondaryWait * 2);
++        }
++        const wake = elapsed() + wait;
++        log(`${description}; ${wait >= remaining() ? "waiting for the watch timeout" : `next poll in ${Math.ceil(wait)} s`}`);
++        await waitForRateLimit(wake);
++        if (timedOut()) {
++          return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
++        }
++        continue;
++      }
 +      failures++;
 +      const gaveUp = !error.retryable || once || failures >= MAX_QUERY_FAILURES;
 +      if (gaveUp || timedOut()) {
-+        process.stdout.write([
-+          `BLOCKED: ${gaveUp ? `GitHub query failed${failures > 1 ? ` ${failures} times in a row` : ""}` : `timed out after ${timeout} s; GitHub query failed`}: ${error.message}`,
-+          `pr: https://github.com/${pr.owner}/${pr.repo}/pull/${pr.number}`,
-+          `github cli: ${executable} (${source})`,
-+        ].join("\n").concat("\n"));
-+        return gaveUp ? EXIT.queryFailed : EXIT.timeout;
++        const reason = gaveUp
++          ? `GitHub query failed${failures > 1 ? ` ${failures} times in a row` : ""}`
++          : `timed out after ${timeout} s; GitHub query failed`;
++        return queryBlocked(gaveUp ? EXIT.queryFailed : EXIT.timeout, `${reason}: ${error.message}`);
 +      }
 +      log(`retry ${failures}/${MAX_QUERY_FAILURES}: ${error.message}`);
 +      await sleep();

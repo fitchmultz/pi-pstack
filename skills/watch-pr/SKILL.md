@@ -21,11 +21,13 @@ Start `scripts/watch-pr.mjs` from this skill's directory with `background_comman
 
 - Name the pull request by URL, or by number with `--repo OWNER/NAME`. A number without `--repo` refers to the `origin` remote of the current directory.
 - `--timeout SECONDS` ends the watch after that time. The default is 3600. `0` waits without limit.
-- `--interval SECONDS` is the time between reads. The default is 60.
+- `--interval SECONDS` is the time between ordinary polls. The default is 60.
 - `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 - `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
 - Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 - Start one job for each pull request.
+
+After a rate-limited read, the watcher uses a future reset or `Retry-After` instead of the ordinary polling interval. If that time has already passed, the watcher uses the ordinary interval to avoid retrying in a tight loop. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. These waits use no ordinary query retries and do not extend `--timeout`. With `--once`, the watcher reports the rate limit without waiting.
 
 ## Read the verdict
 
@@ -51,7 +53,7 @@ merge: MERGEABLE; GitHub merge state CLEAN; review decision none
 | 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
 | 3 | `BLOCKED: N unresolved review threads` | Fix or rebut each thread, then resolve it. |
 | 4 | `BLOCKED: N checks failed` | The block links each failed check. |
-| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | Something is still running, has not started, or the head has not reached the commit named by `--sha`. The line says what. |
+| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 | 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
 | 7 | `BLOCKED: GitHub query failed ...` | The watcher could not read GitHub. The block names the GitHub CLI it ran. |
 | 8 | `BLOCKED: NAME did not sign off ...` | A required reviewer reported on this commit and did not pass. |
