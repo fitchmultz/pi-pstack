@@ -204,17 +204,15 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             card.setCompactView(false);
             assert.ok(card.render(80).length > 3);
           }
-          if (Object.hasOwn(CustomMessageComponent.prototype, "handleMouse")) {
-            const sibling = new CustomMessageComponent(message, renderer, undefined, 2);
-            const click = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 10 };
-            card.render(80);
-            sibling.render(80);
-            card.handleMouse(click);
-            assert.match(card.render(80).join("\n"), /OPINION END/);
-            assert.doesNotMatch(sibling.render(80).join("\n"), /OPINION END/);
-            card.handleMouse(click);
-            assert.doesNotMatch(card.render(80).join("\n"), /OPINION END/);
-          }
+          const sibling = new CustomMessageComponent(structuredClone(message), renderer, undefined, 2);
+          const click = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 10 };
+          card.render(80);
+          sibling.render(80);
+          card.handleMouse(click);
+          assert.match(card.render(80).join("\n"), /OPINION END/);
+          assert.doesNotMatch(sibling.render(80).join("\n"), /OPINION END/);
+          card.handleMouse(click);
+          assert.doesNotMatch(card.render(80).join("\n"), /OPINION END/);
           assert.deepEqual(message, original, "Rendering must not trim the delivered opinion");
         }
       }

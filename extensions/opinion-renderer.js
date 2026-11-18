@@ -2,6 +2,7 @@ import { getMarkdownTheme, truncateToVisualLines } from "@earendil-works/pi-codi
 import {
   Box,
   Markdown,
+  MouseRegion,
   TruncatedText,
   stripTerminalSequences,
   truncateToWidth,
@@ -15,8 +16,16 @@ function sanitizeOpinionMarkdown(text) {
 }
 
 export function registerOpinionRenderer(pi) {
+  const clickStates = new WeakMap();
   pi.registerMessageRenderer("pstack-opinion", (message, options, theme) => {
     const { expanded, outputPad } = options;
+    const hostHandlesCardClick = typeof options.compactView === "boolean";
+    let state = clickStates.get(message);
+    if (!state || state.global !== expanded) {
+      state = { global: expanded, expanded };
+      clickStates.set(message, state);
+    }
+    const view = state;
     const rawText =
       typeof message.content === "string"
         ? message.content
@@ -35,39 +44,46 @@ export function registerOpinionRenderer(pi) {
       color: (line) => theme.fg("customMessageText", line),
     });
     let cache;
-    box.addChild(
-      expanded
-        ? markdown
-        : {
-            render(width) {
-              if (cache?.width !== width) {
-                const { visualLines, skippedCount } = truncateToVisualLines(
-                  markdown.render(width).join("\n"),
-                  PREVIEW_LINES,
-                  width,
-                  0,
-                  "start",
-                );
-                const lines = [...visualLines];
-                if (skippedCount > 0) {
-                  const hint = options.keyHint("app.tools.expand", "to expand");
-                  lines.push(
-                    truncateToWidth(
-                      `${hint} ${theme.fg("muted", `(${skippedCount} more lines)`)}`,
-                      width,
-                    ),
-                  );
-                }
-                cache = { width, lines };
-              }
-              return cache.lines;
-            },
-            invalidate() {
-              cache = undefined;
-              markdown.invalidate();
-            },
-          },
-    );
-    return box;
+    box.addChild({
+      render(width) {
+        if (view.expanded) {
+          return markdown.render(width);
+        }
+        if (cache?.width !== width) {
+          const { visualLines, skippedCount } = truncateToVisualLines(
+            markdown.render(width).join("\n"),
+            PREVIEW_LINES,
+            width,
+            0,
+            "start",
+          );
+          const lines = [...visualLines];
+          if (skippedCount > 0) {
+            const hint = options.keyHint("app.tools.expand", "to expand");
+            lines.push(
+              truncateToWidth(
+                `${hint} ${theme.fg("muted", `(${skippedCount} more lines)`)}`,
+                width,
+              ),
+            );
+          }
+          cache = { width, lines };
+        }
+        return cache.lines;
+      },
+      invalidate() {
+        cache = undefined;
+        markdown.invalidate();
+      },
+    });
+    if (hostHandlesCardClick) {
+      return box;
+    }
+    return new MouseRegion(box, (event) => {
+      if (event.type !== "click" || event.button !== "left") return;
+      view.expanded = !view.expanded;
+      box.invalidate();
+      return { handled: true };
+    });
   });
 }
