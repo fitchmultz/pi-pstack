@@ -6,11 +6,16 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 
 const argv = process.argv.slice(2);
 appendFileSync(process.env.WATCH_PR_FIXTURE_LOG, `${JSON.stringify({ program: process.argv[1], argv, at: Date.now() })}\n`);
+if (!argv.some((arg, index) => arg === "--jq" && argv[index + 1] === ".")) {
+  throw new Error("The fixture only supports gh api --jq . output.");
+}
 const { polls, fail } = JSON.parse(readFileSync(process.env.WATCH_PR_SCENARIO, "utf8"));
 function print(value, status = 200, headers = {}) {
-  process.stdout.write(`HTTP/2.0 ${status} ${status === 200 ? "OK" : "Error"}\n`);
-  for (const [name, value] of Object.entries(headers)) process.stdout.write(`${name}: ${value}\r\n`);
-  process.stdout.write("\r\n");
+  if (argv.includes("--include")) {
+    process.stdout.write(`HTTP/2.0 ${status} ${status === 200 ? "OK" : "Error"}\n`);
+    for (const [name, value] of Object.entries(headers)) process.stdout.write(`${name}: ${value}\r\n`);
+    process.stdout.write("\r\n");
+  }
   if (value !== undefined) console.log(JSON.stringify(value));
 }
 function failure({ stderr, body, status, headers }) {
