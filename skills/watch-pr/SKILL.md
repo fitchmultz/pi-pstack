@@ -27,6 +27,8 @@ Start `scripts/watch-pr.mjs` from this skill's directory with `background_comman
 - Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 - Start one job for each pull request.
 
+When GitHub reports a rate limit, the watcher waits for the reported reset or `Retry-After` without using an ordinary query retry. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. The watch still ends at `--timeout`, and `--once` never waits.
+
 ## Read the verdict
 
 The verdict is the last output. It has at most 20 lines and 2048 bytes, so a completion notice shows all of it. Earlier lines are progress.
@@ -51,7 +53,7 @@ merge: MERGEABLE; GitHub merge state CLEAN; review decision none
 | 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
 | 3 | `BLOCKED: N unresolved review threads` | Fix or rebut each thread, then resolve it. |
 | 4 | `BLOCKED: N checks failed` | The block links each failed check. |
-| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | Something is still running, has not started, or the head has not reached the commit named by `--sha`. The line says what. |
+| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 | 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
 | 7 | `BLOCKED: GitHub query failed ...` | The watcher could not read GitHub. The block names the GitHub CLI it ran. |
 | 8 | `BLOCKED: NAME did not sign off ...` | A required reviewer reported on this commit and did not pass. |
