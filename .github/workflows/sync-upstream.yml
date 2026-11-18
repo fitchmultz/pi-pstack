@@ -21,13 +21,15 @@ jobs:
       upstream_sha: ${{ steps.check.outputs.upstream_sha }}
       validation: ${{ steps.verify.outcome }}
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        id: node
         with:
           node-version: "24"
           check-latest: true
+          package-manager-cache: false
       - name: Clone upstream cursor/plugins
         run: git clone --filter=blob:none --no-checkout https://github.com/cursor/plugins.git "$RUNNER_TEMP/cursor-plugins"
       - name: Check whether the upstream pstack tree changed
@@ -42,6 +44,12 @@ jobs:
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: hosts-cache
+        if: steps.check.outputs.changed == 'true'
+        with:
+          path: ${{ runner.temp }}/pi-pstack-hosts
+          key: pi-pstack-hosts-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('scripts/qualify-hosts.mjs') }}
       - name: Install verification prerequisites
         if: steps.check.outputs.changed == 'true'
         run: |
@@ -51,6 +59,8 @@ jobs:
         id: verify
         if: steps.check.outputs.changed == 'true'
         continue-on-error: true
+        env:
+          PI_PSTACK_HOSTS_CACHE_DIR: ${{ runner.temp }}/pi-pstack-hosts
         run: |
           set -eu
           node scripts/sync-pstack.mjs "$RUNNER_TEMP/cursor-plugins"
@@ -63,7 +73,7 @@ jobs:
           git diff --cached --binary --full-index > "$RUNNER_TEMP/pstack-candidate.patch"
       - name: Save candidate and upstream review inventory
         if: steps.check.outputs.changed == 'true' && steps.verify.outcome == 'success'
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pstack-candidate
           path: |
@@ -79,8 +89,8 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: actions/download-artifact@v8.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: pstack-candidate
           path: ${{ runner.temp }}/pstack-candidate

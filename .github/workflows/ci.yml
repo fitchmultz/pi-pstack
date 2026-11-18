@@ -17,33 +17,43 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           check-latest: true
+          package-manager-cache: false
       - name: Install worktree audit prerequisite
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.5.2
       - run: npm run check:compat
       - name: Check standalone statechart runtime selection
         run: node --test --test-name-pattern=launcher skills/statechart/scripts/test/cli.test.ts
-      - name: Qualify the optional pi-subagents loader
-        run: |
-          PREFIX="$RUNNER_TEMP/pi-pstack-subagents"
-          npm install --prefix "$PREFIX" --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.5.2 pi-subagents@0.86.0
-          PI_HOST_INDEX="$PREFIX/node_modules/@earendil-works/pi-coding-agent/dist/index.js" \
-          PI_SUBAGENTS_INDEX="$PREFIX/node_modules/pi-subagents/bundle/index.js" npm run smoke
 
   exact-hosts:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        id: node
         with:
           node-version: "24"
           check-latest: true
+          package-manager-cache: false
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: hosts-cache
+        with:
+          path: ${{ runner.temp }}/pi-pstack-hosts
+          key: pi-pstack-hosts-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('scripts/qualify-hosts.mjs') }}
       - name: Install the fork release test prerequisite
+        if: steps.hosts-cache.outputs.cache-hit != 'true'
         run: sudo apt-get update && sudo apt-get install --yes tmux
       - name: Qualify official Pi, the Pi fork, and the configured fitchmultz/pi-subagents
+        env:
+          PI_PSTACK_HOSTS_CACHE_DIR: ${{ runner.temp }}/pi-pstack-hosts
         run: node scripts/qualify-hosts.mjs
