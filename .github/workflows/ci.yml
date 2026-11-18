@@ -45,15 +45,22 @@ jobs:
           node-version: "24"
           check-latest: true
           package-manager-cache: false
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: hosts-cache
         with:
           path: ${{ runner.temp }}/pi-pstack-hosts
           key: pi-pstack-hosts-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('scripts/qualify-hosts.mjs') }}
       - name: Install the fork release test prerequisite
-        if: steps.hosts-cache.outputs.cache-hit != 'true'
-        run: sudo apt-get update && sudo apt-get install --yes tmux
+        env:
+          PI_PSTACK_HOSTS_CACHE_DIR: ${{ runner.temp }}/pi-pstack-hosts
+        run: node scripts/qualify-hosts.mjs --check-cache || (sudo apt-get update && sudo apt-get install --yes tmux)
       - name: Qualify official Pi, the Pi fork, and the configured fitchmultz/pi-subagents
+        id: qualify
         env:
           PI_PSTACK_HOSTS_CACHE_DIR: ${{ runner.temp }}/pi-pstack-hosts
         run: node scripts/qualify-hosts.mjs
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: steps.qualify.outcome == 'success' && steps.hosts-cache.outputs.cache-hit != 'true'
+        with:
+          path: ${{ runner.temp }}/pi-pstack-hosts
+          key: ${{ steps.hosts-cache.outputs.cache-primary-key }}

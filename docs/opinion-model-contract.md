@@ -6,7 +6,7 @@
 
 The audited call is [extensions/index.js:172–224 at 10ddc15][call], the implementation shipped in PR #28. These pinned line references remain valid when renderer registration moves the surrounding lines. The renderer change adds an import and registration only; it leaves the tool schema, prompt, request, and result handling unchanged. Deferred exposure changes only how the parent model loads the tool.
 
-Host contracts were checked against official Pi **1.5.2** and fork **495a3f959ab9a23c1a7e04809f75d62e291b12e6**, matching the exact official release and fork revision enforced by `scripts/qualify-hosts.mjs`. A registered provider can have its own server-side behavior. Omitting Pi tools is not a sandbox around provider code or its service.
+Host contracts were checked against official Pi **1.5.2** and fork **87d3b99e642df9ce60ff985bad2e9b81fd4ff167**, matching the exact official release and fork revision enforced by `scripts/qualify-hosts.mjs`. A registered provider can have its own server-side behavior. Omitting Pi tools is not a sandbox around provider code or its service.
 
 ## Limit inventory
 
@@ -55,12 +55,12 @@ Custom-message cards cap collapsed body previews at **5 visual lines** via the p
 Only presentation is shortened. The original custom-message content remains unchanged in the journal and model context. Ctrl+O uses Pi's native `app.tools.expand` action, including remapped key hints. Left-clicking an opinion card toggles only that card: on the fork (`typeof options.compactView === "boolean"`), `CustomMessageComponent.handleMouse` owns per-card expansion natively across every view; on official Pi (`CustomMessageComponent` has no per-card `handleMouse` override and inherits `Container.handleMouse`), `Container.handleMouse` forwards clicks into a nested `MouseRegion` backed by a per-message `WeakMap` that toggles that card locally and resets when global `app.tools.expand` changes. There is no new keyboard parser or stored opinion copy.
 
 [call]: https://github.com/fitchmultz/pi-pstack/blob/10ddc15641a8bd666dcda1ee83b96962b40e5c61/extensions/index.js#L172-L224
-[normalize]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/ai/src/utils/transcript.ts
-[registry]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/coding-agent/src/core/model-registry.ts
-[simple-options]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/ai/src/types.ts
-[thinking-levels]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/ai/src/providers/model-schema.ts
-[background]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/coding-agent/docs/extensions.md#background-tool-runs
+[normalize]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/ai/src/utils/transcript.ts
+[registry]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/coding-agent/src/core/model-registry.ts
+[simple-options]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/ai/src/types.ts
+[thinking-levels]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/ai/src/providers/model-schema.ts
+[background]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/coding-agent/docs/extensions.md#background-tool-runs
 [official-renderer]: https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/core/extensions/types.ts
-[fork-renderer]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/coding-agent/src/core/extensions/types.ts
+[fork-renderer]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/coding-agent/src/core/extensions/types.ts
 [official-tool]: https://github.com/earendil-works/pi/blob/v1.5.2/packages/coding-agent/src/modes/interactive/components/tool-execution.ts
-[fork-tool]: https://github.com/fitchmultz/pi/blob/495a3f959ab9a23c1a7e04809f75d62e291b12e6/packages/coding-agent/src/modes/interactive/components/tool-execution.ts#L25
+[fork-tool]: https://github.com/fitchmultz/pi/blob/87d3b99e642df9ce60ff985bad2e9b81fd4ff167/packages/coding-agent/src/modes/interactive/components/tool-execution.ts#L25

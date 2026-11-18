@@ -24,9 +24,6 @@ const OWNER_MARKER = ".pi-pstack-hosts-owner";
 
 const root = join(import.meta.dirname, "..");
 const configuredCacheDir = process.env.PI_PSTACK_HOSTS_CACHE_DIR?.trim();
-const work = configuredCacheDir
-  ? resolve(configuredCacheDir)
-  : mkdtempSync(join(tmpdir(), "pi-pstack-hosts-"));
 const piPackage = (prefix) => join(prefix, "node_modules/@earendil-works/pi-coding-agent");
 
 function run(command, args, options) {
@@ -140,6 +137,14 @@ function buildHosts(dir) {
   }
   return { official, fork, providerIndex, profileIndex };
 }
+
+if (process.argv.includes("--check-cache")) {
+  process.exit(configuredCacheDir && readyCache(resolve(configuredCacheDir)) ? 0 : 1);
+}
+
+const work = configuredCacheDir
+  ? resolve(configuredCacheDir)
+  : mkdtempSync(join(tmpdir(), "pi-pstack-hosts-"));
 
 try {
   const cached = configuredCacheDir ? readyCache(work) : undefined;
