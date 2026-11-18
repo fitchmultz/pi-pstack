@@ -1,33 +1,35 @@
 import { getMarkdownTheme, truncateToVisualLines } from "@earendil-works/pi-coding-agent";
-import { Box, Markdown, MouseRegion, TruncatedText, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+  Box,
+  Markdown,
+  TruncatedText,
+  stripTerminalSequences,
+  truncateToWidth,
+} from "@earendil-works/pi-tui";
 
-// Pi 1.5.2 tool-execution.ts: FALLBACK_PREVIEW_LINES; the fork's compact view keeps two rows.
-const PREVIEW_LINES = 10;
+const PREVIEW_LINES = 5;
+const UNSAFE_MARKDOWN_CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+
+function sanitizeOpinionMarkdown(text) {
+  return stripTerminalSequences(text).replace(UNSAFE_MARKDOWN_CONTROLS, "");
+}
 
 export function registerOpinionRenderer(pi) {
-  let ui;
-  pi.on("session_start", (_event, ctx) => {
-    ui = ctx.mode === "tui" ? ctx.ui : undefined;
-  });
-  pi.on("session_shutdown", () => {
-    ui = undefined;
-  });
   pi.registerMessageRenderer("pstack-opinion", (message, options, theme) => {
-    const { expanded, outputPad, compactView = false } = options;
-    const compact = compactView && !expanded;
-    const text =
+    const { expanded, outputPad } = options;
+    const rawText =
       typeof message.content === "string"
         ? message.content
         : message.content
             .filter((part) => part.type === "text")
             .map((part) => part.text)
             .join("\n");
+    const text = sanitizeOpinionMarkdown(rawText);
     const outcome = message.details?.isError
       ? theme.fg("error", "failed")
       : theme.fg("success", "completed");
-    const hint = options.keyHint("app.tools.expand", expanded ? "to collapse" : "to expand");
-    const label = `${theme.fg("customMessageLabel", theme.bold("Pstack opinion"))} ${outcome} · ${hint}`;
-    const box = new Box(outputPad, compact ? 0 : 1, (line) => theme.bg("customMessageBg", line));
+    const label = `${theme.fg("customMessageLabel", theme.bold("Pstack opinion"))} ${outcome}`;
+    const box = new Box(outputPad, 1, (line) => theme.bg("customMessageBg", line));
     box.addChild(new TruncatedText(label, 0, 0));
     const markdown = new Markdown(text, 0, 0, getMarkdownTheme(), {
       color: (line) => theme.fg("customMessageText", line),
@@ -41,16 +43,17 @@ export function registerOpinionRenderer(pi) {
               if (cache?.width !== width) {
                 const { visualLines, skippedCount } = truncateToVisualLines(
                   markdown.render(width).join("\n"),
-                  compact ? 1 : PREVIEW_LINES,
+                  PREVIEW_LINES,
                   width,
                   0,
                   "start",
                 );
                 const lines = [...visualLines];
-                if (skippedCount > 0 && !compact) {
+                if (skippedCount > 0) {
+                  const hint = options.keyHint("app.tools.expand", "to expand");
                   lines.push(
                     truncateToWidth(
-                      `${hint} · ${theme.fg("dim", `${skippedCount} more lines`)}`,
+                      `${hint} ${theme.fg("muted", `(${skippedCount} more lines)`)}`,
                       width,
                     ),
                   );
@@ -65,10 +68,6 @@ export function registerOpinionRenderer(pi) {
             },
           },
     );
-    return new MouseRegion(box, (event) => {
-      if (!ui || event.type !== "click" || event.button !== "left") return;
-      ui.setToolsExpanded(!expanded);
-      return { handled: true };
-    });
+    return box;
   });
 }

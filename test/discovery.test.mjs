@@ -184,8 +184,8 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           const card = new CustomMessageComponent(message, renderer, undefined, 2);
           for (const width of [80, 32, 120]) {
             const collapsed = card.render(width);
-            // Native fallback tool output shows ten preview lines, plus its hint and shell.
-            assert.ok(collapsed.length <= 15, `Unbounded preview at width ${width}: ${collapsed.length}`);
+            // Message cards show at most five preview rows plus heading, hint row, and shell.
+            assert.ok(collapsed.length <= 10, `Unbounded preview at width ${width}: ${collapsed.length}`);
             assert.match(collapsed.join("\n"), /to expand/);
             assert.doesNotMatch(collapsed.join("\n"), /OPINION END/);
             card.setExpanded(true);
@@ -204,9 +204,33 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             card.setCompactView(false);
             assert.ok(card.render(80).length > 3);
           }
+          if (typeof card.handleMouse === "function") {
+            const sibling = new CustomMessageComponent(message, renderer, undefined, 2);
+            const click = { type: "click", button: "left", x: 2, y: 1, screenX: 2, screenY: 1, width: 80, height: 10 };
+            card.render(80);
+            sibling.render(80);
+            card.handleMouse(click);
+            assert.match(card.render(80).join("\n"), /OPINION END/);
+            assert.doesNotMatch(sibling.render(80).join("\n"), /OPINION END/);
+            card.handleMouse(click);
+            assert.doesNotMatch(card.render(80).join("\n"), /OPINION END/);
+          }
           assert.deepEqual(message, original, "Rendering must not trim the delivered opinion");
         }
       }
+
+      const shortMessage = {
+        role: "custom",
+        customType: "pstack-opinion",
+        display: true,
+        content: [{ type: "text", text: "Short\x1b[31m opinion\x1b[0m\r\x07\x9b line" }],
+        details: { isError: false },
+        timestamp: 0,
+      };
+      const shortRendered = new CustomMessageComponent(shortMessage, renderer, undefined, 2).render(80).join("\n");
+      assert.match(shortRendered, /Short opinion line/);
+      assert.doesNotMatch(shortRendered, /\x1b\[31m|\r|\x07|\x9b/);
+      assert.doesNotMatch(shortRendered, /to expand|more lines/);
     });
     writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [packedRoot] }));
     const env = {

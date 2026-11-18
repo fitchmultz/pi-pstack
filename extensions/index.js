@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { dirname, join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { replaceControlCharacters, stripTerminalSequences } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerOpinionRenderer } from "./opinion-renderer.js";
 
@@ -9,6 +10,15 @@ const PACKAGE_ROOT = join(import.meta.dirname, "..");
 const UPSTREAM_FILE = join(PACKAGE_ROOT, "upstream.json");
 const CHECK_TTL_MS = 6 * 60 * 60 * 1000;
 const API_URL = "https://api.github.com/repos/cursor/plugins/commits?path=pstack&per_page=1";
+
+function safeLine(value) {
+  return replaceControlCharacters(stripTerminalSequences(String(value ?? "")));
+}
+
+function notifyUI(ctx, message, level) {
+  if (ctx.hasUI) ctx.ui.notify(message, level);
+}
+
 function ownsSkill(command, name) {
   try {
     return (
@@ -60,7 +70,7 @@ async function fetchLatestUpstreamCommit(signal) {
     if (!sha) return undefined;
     const subject =
       typeof latest?.commit?.message === "string"
-        ? latest.commit.message.split(/\r?\n/, 1)[0]
+        ? safeLine(latest.commit.message.split(/\r?\n/, 1)[0])
         : "upstream update";
     const date = latest?.commit?.committer?.date ?? latest?.commit?.author?.date ?? undefined;
     return { sha, subject, date };
@@ -149,7 +159,7 @@ export default function piPstackExtension(pi) {
   pi.on("before_agent_start", (_event, ctx) => {
     if (warnedUnreachable || opinionReachable(pi)) return;
     warnedUnreachable = true;
-    ctx.ui.notify("pstack_opinion is only reachable from the tool_search or codemode tool, but neither is active; it cannot be called.", "warning");
+    notifyUI(ctx, "pstack_opinion is only reachable from the tool_search or codemode tool, but neither is active; it cannot be called.", "warning");
   });
 
   pi.registerCommand("pstack-mode", {
@@ -172,21 +182,21 @@ export default function piPstackExtension(pi) {
         const availability = modeEnabled && !modeAvailable() ? " (poteto-mode is excluded or unavailable)" :
           modeEnabled && runOptions?.forceSystemPrompt !== undefined ? " (system prompt is overridden)" : "";
         updateModeStatus(ctx);
-        ctx.ui.notify(`pstack mode is ${modeEnabled ? "on" : "off"}${availability}.`, "info");
+        notifyUI(ctx, `pstack mode is ${modeEnabled ? "on" : "off"}${availability}.`, "info");
         return;
       }
       if (action !== "on" && action !== "off") {
-        ctx.ui.notify("Usage: /pstack-mode on|off|status", "warning");
+        notifyUI(ctx, "Usage: /pstack-mode on|off|status", "warning");
         return;
       }
       if (action === "on" && !modeAvailable()) {
-        ctx.ui.notify("pstack mode cannot start: this package's poteto-mode skill is excluded or unavailable.", "warning");
+        notifyUI(ctx, "pstack mode cannot start: this package's poteto-mode skill is excluded or unavailable.", "warning");
         return;
       }
       modeEnabled = action === "on";
       pi.appendEntry("pstack-mode", { enabled: modeEnabled });
       updateModeStatus(ctx);
-      ctx.ui.notify(`pstack mode is ${modeEnabled ? "on" : "off"}.`, "info");
+      notifyUI(ctx, `pstack mode is ${modeEnabled ? "on" : "off"}.`, "info");
     },
   });
 
@@ -207,7 +217,7 @@ export default function piPstackExtension(pi) {
     turnCount += 1;
     if (turnCount === 1) updateModeStatus(ctx);
     if (turnCount === 1 && modeRequested && runOptions.forceSystemPrompt !== undefined) {
-      ctx.ui.notify("pstack mode is on, but another extension forces the system prompt; its mode section cannot be applied.", "warning");
+      notifyUI(ctx, "pstack mode is on, but another extension forces the system prompt; its mode section cannot be applied.", "warning");
     }
   });
 
@@ -233,6 +243,7 @@ export default function piPstackExtension(pi) {
       })),
     }, { additionalProperties: false }),
     async execute(_id, params, signal, _onUpdate, ctx) {
+      signal?.throwIfAborted();
       const separator = params.model.indexOf("/");
       if (separator <= 0 || separator === params.model.length - 1) throw new Error("Use a configured provider/model ID.");
       const model = ctx.modelRegistry.find(params.model.slice(0, separator), params.model.slice(separator + 1));
@@ -295,8 +306,9 @@ export default function piPstackExtension(pi) {
           ...cached,
           notifiedForInstalledSha: upstream.pstackCommitSha,
         });
-        ctx.ui.notify(
-          `pstack upstream has new commits in cursor/plugins (${cached.latestSha.slice(0, 7)}: ${cached.latestSubject ?? "updated"}). These changes may not be packaged for Pi yet. Use /pstack-status for details.`,
+        notifyUI(
+          ctx,
+          `pstack upstream has new commits in cursor/plugins (${safeLine(cached.latestSha.slice(0, 7))}: ${safeLine(cached.latestSubject ?? "updated")}). These changes may not be packaged for Pi yet. Use /pstack-status for details.`,
           "info",
         );
       }
@@ -306,12 +318,11 @@ export default function piPstackExtension(pi) {
     activeController?.abort();
     const controller = new AbortController();
     activeController = controller;
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    timeout.unref?.();
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(8_000)]);
 
-    void fetchLatestUpstreamCommit(controller.signal)
+    void fetchLatestUpstreamCommit(signal)
       .then((latest) => {
-        if (!latest || controller.signal.aborted) return;
+        if (!latest || signal.aborted) return;
         const isOutdated = latest.sha !== upstream.pstackCommitSha;
         const alreadyNotified =
           cached?.notifiedSha === latest.sha &&
@@ -327,7 +338,8 @@ export default function piPstackExtension(pi) {
             : cached?.notifiedForInstalledSha,
         });
         if (isOutdated && !alreadyNotified) {
-          ctx.ui.notify(
+          notifyUI(
+            ctx,
             `pstack upstream has new commits in cursor/plugins (${latest.sha.slice(0, 7)}: ${latest.subject}). These changes may not be packaged for Pi yet. Use /pstack-status for details.`,
             "info",
           );
@@ -337,7 +349,6 @@ export default function piPstackExtension(pi) {
         // Network errors during background check are ignored.
       })
       .finally(() => {
-        clearTimeout(timeout);
         if (activeController === controller) {
           activeController = undefined;
         }
@@ -349,48 +360,49 @@ export default function piPstackExtension(pi) {
     handler: async (_args, ctx) => {
       const upstream = readJsonSafe(UPSTREAM_FILE);
       if (!upstream) {
-        ctx.ui.notify("pi-pstack: upstream.json is missing.", "warning");
+        notifyUI(ctx, "pi-pstack: upstream.json is missing.", "warning");
         return;
       }
       if (process.env.PI_OFFLINE === "1") {
-        ctx.ui.notify(
+        notifyUI(
+          ctx,
           `pi-pstack v${upstream.version} (pstack commit ${upstream.pstackCommitSha?.slice(0, 7)}, tree ${upstream.pstackTreeSha?.slice(0, 7)}). Offline mode active.`,
           "info",
         );
         return;
       }
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      try {
-        const latest = await fetchLatestUpstreamCommit(controller.signal);
-        if (!latest) {
-          ctx.ui.notify(
-            `pi-pstack v${upstream.version} (installed pstack commit ${upstream.pstackCommitSha?.slice(0, 7)}). Could not reach GitHub API.`,
-            "warning",
-          );
-          return;
-        }
-        writeJsonSafe(getCachePath(), {
-          checkedAtMs: Date.now(),
-          latestSha: latest.sha,
-          latestSubject: latest.subject,
-          latestDate: latest.date,
-          notifiedSha: latest.sha,
-          notifiedForInstalledSha: upstream.pstackCommitSha,
-        });
-        if (latest.sha === upstream.pstackCommitSha) {
-          ctx.ui.notify(
-            `pi-pstack is up to date with cursor/plugins/pstack (${latest.sha.slice(0, 7)}, v${upstream.version}).`,
-            "info",
-          );
-        } else {
-          ctx.ui.notify(
-            `pi-pstack upstream update available: installed ${upstream.pstackCommitSha?.slice(0, 7)} -> latest ${latest.sha.slice(0, 7)} (${latest.subject}). These changes need a reviewed Pi sync before they are installable. Check https://github.com/fitchmultz/pi-pstack/pulls. Pi's package update notice reports installable fork updates.`,
-            "info",
-          );
-        }
-      } finally {
-        clearTimeout(timeout);
+      const signal = ctx.signal
+        ? AbortSignal.any([ctx.signal, AbortSignal.timeout(10_000)])
+        : AbortSignal.timeout(10_000);
+      const latest = await fetchLatestUpstreamCommit(signal);
+      if (!latest) {
+        notifyUI(
+          ctx,
+          `pi-pstack v${upstream.version} (installed pstack commit ${upstream.pstackCommitSha?.slice(0, 7)}). Could not reach GitHub API.`,
+          "warning",
+        );
+        return;
+      }
+      writeJsonSafe(getCachePath(), {
+        checkedAtMs: Date.now(),
+        latestSha: latest.sha,
+        latestSubject: latest.subject,
+        latestDate: latest.date,
+        notifiedSha: latest.sha,
+        notifiedForInstalledSha: upstream.pstackCommitSha,
+      });
+      if (latest.sha === upstream.pstackCommitSha) {
+        notifyUI(
+          ctx,
+          `pi-pstack is up to date with cursor/plugins/pstack (${latest.sha.slice(0, 7)}, v${upstream.version}).`,
+          "info",
+        );
+      } else {
+        notifyUI(
+          ctx,
+          `pi-pstack upstream update available: installed ${upstream.pstackCommitSha?.slice(0, 7)} -> latest ${latest.sha.slice(0, 7)} (${latest.subject}). These changes need a reviewed Pi sync before they are installable. Check https://github.com/fitchmultz/pi-pstack/pulls. Pi's package update notice reports installable fork updates.`,
+          "info",
+        );
       }
     },
   });
