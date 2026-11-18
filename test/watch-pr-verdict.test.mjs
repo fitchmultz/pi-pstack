@@ -311,18 +311,33 @@ test("blockers keep the packaged watcher's exit codes", () => {
   assert.equal(watch([{ pullRequest: open() }], { args: ["--interval", "0"] }).code, 64);
 });
 
-test("a REST primary rate limit on a later page waits without spending query retries", () => {
-  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+function primaryLimitOnLaterPage(state, reset) {
   const message = "API rate limit exceeded for user ID 1234.";
-  const limited = (reset) => ({
-    ...done,
+  return {
+    ...state,
     fail: {
-      endpoint: "/check-runs?", firstPage: { check_runs: done.checkRuns },
+      endpoint: "/check-runs?", firstPage: { check_runs: state.checkRuns },
       firstHeaders: { "X-Ratelimit-Remaining": "1" },
       status: 403, body: { message }, stderr: `gh: ${message} (HTTP 403)`,
       headers: { "X-Ratelimit-Resource": "core", "X-Ratelimit-Remaining": "0", "X-Ratelimit-Reset": reset },
     },
-  });
+  };
+}
+
+test("a reset inside the watch timeout resumes before the next ordinary poll", () => {
+  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const reset = Math.floor(Date.now() / 1000) + 2;
+  const result = watch([primaryLimitOnLaterPage(done, reset), done], { args: ["--timeout", "4"] });
+  assert.equal(result.code, 0, result.out);
+  assert.match(verdict(result)[0], /^READY/);
+  const reads = result.calls.filter(({ argv }) => argv[1].includes("/check-runs?"));
+  assert.equal(reads.length, 2);
+  assert.ok(reads[0].at < reset * 1000 && reads[1].at >= reset * 1000, "the retry waited for the reset");
+});
+
+test("a REST primary rate limit on a later page waits without spending query retries", () => {
+  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const limited = (reset) => primaryLimitOnLaterPage(done, reset);
   const reset = Math.floor(Date.now() / 1000) + 60;
   const timed = watch([limited(reset)], { args: ["--timeout", "0.6", "--interval", "0.05"] });
   assert.equal(timed.code, 5);
@@ -336,6 +351,10 @@ test("a REST primary rate limit on a later page waits without spending query ret
   assert.equal(once.calls.filter(({ argv }) => argv[1].includes("/check-runs?")).length, 1);
 
   const expired = limited(Math.floor(Date.now() / 1000) - 1);
+  const stale = watch([expired, done], { args: ["--timeout", "0.6"] });
+  assert.equal(stale.code, 5);
+  assert.equal(stale.calls.filter(({ argv }) => argv[1].includes("/check-runs?")).length, 1);
+
   const recovered = watch([...Array(5).fill(expired), done], { args: ["--timeout", "0", "--interval", "0.05"] });
   assert.equal(recovered.code, 0);
   assert.match(verdict(recovered)[0], /^READY/);
@@ -360,6 +379,18 @@ test("GraphQL rate reports use their own reset or Retry-After, not a failed CI v
     assert.equal(result.calls.length, 1);
     if (kind === "secondary") assert.ok(!result.out.includes(new Date(deadline * 1000).toISOString()));
   }
+
+  const done = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const message = "You have exceeded a secondary rate limit.";
+  const restricted = { fail: {
+    endpoint: "graphql", status: 200, headers: { "Retry-After": "1" },
+    stderr: `gh: ${message}`, body: { errors: [{ type: "RATE_LIMITED", message }] },
+  } };
+  const resumed = watch([restricted, done], { args: ["--timeout", "4"] });
+  assert.equal(resumed.code, 0, resumed.out);
+  const reads = resumed.calls.filter(({ argv }) => argv.some((arg) => arg.includes("reviewThreads")));
+  assert.equal(reads.length, 2);
+  assert.ok(reads[1].at - reads[0].at >= 1000, "the retry waited for Retry-After");
 
   const forbidden = watch([], { args: ["--interval", "0.05"], fail: {
     status: 403, headers: { "X-Ratelimit-Remaining": "0", "X-Ratelimit-Reset": deadline },

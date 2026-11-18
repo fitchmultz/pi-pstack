@@ -5,7 +5,7 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
-appendFileSync(process.env.WATCH_PR_FIXTURE_LOG, `${JSON.stringify({ program: process.argv[1], argv })}\n`);
+appendFileSync(process.env.WATCH_PR_FIXTURE_LOG, `${JSON.stringify({ program: process.argv[1], argv, at: Date.now() })}\n`);
 const { polls, fail } = JSON.parse(readFileSync(process.env.WATCH_PR_SCENARIO, "utf8"));
 function print(value, status = 200, headers = {}) {
   process.stdout.write(`HTTP/2.0 ${status} ${status === 200 ? "OK" : "Error"}\n`);

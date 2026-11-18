@@ -16,7 +16,7 @@ Waits until the pull request is ready to merge or blocked. The last output is th
   <number|url>   pull request number or URL (also --pr NUMBER)
   --repo         OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
   --timeout      give up after this many seconds; default 3600, 0 waits without limit
-  --interval     seconds between polls; default 60
+  --interval     seconds between ordinary polls; default 60
   --sha          evaluate only once the pull request head is this commit, full or short
   --once         print the verdict for the current state and exit
 
@@ -207,7 +207,8 @@ async function main(argv, env) {
         const description = `GitHub ${kind ? `${kind} ` : ""}rate limit; retry no earlier than ${new Date(notBefore).toISOString()}`;
         if (once) return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}`);
         if (timedOut()) return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
-        let wait = Math.max(interval, (notBefore - Date.now()) / 1000);
+        const untilReset = (notBefore - Date.now()) / 1000;
+        let wait = untilReset > 0 ? untilReset : interval;
         if (kind === "secondary") {
           // GitHub asks for exponential backoff and a separate stop on repeated secondary limits.
           if (++secondaryFailures >= MAX_QUERY_FAILURES) {

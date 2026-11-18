@@ -21,13 +21,13 @@ Start `scripts/watch-pr.mjs` from this skill's directory with `background_comman
 
 - Name the pull request by URL, or by number with `--repo OWNER/NAME`. A number without `--repo` refers to the `origin` remote of the current directory.
 - `--timeout SECONDS` ends the watch after that time. The default is 3600. `0` waits without limit.
-- `--interval SECONDS` is the time between reads. The default is 60.
+- `--interval SECONDS` is the time between ordinary polls. The default is 60.
 - `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 - `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
 - Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 - Start one job for each pull request.
 
-When GitHub reports a rate limit, the watcher waits for the reported reset or `Retry-After` without using an ordinary query retry. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. The watch still ends at `--timeout`, and `--once` never waits.
+After a rate-limited read, the watcher uses a future reset or `Retry-After` instead of the ordinary polling interval. If that time has already passed, the watcher uses the ordinary interval to avoid retrying in a tight loop. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. These waits use no ordinary query retries and do not extend `--timeout`. With `--once`, the watcher reports the rate limit without waiting.
 
 ## Read the verdict
 

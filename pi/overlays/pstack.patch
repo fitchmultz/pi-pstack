@@ -3461,7 +3461,7 @@ index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d
  ## Patterns to detect and fix
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..92fa50506ac5cd18e6dd3298a54c91bccdd07fad
+index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0babda11cc
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
 @@ -0,0 +1,92 @@
@@ -3488,13 +3488,13 @@ index 0000000000000000000000000000000000000000..92fa50506ac5cd18e6dd3298a54c91bc
 +
 +- Name the pull request by URL, or by number with `--repo OWNER/NAME`. A number without `--repo` refers to the `origin` remote of the current directory.
 +- `--timeout SECONDS` ends the watch after that time. The default is 3600. `0` waits without limit.
-+- `--interval SECONDS` is the time between reads. The default is 60.
++- `--interval SECONDS` is the time between ordinary polls. The default is 60.
 +- `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 +- `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
 +- Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 +- Start one job for each pull request.
 +
-+When GitHub reports a rate limit, the watcher waits for the reported reset or `Retry-After` without using an ordinary query retry. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. The watch still ends at `--timeout`, and `--once` never waits.
++After a rate-limited read, the watcher uses a future reset or `Retry-After` instead of the ordinary polling interval. If that time has already passed, the watcher uses the ordinary interval to avoid retrying in a tight loop. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. These waits use no ordinary query retries and do not extend `--timeout`. With `--once`, the watcher reports the rate limit without waiting.
 +
 +## Read the verdict
 +
@@ -4595,10 +4595,10 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..0379c1a1e79fdcfb4882ae0df57a5f5d853dc220
+index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9765da22e
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,259 @@
 +#!/usr/bin/env node
 +// Waits until one pull request is ready to merge or blocked, then prints a
 +// short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
@@ -4617,7 +4617,7 @@ index 0000000000000000000000000000000000000000..0379c1a1e79fdcfb4882ae0df57a5f5d
 +  <number|url>   pull request number or URL (also --pr NUMBER)
 +  --repo         OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
 +  --timeout      give up after this many seconds; default 3600, 0 waits without limit
-+  --interval     seconds between polls; default 60
++  --interval     seconds between ordinary polls; default 60
 +  --sha          evaluate only once the pull request head is this commit, full or short
 +  --once         print the verdict for the current state and exit
 +
@@ -4808,7 +4808,8 @@ index 0000000000000000000000000000000000000000..0379c1a1e79fdcfb4882ae0df57a5f5d
 +        const description = `GitHub ${kind ? `${kind} ` : ""}rate limit; retry no earlier than ${new Date(notBefore).toISOString()}`;
 +        if (once) return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}`);
 +        if (timedOut()) return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
-+        let wait = Math.max(interval, (notBefore - Date.now()) / 1000);
++        const untilReset = (notBefore - Date.now()) / 1000;
++        let wait = untilReset > 0 ? untilReset : interval;
 +        if (kind === "secondary") {
 +          // GitHub asks for exponential backoff and a separate stop on repeated secondary limits.
 +          if (++secondaryFailures >= MAX_QUERY_FAILURES) {
