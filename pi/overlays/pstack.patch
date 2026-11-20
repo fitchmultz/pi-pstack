@@ -4925,10 +4925,10 @@ index 0000000000000000000000000000000000000000..7ee236a8170f556b38b8f46425174fa4
 +}
 diff --git a/skills/watch-pr/scripts/verdict.mjs b/skills/watch-pr/scripts/verdict.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..57c4cbf4a793863c74b599be8fea4c5b6db7de33
+index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d8eba8cb8
 --- /dev/null
 +++ b/skills/watch-pr/scripts/verdict.mjs
-@@ -0,0 +1,394 @@
+@@ -0,0 +1,404 @@
 +// Turns one observation of a pull request into the merge-readiness verdict:
 +// what the watcher decides, and the short block it prints last.
 +
@@ -4961,9 +4961,9 @@ index 0000000000000000000000000000000000000000..57c4cbf4a793863c74b599be8fea4c5b
 +};
 +
 +const short = (sha) => sha.slice(0, 7);
-+const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-+const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-+function some(names, max = 3) {
++export const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
++export const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
++export function some(names, max = 3) {
 +  return names.length > max ? `${names.slice(0, max).join(", ")} (+${names.length - max} more)` : names.join(", ");
 +}
 +
@@ -5222,6 +5222,40 @@ index 0000000000000000000000000000000000000000..57c4cbf4a793863c74b599be8fea4c5b
 +  return `${text.slice(0, end)}\u2026`;
 +}
 +
++/** Renders a bounded verdict block fitting within BLOCK_LINES lines and BLOCK_BYTES bytes. */
++export function formatBoundedBlock(top, parts, { order = parts, bottom = [] } = {}) {
++  const build = (shown) => [
++    ...top,
++    ...order.flatMap((part) => {
++      const visible = shown.get(part);
++      return [
++        ...part.before,
++        ...part.items.slice(0, visible),
++        ...(visible < part.items.length ? [`  ... ${part.items.length - visible} more ${part.more}`] : []),
++      ];
++    }),
++    ...bottom,
++  ];
++  const fits = (lines) => lines.length <= BLOCK_LINES && bytes(lines.join("\n")) < BLOCK_BYTES;
++  const shown = new Map(parts.map((part) => [part, 0]));
++  for (let grew = true; grew;) {
++    grew = false;
++    for (const part of parts) {
++      if (shown.get(part) === part.items.length) continue;
++      shown.set(part, shown.get(part) + 1);
++      if (fits(build(shown))) grew = true;
++      else shown.set(part, shown.get(part) - 1);
++    }
++  }
++  let lines = build(shown);
++  // Without any item the block has at most 12 lines; 100 bytes each always fit.
++  for (let width = 400; !fits(lines) && width >= 60; width -= 100) {
++    lines = lines.map((line) => clipBytes(line, width));
++  }
++  if (lines.length > BLOCK_LINES) lines = lines.slice(0, BLOCK_LINES);
++  return `${lines.join("\n")}\n`;
++}
++
 +/**
 + * The verdict block: at most BLOCK_LINES lines and BLOCK_BYTES bytes, newline included.
 + *
@@ -5294,34 +5328,10 @@ index 0000000000000000000000000000000000000000..57c4cbf4a793863c74b599be8fea4c5b
 +    },
 +  ];
 +  // Failed checks belong under the checks line, so they are printed first.
-+  const order = [parts[1], parts[0], parts[2]];
-+  const build = (shown) => [
-+    ...top,
-+    ...order.flatMap((part) => {
-+      const visible = shown.get(part);
-+      return [
-+        ...part.before,
-+        ...part.items.slice(0, visible),
-+        ...(visible < part.items.length ? [`  ... ${part.items.length - visible} more ${part.more}`] : []),
-+      ];
-+    }),
-+    mergeLine(facts, mergeWithoutApproval),
-+  ];
-+  const fits = (lines) => lines.length <= BLOCK_LINES && bytes(lines.join("\n")) < BLOCK_BYTES;
-+  const shown = new Map(parts.map((part) => [part, 0]));
-+  for (let grew = true; grew;) {
-+    grew = false;
-+    for (const part of parts) {
-+      if (shown.get(part) === part.items.length) continue;
-+      shown.set(part, shown.get(part) + 1);
-+      if (fits(build(shown))) grew = true;
-+      else shown.set(part, shown.get(part) - 1);
-+    }
-+  }
-+  let lines = build(shown);
-+  // Without any item the block has at most 12 lines; 100 bytes each always fit.
-+  for (let width = 400; !fits(lines); width -= 100) lines = lines.map((line) => clipBytes(line, width));
-+  return `${lines.join("\n")}\n`;
++  return formatBoundedBlock(top, parts, {
++    order: [parts[1], parts[0], parts[2]],
++    bottom: [mergeLine(facts, mergeWithoutApproval)],
++  });
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
@@ -5573,10 +5583,10 @@ index 0000000000000000000000000000000000000000..e3e81641c9525f1916068b383c65a04d
 +}
 diff --git a/skills/watch-pr/scripts/watch-run.mjs b/skills/watch-pr/scripts/watch-run.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccdf89ccae7
+index 0000000000000000000000000000000000000000..11b5b635ec4bc7b124713635b4877c03fa00d8e9
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-run.mjs
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,483 @@
 +#!/usr/bin/env node
 +// Waits for a GitHub Actions workflow run to pass, settle at a target job or
 +// deployment-approval gate, or fail, then prints a bounded verdict as the last
@@ -5600,13 +5610,7 @@ index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccd
 +  resolveRepo,
 +  settingsFor,
 +} from "./repo-config.mjs";
-+
-+/**
-+ * The verdict block must arrive whole in a background_command completion notice
-+ * (last 20 lines and 2048 bytes of output).
-+ */
-+const BLOCK_LINES = 20;
-+const BLOCK_BYTES = 2048;
++import { clip, formatBoundedBlock, plural, some } from "./verdict.mjs";
 +
 +const EXIT = {
 +  passed: 0,
@@ -5644,21 +5648,6 @@ index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccd
 +`;
 +
 +class UsageError extends Error {}
-+
-+const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-+const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}\u2026` : text);
-+const bytes = (text) => Buffer.byteLength(text);
-+
-+function clipBytes(text, max) {
-+  if (bytes(text) <= max) return text;
-+  let end = text.length;
-+  while (bytes(text.slice(0, end)) > max - 3) end--;
-+  return `${text.slice(0, end)}\u2026`;
-+}
-+
-+function some(names, max = 3) {
-+  return names.length > max ? `${names.slice(0, max).join(", ")} (+${names.length - max} more)` : names.join(", ");
-+}
 +
 +function seconds(name, value, { zero }) {
 +  const parsed = Number(value);
@@ -5852,6 +5841,9 @@ index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccd
 +    if (failedTargetJobs.length) {
 +      return failureOutcome(failedTargetJobs, "target");
 +    }
++    if (stopAtWaiting && buckets.failed.length) {
++      return failureOutcome(buckets.failed);
++    }
 +    if (skippedTargets.length) {
 +      const allCancelled = buckets.failed.length > 0 && buckets.failed.every((job) => job.detail === "cancelled");
 +      return {
@@ -5880,9 +5872,6 @@ index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccd
 +        exitCode: EXIT.unknown,
 +        reason: `${plural(missing.length, "target job")} not found in completed run (${some(missing)})`,
 +      };
-+    }
-+    if (stopAtWaiting && buckets.failed.length) {
-+      return failureOutcome(buckets.failed);
 +    }
 +    return { kind: "waiting", waiting: waitingSummary(buckets, run, pendingTargets) };
 +  }
@@ -5914,37 +5903,6 @@ index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccd
 +    pending: "PENDING",
 +  }[outcome.kind] ?? "UNKNOWN";
 +  return clip(outcome.reason ? `${prefix}: ${outcome.reason}` : prefix, 400);
-+}
-+
-+function formatBounded(top, parts) {
-+  const build = (shown) => [
-+    ...top,
-+    ...parts.flatMap((part) => {
-+      const visible = shown.get(part);
-+      return [
-+        ...part.before,
-+        ...part.items.slice(0, visible),
-+        ...(visible < part.items.length ? [`  ... ${part.items.length - visible} more ${part.more}`] : []),
-+      ];
-+    }),
-+  ];
-+  const fits = (lines) => lines.length <= BLOCK_LINES && bytes(lines.join("\n")) < BLOCK_BYTES;
-+  const shown = new Map(parts.map((part) => [part, 0]));
-+  for (let grew = true; grew;) {
-+    grew = false;
-+    for (const part of parts) {
-+      if (shown.get(part) === part.items.length) continue;
-+      shown.set(part, shown.get(part) + 1);
-+      if (fits(build(shown))) grew = true;
-+      else shown.set(part, shown.get(part) - 1);
-+    }
-+  }
-+  let lines = build(shown);
-+  for (let width = 400; !fits(lines) && width >= 60; width -= 80) {
-+    lines = lines.map((line) => clipBytes(line, width));
-+  }
-+  if (lines.length > BLOCK_LINES) lines = lines.slice(0, BLOCK_LINES);
-+  return `${lines.join("\n")}\n`;
 +}
 +
 +function renderRun({ target, run, buckets }, outcome) {
@@ -5991,12 +5949,12 @@ index 0000000000000000000000000000000000000000..9d2c44687f17e0f2748d5532063deccd
 +      more: "pending jobs",
 +    },
 +  ];
-+  return formatBounded(top, parts);
++  return formatBoundedBlock(top, parts);
 +}
 +
 +function renderQueryError(target, executable, source, prefix, reason) {
 +  const runUrl = `https://github.com/${target.owner}/${target.repo}/actions/runs/${target.runId}`;
-+  return formatBounded([
++  return formatBoundedBlock([
 +    clip(`${prefix}: ${reason}`, 400),
 +    `run: ${runUrl}`,
 +    clip(`github cli: ${executable} (${source})`, 300),

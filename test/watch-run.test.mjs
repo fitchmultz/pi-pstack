@@ -355,6 +355,19 @@ test("--stop-at-waiting settles only when all non-waiting jobs passed and fails 
   assert.equal(failedBeforeGate.verdict[0], "FAILED: 1 job failed");
   assert.ok(failedBeforeGate.verdict.includes(`  failed: Smoke Test (failure) ${brokenSmoke.html_url}`));
   assert.ok(failedBeforeGate.verdict.includes(`  waiting: Deploy to Production ${prodWaiting.html_url}`));
+
+  // Combining --until-job with --stop-at-waiting still fails closed when another job failed even if the target passed.
+  const combinedFailed = watchRun([{
+    run: makeRun({ status: "in_progress", conclusion: null }),
+    jobs: [
+      makeJob("Deploy Staging", "completed", "success"),
+      brokenSmoke,
+      prodWaiting,
+    ],
+  }], { args: [RUN_URL, "--once", "--until-job", "Deploy Staging", "--stop-at-waiting"] });
+  assert.equal(combinedFailed.code, 4, combinedFailed.out);
+  assert.equal(combinedFailed.verdict[0], "FAILED: 1 job failed");
+  assert.ok(combinedFailed.verdict.includes(`  failed: Smoke Test (failure) ${brokenSmoke.html_url}`));
 });
 
 test("reuses GitHub rate-limit backoff for primary and secondary limits", () => {
