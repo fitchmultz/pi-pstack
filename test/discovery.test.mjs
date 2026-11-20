@@ -196,7 +196,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           }
           if (typeof card.setCompactView === "function") {
             card.setCompactView(true);
-            // Fork 1.5.2 CompactPreview renders collapsed custom messages as two rows.
+            // Fork CompactPreview renders collapsed custom messages as two rows.
             assert.equal(card.render(80).length, 2);
             card.setExpanded(true);
             assert.match(card.render(80).join("\n"), /OPINION END/);

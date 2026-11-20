@@ -15,9 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 
-const officialVersion = "1.5.2";
-const forkCommit = "87d3b99e642df9ce60ff985bad2e9b81fd4ff167";
-const provider = "git:github.com/fitchmultz/pi-subagents@8ae797450349e428ebb432b002a90cb0e7c2352e";
+const officialVersion = "1.6.0";
+const forkCommit = "77e4bf8cea9190faa06abc89db8b79b8ff2e03ef";
+const provider = "git:github.com/fitchmultz/pi-subagents@6c1bf456a0acf01c94335e70f2290cca24c52f92";
 // The profile-based provider's existing regression also runs on these hosts.
 const profileProvider = "pi-subagents@0.86.0";
 const OWNER_MARKER = ".pi-pstack-hosts-owner";
