@@ -85,7 +85,7 @@ Profiles supply defaults, not the original task. The parent supplies requirement
 
 ## Models
 
-Pi model IDs are `provider/model`, with `:effort` where the selected delegation provider supports that syntax. Cursor slugs such as `claude-<family>-<version>-<effort>[-fast]`, `grok-*`, and `gpt-*` are not proof of an available Pi model or provider.
+Pi model IDs are `provider/model`, with `:effort` where the selected delegation provider supports that syntax. Cursor slugs such as `claude-<family>-<version>-<effort>[-fast]`, `gemini-*`, `grok-*`, and `gpt-*` are not proof of an available Pi model or provider.
 
 - Pi does not load the `pstack-models.mdc` rule. If `~/.pi/agent/pstack-models.md` exists, read it for explicit per-role choices. Preserve those choices; do not overwrite the file during ordinary work or write model policy into `AGENTS.md`.
 - Without a configured choice, ordinary jobs inherit the current session model by omitting the model override. No Cloudflare route, sibling profile default, or hard-coded model catalog is assumed. The optional bundled profiles likewise inherit the host model.

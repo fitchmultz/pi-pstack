@@ -63,12 +63,11 @@ Close calls:
 
 - `/skill:how` explains what the code does. `/skill:why` explains the reasons. `/skill:teach` runs one or both and explains the result plainly.
 - `/skill:arena` gives every worker the same brief and merges the best parts. `/skill:swarm` splits work into slices or a race and returns one report.
-- `/skill:architect` implements right after it settles the design. Add "with checkpoint" to review the design before it writes code.
 - `/skill:interrogate` reviews the diff. `/skill:blast-radius` looks for breakage outside the diff and proves the one fact that makes the change safe.
 - `/skill:recall` rebuilds context across recent chats. `/skill:ketchup` covers only this chat since the user's last message. Resuming one specific chat or branch is the Session pickup playbook.
-- `/skill:figure-it-out` designs one rigorous run. The Orchestrate playbook runs a program that spans days and many PRs. The Autonomous run playbook drives one task to a finish condition.
+- `/skill:figure-it-out` designs one rigorous run. The Autonomous run playbook drives one task to a finish condition.
 
-Not every Pi host includes a browser, native UI driver, scheduler, or delegation provider. Discover actual capabilities and follow the inline route where applicable. Orchestrate is a poteto-mode playbook, not a separate pstack skill.
+Not every Pi host includes a browser, native UI driver, scheduler, or delegation provider. Discover actual capabilities and follow the inline route where applicable. pstack has no `/orchestrate` skill.
 
 ## Playbooks and principles
 

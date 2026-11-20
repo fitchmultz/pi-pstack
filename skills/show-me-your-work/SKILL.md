@@ -65,7 +65,7 @@ Correct the log, not the story. The audit never edits or removes a row, even an 
 
 ## Cross-model review of the trail
 
-Before handing back, request an independent transcript-reading review on a different available model family when an authorized provider can supply it. The reviewer reads the audit trail and transcript, then flags what the user should pay attention to. This is a scan for what's suboptimal or risky, not a redo of the work. Without that reviewer, inspect the same trail and transcript yourself and state that the review was self-performed. A text-only opinion on supplied excerpts may add perspective but is not an independent transcript-reading agent.
+Before handing back, request an independent transcript-reading review on another available vendor's model when an authorized provider can supply it. The reviewer reads the audit trail and transcript, then flags what the user should pay attention to. This is a scan for what's suboptimal or risky, not a redo of the work. Without that reviewer, inspect the same trail and transcript yourself and state that the review was self-performed. A text-only opinion on supplied excerpts may add perspective but is not an independent transcript-reading agent.
 
 - Decisions logged with weak or absent evidence.
 - Verification steps skipped or claimed without proof in the transcript.

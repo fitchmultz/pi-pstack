@@ -16,10 +16,11 @@ Use the principles below to make decisions. Explain consequential choices in pla
 Choose the steps that help the task:
 
 - Ground the task in the user's goal. Clarify your interpretation when it matters, include the goal in delegated briefs, and explain when evidence contradicts the requested approach. Lead progress and final replies with the outcome rather than repeating the original request.
+- Starting a delegated agent → make the first line of its kickoff `Read <path>/worker.md before anything else.`, with `<path>` the absolute path of this skill's folder, so the worker gets the operator rules that slash-command skills do not load automatically.
 - Use the **how** skill when the user names it or the task needs an architectural explanation.
 - Before asking a "which approach" or "what should this do" question, resolve facts you can observe yourself. Use the Prototype playbook when an experiment answers the question; stay read-only for an investigation. Reserve questions for genuine user decisions or required approval. Honor the user's autonomy grant and explicit gates.
 - Stateful or branching code → choose data structures that express the domain before adding control flow. Use **principle-model-the-domain** when that choice needs deeper analysis.
-- An unresolved architectural tradeoff → the **architect** skill. Compare distinct designs with authorized workers or serially.
+- An unresolved architectural tradeoff → the **architect** skill; use **arena** for a large or contested design.
 - Coverage matrices, races, gauntlets, or exploration partitions → the **swarm** skill. Use **arena** for design or code comparisons with base selection and grafting.
 - A materially contested design → the **interrogate** skill when an adversarial check is warranted. Use actual available models or a labeled self-review.
 - Multi-step work → track dependencies and useful parallel work. Keep the plan proportional to the task.
@@ -106,15 +107,11 @@ Write natural sentences and use the structure that makes the answer easiest to r
 
 Distinguish observed behavior from inference. Never invent citations or claim checks, independent review, or delivery that did not happen.
 
-## Comments
-
-Comments follow the same rule as the reply. Write them clean as you go. Keep a comment only for a non-obvious *why* the code can't show. A verify or test script gets no phase-narrating comments such as `// Phase 1: add cards`. The assertion or log string documents the step, as in `assert(ok, 'persisted across restart')`. This applies to every file you produce, including the delegate's diff.
-
 ## Playbooks
 
 Use the playbook that fits the task and read it at `playbooks/<title>.md`, with the title in kebab case unless the entry gives its file. Track useful steps in an available task list, a task-owned file, or the conversation. Report skipped requirements, not inapplicable optional steps.
 
-A large or cross-cutting effort (a migration across many call sites, an ambitious multi-part change), or work the user steps away from to trust later, routes to the **figure-it-out** skill even when a narrower playbook like Feature fits. Use **figure-it-out** whenever no bundled playbook fits. It designs a bespoke, rigorous playbook for the task. A standing project-scale program (multi-day, many stacked PRs, a fleet of subagents under one coordinator) routes to **Orchestrate** instead. figure-it-out designs one bespoke run, orchestrate runs the program.
+Large, cross-cutting, or unattended work, or a task no bundled playbook fits, routes to the **figure-it-out** skill.
 
 - **Investigation.** Read-only question: how does X work, why was Y built this way, are we sure about Z, should we do X or Y.
 - **Bug fix.** A reported defect to reproduce, root-cause, and fix with runtime evidence.
@@ -131,7 +128,6 @@ A large or cross-cutting effort (a migration across many call sites, an ambitiou
 - **Babysit.** Driving a PR or a stack to merge-ready: conflicts, review threads, CI.
 - **Shipping.** The half after Babysit. Verify a green stack independently when available or with a labeled self-check, then land the permitted contiguous run.
 - **Autonomous run.** A long task to drive to completion without stopping ("run until done").
-- **Orchestrate.** A standing program with multiple streams or stacked PRs and a coordinator, using authorized delegates or an inline route.
 - **Autopilot-full.** A queue of independent PRs carried through authorized merge, with independent verification when available or a labeled self-check.
 - **Autopilot-stack.** Autopilot-full without the merge. A queue of PRs built and verified with full autonomy, then handed to the operator to land. A PR stacks only on a PR it builds on ("autopilot-stack", "autopilot, don't merge", "stack them, don't ship", "build the stack, I'll land it").
 - **Session pickup.** Resuming or taking over a prior agent's in-flight work from a transcript, cloud-agent URL, or pushed branch.
