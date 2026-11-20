@@ -3461,10 +3461,10 @@ index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d
  ## Patterns to detect and fix
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0babda11cc
+index 0000000000000000000000000000000000000000..ff834590a5cbc5ee84915b178333fb3546c9bf3b
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,110 @@
 +---
 +name: watch-pr
 +description: "Wait for a GitHub PR's checks, reviews, or merge readiness with one background watcher, not a hand-written loop."
@@ -3476,7 +3476,7 @@ index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0b
 +
 +Use the watcher to wait until one GitHub pull request can be merged, or to learn what blocks it. It checks four things on the head commit: the checks finished, the required reviewers signed off, the review threads are resolved, and GitHub can merge. Do not write your own check loop. Do not add separate reads after `gh pr checks --watch`.
 +
-+The watcher only reads from GitHub. It does not merge, comment, rerun or resolve.
++The watcher (`scripts/watch-pr.mjs`) only reads from GitHub. It does not merge, comment, rerun or resolve. Use the companion helper `scripts/pr-threads.mjs` when you explicitly want to list, reply to, or resolve review threads using the same repository routing.
 +
 +## Start the watcher
 +
@@ -3491,6 +3491,8 @@ index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0b
 +- `--interval SECONDS` is the time between ordinary polls. The default is 60.
 +- `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 +- `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
++- `--ignore-check NAME` (repeatable) marks a non-required check as optional so `pending` (including `waiting`, `queued`, `in_progress`) and `cancelled` states do not block readiness or keep the watcher waiting once all other checks and reviewers are green. Explicit failures (`failure`, `timed_out`, `action_required`, etc.) still block with exit 4. Checks required by GitHub branch protection/rulesets or configured reviewer rules are never ignored.
++- `--required-checks-only` treats all non-required, non-reviewer checks as optional when `pending` or `cancelled`. Explicit failures still block with exit 4. Fail-closed: if branch protection and rulesets declare no required status checks for the base branch, the watcher reports `UNKNOWN` (exit 9).
 +- Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 +- Start one job for each pull request.
 +
@@ -3510,7 +3512,7 @@ index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0b
 +  Greptile: 5/5 on 6e9e001
 +  Review bot: passed on 6e9e001
 +unresolved review threads: 1
-+  app/lib/dedup.ts:208 @reviewer: Use the existing indexed predicate ...
++  app/lib/dedup.ts:208 @reviewer [6e9e001 head, blocks]: Use the existing indexed predicate ...
 +merge: MERGEABLE; GitHub merge state CLEAN; review decision none
 +```
 +
@@ -3536,9 +3538,24 @@ index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0b
 +## How the watcher decides
 +
 +- **Checks.** It reads the check runs, commit statuses and workflow runs of the head commit. It does not read the pull request's check list, which omits runs that `workflow_dispatch` started. A workflow run that is not finished, or did not succeed, counts as a check even while it has no job.
++- **Optional checks.** Checks listed in `optionalChecks` or `--ignore-check` (or non-required checks under `--required-checks-only`) settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored.
 +- **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 +- **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
-+- **Threads and merge state.** Every unresolved review thread blocks. Conflicts, a draft, requested changes and a head behind its base block.
++- **Threads and merge state.** Every unresolved review thread blocks. The watcher fetches up to 20 comments per thread in the same pull request GraphQL query (no extra API call) and includes each thread's short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
++
++## Manage review threads (`pr-threads.mjs`)
++
++Use `scripts/pr-threads.mjs` to inspect unresolved review threads with their GraphQL thread IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply or resolve threads safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
++
++```bash
++# List unresolved threads (or add --json for structured output, --all for resolved too)
++node SKILL_DIRECTORY/scripts/pr-threads.mjs https://github.com/OWNER/REPO/pull/123 --list
++
++# Reply from a file (or "-" for stdin) without shell interpolation, then resolve
++node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --reply PRRT_... --body-file reply.md --resolve PRRT_...
++```
++
++Exit codes for `pr-threads.mjs`: `0` success, `7` GitHub query failed, `64` usage or configuration error.
 +
 +## Configure it
 +
@@ -3551,18 +3568,19 @@ index 0000000000000000000000000000000000000000..fa3b578b74fc5263a1a2e28790813d0b
 +  - `{"name", "check"}`: a check with this name must pass on the head commit.
 +  - `{"name", "author", "verdict", "pass", "commit"}`: the newest comment or review by `author` that matches the `verdict` pattern must capture the text `pass`. The `commit` pattern must capture the head commit from the same text. A review that does not match `commit` counts for the commit that GitHub recorded for it. Each pattern is a JavaScript regular expression with one capture group.
 +- `mergeWithoutApproval`: `true` when the user may merge although GitHub requires an approving review. The default is `false`, and that state then blocks with exit 6.
++- `optionalChecks`: list of check names (exact job name or `"Workflow / Job"`) treated as optional when `pending` or `cancelled`. The rules of built-in defaults (`workos/tars` includes `"Build & Deploy / Deploy to Production"`), `*`, the owner, and the repository add up. Required checks from branch protection/rulesets and configured reviewer checks are never ignored.
 +
-+The watcher rejects a file with an unknown key.
++The watcher rejects a file with an unknown key. Both `watch-pr.mjs` and `pr-threads.mjs` strip ambient `GH_TOKEN` and `GITHUB_TOKEN` before running the configured GitHub CLI so account-routing wrappers always use their selected account.
 +
 +## Other watchers
 +
 +`gh pr checks --watch` and `gh run watch` remain correct when the question is only "did these checks finish". The stack and merge-queue watcher is `../poteto-mode/scripts/watch-pr/watch-pr`.
 diff --git a/skills/watch-pr/config.example.json b/skills/watch-pr/config.example.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..c8760d677a95d1b6bf40fd16ba391eb82ecae7f4
+index 0000000000000000000000000000000000000000..9655fb1a2f92196eb74a3a6fcab354e34d9d8c4c
 --- /dev/null
 +++ b/skills/watch-pr/config.example.json
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,22 @@
 +{
 +  "*": { "gh": "gh" },
 +  "my-user": {
@@ -3580,23 +3598,733 @@ index 0000000000000000000000000000000000000000..c8760d677a95d1b6bf40fd16ba391eb8
 +      }
 +    ]
 +  },
-+  "my-company/admin-repo": { "mergeWithoutApproval": true }
++  "my-company/admin-repo": {
++    "mergeWithoutApproval": true,
++    "optionalChecks": ["Build & Deploy / Deploy to Production"]
++  }
 +}
-diff --git a/skills/watch-pr/scripts/config.mjs b/skills/watch-pr/scripts/config.mjs
+diff --git a/skills/watch-pr/scripts/gh-client.mjs b/skills/watch-pr/scripts/gh-client.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..c04b3782def97a5c97f42c4628afc787ee4fd35c
+index 0000000000000000000000000000000000000000..ac0442559efe2d5e88d1d5616ee5ab8e33cfe0ce
 --- /dev/null
-+++ b/skills/watch-pr/scripts/config.mjs
-@@ -0,0 +1,110 @@
-+// Watcher settings per repository owner or repository: which GitHub CLI to
-+// run, which reviewers must sign off on the head commit, and whether the user
-+// may merge without the approving review that GitHub requires.
++++ b/skills/watch-pr/scripts/gh-client.mjs
+@@ -0,0 +1,247 @@
++// Shared zero-dependency GitHub CLI client, environment sanitizer, and
++// rate-limit backoff helpers for watch-pr tools (`watch-pr.mjs`, `pr-threads.mjs`,
++// and future `watch-run.mjs`).
 +
++import { spawn } from "node:child_process";
++import { setTimeout as delay } from "node:timers/promises";
++
++/** Consecutive failed polls before a watcher gives up. */
++export const MAX_QUERY_FAILURES = 5;
++
++/** A GitHub CLI request that failed. `retryable` is false when repeating it cannot help. */
++export class QueryError extends Error {
++  constructor(message, { retryable = true, rateLimit } = {}) {
++    super(message);
++    this.name = "QueryError";
++    this.retryable = retryable;
++    this.rateLimit = rateLimit;
++  }
++}
++
++/** URL-encodes each slash-separated segment of a GitHub ref or path parameter. */
++export const segment = (value) => value.split("/").map(encodeURIComponent).join("/");
++
++/** Bot logins end in `[bot]` in REST and not in GraphQL; compare without it. */
++export const login = (value) => (value ?? "").replace(/\[bot\]$/, "").toLowerCase();
++
++/**
++ * Builds the child environment for invoking a GitHub CLI executable.
++ * Strips ambient `GH_TOKEN` and `GITHUB_TOKEN` so account-routing wrappers
++ * (`gh-work`, `gh-personal`) always authenticate with their own selected account.
++ */
++export function sanitizedEnv(baseEnv = process.env) {
++  const env = { ...baseEnv, NO_COLOR: "1" };
++  delete env.GH_TOKEN;
++  delete env.GITHUB_TOKEN;
++  return env;
++}
++
++/** Finish in-flight reads together before deciding whether and when to poll again. */
++export async function readTogether(reads) {
++  const results = await Promise.allSettled(reads);
++  const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
++  if (errors.length) {
++    const terminal = errors.find((error) => !(error instanceof QueryError) || !error.retryable);
++    const limits = errors.filter((error) => error.rateLimit);
++    // Preserve the longest reported pause when more than one request was limited.
++    const latest = limits.reduce((last, error) => !last ||
++      error.rateLimit.notBefore > last.rateLimit.notBefore ? error : last, null);
++    throw terminal ?? latest ?? errors[0];
++  }
++  return results.map((result) => result.value);
++}
++
++function parseJSON(text) {
++  try {
++    return JSON.parse(text);
++  } catch {
++    return undefined;
++  }
++}
++
++export function responsePages(stdout) {
++  // `gh api --include --paginate --jq .` prints each response's status and
++  // headers, then one JSON value and a newline for each successful page.
++  const blocks = stdout.split(/^(?=HTTP\/[\d.]+ \d{3}\b)/m);
++  return blocks.filter(Boolean).map((block) => {
++    const [head, ...body] = block.split(/\r?\n\r?\n/);
++    const [line, ...fields] = head.split(/\r?\n/);
++    const headers = new Map(fields.map((field) => {
++      const colon = field.indexOf(":");
++      return [field.slice(0, colon).toLowerCase(), field.slice(colon + 1).trim()];
++    }));
++    return { status: Number(/^HTTP\/[\d.]+ (\d{3})\b/.exec(line)?.[1]), headers, body: parseJSON(body.join("\n\n")) };
++  });
++}
++
++function headerTime(value, from = 0) {
++  if (!/^\d+$/.test(value ?? "")) return;
++  const time = from + Number(value) * 1000;
++  if (Number.isFinite(new Date(time).getTime())) return time;
++}
++
++export function rateLimitOf({ status, headers, body }, graphqlErrors = [], now = Date.now()) {
++  if (status !== 403 && status !== 429 && !(status === 200 && graphqlErrors.length)) return;
++  const reset = headers.get("x-ratelimit-remaining") === "0"
++    ? headerTime(headers.get("x-ratelimit-reset")) : undefined;
++  const after = headerTime(headers.get("retry-after"), now);
++  const messages = [body?.message, ...graphqlErrors.map((error) => error.message)];
++  const secondary = messages.some((message) => /\bsecondary rate limit\b/i.test(message ?? ""));
++  // A plain 403 can also mean insufficient permissions, even when quota is low.
++  const quotaError = graphqlErrors.some((error) => error.type === "RATE_LIMITED") ||
++    /^API rate limit exceeded\b/i.test(body?.message ?? "") || status === 429;
++  if (!secondary && !quotaError) return;
++  if (!secondary && reset === undefined && after === undefined) return;
++  const kind = secondary ? "secondary" : reset !== undefined ? "primary" : null;
++  // GitHub asks for at least one minute when a secondary limit has no deadline.
++  const notBefore = Math.max(reset ?? -Infinity, after ?? -Infinity);
++  return { kind, notBefore: notBefore === -Infinity ? now + 60_000 : notBefore };
++}
++
++/** Human-readable description of a rate-limit deadline. */
++export function formatRateLimit({ kind, notBefore }) {
++  return `GitHub ${kind ? `${kind} ` : ""}rate limit; retry no earlier than ${new Date(notBefore).toISOString()}`;
++}
++
++/**
++ * Sleeps until `elapsedDeadline` (in seconds from watcher start) or until
++ * `remaining()` hits 0. Clamps each `setTimeout` call to Node's signed 32-bit
++ * timer limit so long waits never collapse to 1 ms.
++ */
++export async function waitUntilElapsed(elapsedDeadline, { elapsed, remaining, sleep = delay }) {
++  let seconds;
++  while ((seconds = Math.min(elapsedDeadline - elapsed(), remaining())) > 0) {
++    await sleep(Math.min(Math.ceil(1000 * seconds), 2 ** 31 - 1));
++  }
++}
++
++/**
++ * Shared retry and rate-limit backoff state machine for polling scripts.
++ * Tracks ordinary consecutive failures separately from repeated secondary
++ * rate-limit exponential backoff.
++ */
++export function createRateLimitBackoff({ interval, maxFailures = MAX_QUERY_FAILURES, now = () => Date.now() }) {
++  let failures = 0;
++  let secondaryFailures = 0;
++  let previousSecondaryWait = 0;
++
++  return {
++    reset() {
++      failures = 0;
++      secondaryFailures = 0;
++      previousSecondaryWait = 0;
++    },
++
++    /**
++     * Evaluates a rate-limited QueryError and returns either:
++     * - `{ action: "abort", kind: "queryFailed" | "timeout", description, message }`
++     * - `{ action: "wait", description, waitSeconds }`
++     */
++    onRateLimit(rateLimit, { once = false, timedOut = false, timeout = 0 } = {}) {
++      const description = formatRateLimit(rateLimit);
++      if (once) return { action: "abort", kind: "queryFailed", description, message: `GitHub query failed: ${description}` };
++      if (timedOut) return { action: "abort", kind: "timeout", description, message: `timed out after ${timeout} s; ${description}` };
++      const untilReset = (rateLimit.notBefore - now()) / 1000;
++      let waitSeconds = untilReset > 0 ? untilReset : interval;
++      if (rateLimit.kind === "secondary") {
++        // GitHub asks for exponential backoff and a separate stop on repeated secondary limits.
++        if (++secondaryFailures >= maxFailures) {
++          return {
++            action: "abort",
++            kind: "queryFailed",
++            description,
++            message: `GitHub query failed: ${description}; hit ${secondaryFailures} secondary limits`,
++          };
++        }
++        waitSeconds = previousSecondaryWait = Math.max(waitSeconds, previousSecondaryWait * 2);
++      }
++      return { action: "wait", description, waitSeconds };
++    },
++
++    /**
++     * Evaluates a non-rate-limit QueryError and returns either:
++     * - `{ action: "abort", kind: "queryFailed" | "timeout", message }`
++     * - `{ action: "retry", failures, maxFailures }`
++     */
++    onFailure(error, { once = false, timedOut = false, timeout = 0 } = {}) {
++      failures++;
++      const gaveUp = !error.retryable || once || failures >= maxFailures;
++      if (gaveUp || timedOut) {
++        const reason = gaveUp
++          ? `GitHub query failed${failures > 1 ? ` ${failures} times in a row` : ""}`
++          : `timed out after ${timeout} s; GitHub query failed`;
++        return {
++          action: "abort",
++          kind: gaveUp ? "queryFailed" : "timeout",
++          message: `${reason}: ${error.message}`,
++        };
++      }
++      return { action: "retry", failures, maxFailures };
++    },
++  };
++}
++
++/**
++ * Low-level GitHub CLI runner sharing `GH_TOKEN`/`GITHUB_TOKEN` stripping,
++ * response page parsing, and rate-limit error classification.
++ *
++ * @param {string} executable GitHub CLI name on PATH, or a path to it.
++ * @param {{ env?: NodeJS.ProcessEnv }} [options]
++ */
++export function createGhClient(executable, { env = process.env } = {}) {
++  function run(args) {
++    return new Promise((resolve, reject) => {
++      const child = spawn(executable, args, {
++        stdio: ["ignore", "pipe", "pipe"],
++        env: sanitizedEnv(env),
++      });
++      let stdout = "";
++      let stderr = "";
++      child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
++      child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
++      child.on("error", (error) => reject(new QueryError(
++        `cannot run GitHub CLI "${executable}": ${error.message}`, { retryable: false })));
++      child.on("close", (code) => resolve({ code, stdout, stderr }));
++    });
++  }
++
++  async function json(args) {
++    const { code, stdout, stderr } = await run([...args, "--include", "--jq", "."]);
++    const pages = responsePages(stdout);
++    const response = pages.at(-1);
++    const errors = response?.body?.errors;
++    const graphqlErrors = args[1] === "graphql" && Array.isArray(errors) ? errors : [];
++    if (code !== 0 || graphqlErrors.length) {
++      const rateLimit = response && rateLimitOf(response, graphqlErrors);
++      const detail = stderr.trim().split(/\r?\n/, 1)[0].slice(0, 240);
++      const retryable = code !== 4 && response?.status !== 401 &&
++        !graphqlErrors.some((error) => ["NOT_FOUND", "FORBIDDEN", "UNAUTHORIZED"].includes(error.type));
++      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} exited ${code}${detail ? `: ${detail}` : ""}`,
++        { retryable, rateLimit: retryable ? rateLimit : undefined });
++    }
++    if (!pages.length || pages.some((page) => page.body === undefined)) {
++      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);
++    }
++    return args.includes("--paginate") ? pages.map((page) => page.body) : pages[0].body;
++  }
++
++  /** REST API call. With `paginate: true` (default), returns an array of page bodies. */
++  function rest(path, { paginate = true } = {}) {
++    const args = ["api", path];
++    if (paginate) args.push("--paginate");
++    return json(args);
++  }
++
++  /** GraphQL query or mutation. With `paginate: true`, returns an array of page bodies. */
++  function graphql(query, variables = {}, { paginate = false } = {}) {
++    const args = ["api", "graphql", "-f", `query=${query}`];
++    for (const [name, value] of Object.entries(variables)) {
++      if (value === undefined) continue;
++      args.push(typeof value === "number" || typeof value === "boolean" ? "-F" : "-f", `${name}=${value}`);
++    }
++    if (paginate) args.push("--paginate");
++    return json(args);
++  }
++
++  return { executable, run, json, rest, graphql };
++}
+diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..7ad26f68579f5ea49a23a90c3a10c81d2561a080
+--- /dev/null
++++ b/skills/watch-pr/scripts/github.mjs
+@@ -0,0 +1,218 @@
++// Read-only GitHub queries for the watcher, built on the shared gh-client.
++// Every REST read names the commit it is about, so one poll never mixes two heads.
++
++import { basename } from "node:path";
++import { QueryError, createGhClient, login, readTogether, segment } from "./gh-client.mjs";
++import { normalizeThread } from "./threads.mjs";
++
++export { QueryError, login, readTogether };
++
++const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
++  repository(owner:$owner,name:$repo){pullRequest(number:$number){
++    url state isDraft mergedAt mergeable mergeStateStatus reviewDecision headRefOid baseRefName
++    mergeCommit{oid}
++    reviewThreads(first:100,after:$endCursor){
++      pageInfo{hasNextPage endCursor}
++      nodes{
++        id isResolved isOutdated path line originalLine
++        comments(first:20){
++          nodes{
++            id fullDatabaseId commit{oid} originalCommit{oid} author{login} body url createdAt outdated
++          }
++        }
++      }
++    }
++  }}
++}`;
++const HEAD = `query($owner:String!,$repo:String!,$number:Int!){
++  repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid}}
++}`;
++const WORKFLOWS = `query($owner:String!,$repo:String!,$expression:String!){
++  repository(owner:$owner,name:$repo){object(expression:$expression){
++    ... on Tree{entries{name type object{... on Blob{text}}}}
++  }}
++}`;
++
++// Check run and workflow run conclusions:
++// https://docs.github.com/en/rest/checks/runs#get-a-check-run
++const PASSED = new Set(["success"]);
++const SKIPPED = new Set(["neutral", "skipped"]);
++/** State of a check run or workflow run from its `status` and `conclusion`. */
++function stateOf({ status, conclusion }) {
++  if (status !== "completed") return "pending";
++  return PASSED.has(conclusion) ? "passed" : SKIPPED.has(conclusion) ? "skipped" : "failed";
++}
++
++/**
++ * @param {string | ReturnType<typeof createGhClient>} executableOrClient
++ * @param {{ env?: NodeJS.ProcessEnv }} [options]
++ */
++export function createGitHub(executableOrClient, options) {
++  const client = typeof executableOrClient === "string"
++    ? createGhClient(executableOrClient, options)
++    : executableOrClient;
++
++  function pullRequestNode(page, pr) {
++    const node = page?.data?.repository?.pullRequest;
++    if (!node) throw new QueryError(`GitHub returned no pull request for ${pr.owner}/${pr.repo}#${pr.number}`);
++    return node;
++  }
++
++  return {
++    /** State of the pull request and its review threads, in one snapshot per page. */
++    async pullRequest(pr) {
++      const pages = await client.graphql(PULL_REQUEST, pr, { paginate: true });
++      const nodes = pages.map((page) => pullRequestNode(page, pr));
++      const last = nodes.at(-1);
++      const head = last.headRefOid;
++      const allThreads = nodes
++        .flatMap((node) => node.reviewThreads.nodes)
++        .map((thread) => normalizeThread(thread, head));
++      return {
++        url: last.url,
++        state: last.state,
++        isDraft: last.isDraft,
++        mergedAt: last.mergedAt,
++        mergeCommit: last.mergeCommit?.oid ?? null,
++        mergeable: last.mergeable,
++        mergeState: last.mergeStateStatus,
++        reviewDecision: last.reviewDecision || null,
++        head,
++        baseRef: last.baseRefName,
++        threads: allThreads.filter((thread) => !thread.isResolved),
++        allThreads,
++      };
++    },
++
++    async head(pr) {
++      return pullRequestNode(await client.graphql(HEAD, pr), pr).headRefOid;
++    },
++
++    /**
++     * Checks and workflow runs on one commit.
++     *
++     * Reads the commit, not the pull request: the pull request's check list
++     * omits runs started by workflow_dispatch on the same commit.
++     * https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference
++     * https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference
++     * https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
++     */
++    async commitChecks(pr, sha) {
++      const base = `repos/${pr.owner}/${pr.repo}`;
++      const [checkPages, statusPages, runPages] = await readTogether([
++        client.rest(`${base}/commits/${sha}/check-runs?per_page=100`),
++        client.rest(`${base}/commits/${sha}/status?per_page=100`),
++        client.rest(`${base}/actions/runs?head_sha=${sha}&per_page=100`),
++      ]);
++      const runs = runPages.flatMap((page) => page.workflow_runs).map((run) => ({
++        id: run.id, name: run.name ?? null, path: run.path, event: run.event, suite: run.check_suite_id,
++        status: run.status, conclusion: run.conclusion, link: run.html_url,
++      }));
++      const bySuite = new Map(runs.map((run) => [run.suite, run]));
++      const runKey = (run) => `${run.path} ${run.event}`;
++      const latestRun = new Map();
++      for (const run of runs) {
++        if (!latestRun.has(runKey(run)) || latestRun.get(runKey(run)).id < run.id) latestRun.set(runKey(run), run);
++      }
++      // A workflow can run again on the same commit and event: a cancelled run,
++      // a reopened pull request, a label. The runs can hold different jobs, so
++      // every job name counts, with its newest check.
++      const newest = new Map();
++      for (const check of checkPages.flatMap((page) => page.check_runs)) {
++        const run = bySuite.get(check.check_suite?.id);
++        const key = `${run ? runKey(run) : `suite ${check.check_suite?.id}`}\n${check.name}`;
++        const previous = newest.get(key);
++        if (!previous || previous.id < check.id) newest.set(key, check);
++      }
++      const checks = [...newest.values()]
++        // The check of an earlier run is not final while a later run of the same workflow is unfinished.
++        .filter((check) => {
++          const run = bySuite.get(check.check_suite?.id);
++          return !run || latestRun.get(runKey(run)) === run || latestRun.get(runKey(run)).status === "completed";
++        })
++        .map((check) => {
++          const run = bySuite.get(check.check_suite?.id);
++          return {
++            name: check.name,
++            workflow: run?.name ?? null,
++            state: stateOf(check),
++            detail: check.status !== "completed" ? check.status : check.conclusion,
++            link: check.details_url || check.html_url || "",
++            suite: check.check_suite?.id,
++          };
++        });
++      // A workflow run exists before its jobs do. GitHub creates a job that
++      // needs another job only when that job ends, and a run can end without
++      // any job (approval required, invalid workflow file). So an unfinished
++      // run, and a latest run that did not succeed, count even when no check says so.
++      for (const run of runs) {
++        const state = stateOf(run);
++        const counts = state === "pending" || (state === "failed" && latestRun.get(runKey(run)) === run);
++        if (!counts || checks.some((check) => check.suite === run.suite && check.state === state)) continue;
++        checks.push({
++          name: `workflow ${basename(run.path)}`,
++          workflow: run.name ?? null,
++          state,
++          detail: run.status !== "completed" ? run.status : run.conclusion,
++          link: run.link,
++        });
++      }
++      for (const status of statusPages.flatMap((page) => page.statuses)) {
++        checks.push({
++          name: status.context,
++          workflow: null,
++          state: status.state === "success" ? "passed" : status.state === "pending" ? "pending" : "failed",
++          detail: status.state,
++          link: status.target_url || "",
++        });
++      }
++      return { checks, runs };
++    },
++
++    /** Workflow files in the tree of one commit: `[{ path, text }]`; text is null when GitHub returns none. */
++    async workflowFiles(pr, sha) {
++      const result = await client.graphql(WORKFLOWS, { owner: pr.owner, repo: pr.repo, expression: `${sha}:.github/workflows` });
++      if (!result?.data?.repository) throw new QueryError(`GitHub returned no repository for ${pr.owner}/${pr.repo}`);
++      return (result.data.repository.object?.entries ?? [])
++        .filter((entry) => entry.type === "blob" && /\.ya?ml$/.test(entry.name))
++        .map((entry) => ({ path: `.github/workflows/${entry.name}`, text: entry.object?.text ?? null }));
++    },
++
++    /**
++     * Names of the status checks GitHub requires before merging into `baseRef`,
++     * from rulesets and from classic branch protection.
++     * https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch
++     * https://docs.github.com/en/rest/branches/branches#get-a-branch
++     */
++    async requiredChecks(pr, baseRef) {
++      const base = `repos/${pr.owner}/${pr.repo}`;
++      const [rulePages, branchPages] = await readTogether([
++        client.rest(`${base}/rules/branches/${segment(baseRef)}?per_page=100`),
++        client.rest(`${base}/branches/${segment(baseRef)}`),
++      ]);
++      const names = rulePages.flat().filter((rule) => rule.type === "required_status_checks")
++        .flatMap((rule) => rule.parameters.required_status_checks.map((check) => check.context));
++      const classic = branchPages[0]?.protection?.required_status_checks;
++      if (classic && classic.enforcement_level !== "off") names.push(...(classic.contexts ?? []));
++      return [...new Set(names)];
++    },
++
++    /**
++     * Text that reviewers left on the pull request, newest first: issue comments
++     * and review bodies. A review names its commit; a comment does not.
++     */
++    async reviewTexts(pr) {
++      const base = `repos/${pr.owner}/${pr.repo}`;
++      const [commentPages, reviewPages] = await readTogether([
++        client.rest(`${base}/issues/${pr.number}/comments?per_page=100`),
++        client.rest(`${base}/pulls/${pr.number}/reviews?per_page=100`),
++      ]);
++      return [
++        ...commentPages.flat().map((comment) => (
++          { author: login(comment.user?.login), body: comment.body ?? "", at: comment.updated_at, commit: null })),
++        ...reviewPages.flat().map((review) => (
++          { author: login(review.user?.login), body: review.body ?? "", at: review.submitted_at, commit: review.commit_id })),
++      ].sort((a, b) => (a.at < b.at ? 1 : -1));
++    },
++  };
++}
+diff --git a/skills/watch-pr/scripts/pr-threads.mjs b/skills/watch-pr/scripts/pr-threads.mjs
+new file mode 100755
+index 0000000000000000000000000000000000000000..2e6be605b6b0fba655dfc85c08816c82098faaff
+--- /dev/null
++++ b/skills/watch-pr/scripts/pr-threads.mjs
+@@ -0,0 +1,213 @@
++#!/usr/bin/env node
++// Lists, replies to, and resolves GitHub pull request review threads using the
++// shared watch-pr repository config and gh-client routing.
++
++import { readFileSync } from "node:fs";
++import { resolve } from "node:path";
++import { pathToFileURL } from "node:url";
++import { parseArgs } from "node:util";
++import { QueryError, createGhClient, formatRateLimit } from "./gh-client.mjs";
++import { createGitHub } from "./github.mjs";
++import {
++  ConfigError,
++  configPath,
++  loadConfig,
++  parsePrTarget,
++  resolveGitHubCli,
++  resolveRepo,
++  settingsFor,
++} from "./repo-config.mjs";
++import { formatThreadList } from "./threads.mjs";
++import { EXIT } from "./verdict.mjs";
++
++const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
++       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --reply <threadId> --body-file <path>
++       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadId>
++
++Lists unresolved PR review threads or replies to / resolves a thread through the
++repository's configured GitHub CLI (watch-pr.json / WATCH_PR_GH).
++
++  <number|url>        pull request number or URL (required for --list; optional for --reply/--resolve
++                      when --repo or the origin remote identifies the repository)
++  --repo              OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
++  --list              list unresolved review threads (default when a PR is given with no mutation)
++  --all               with --list, include resolved threads as well
++  --json              with --list, print structured JSON
++  --reply THREAD_ID   post a reply to this review thread (requires --body-file)
++  --body-file PATH    UTF-8 file containing the reply body (use "-" to read stdin)
++  --resolve THREAD_ID mark this review thread as resolved
++
++Exit: 0 success, 7 GitHub query failed, 64 usage or configuration error.
++`;
++
++const REPLY_MUTATION = `mutation($threadId:ID!,$body:String!){
++  addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId,body:$body}){
++    comment{id fullDatabaseId url createdAt author{login}}
++  }
++}`;
++
++const RESOLVE_MUTATION = `mutation($threadId:ID!){
++  resolveReviewThread(input:{threadId:$threadId}){
++    thread{id isResolved}
++  }
++}`;
++
++class UsageError extends Error {}
++
++function readBodyFile(path) {
++  let content;
++  try {
++    content = path === "-" ? readFileSync(0, "utf8") : readFileSync(path, "utf8");
++  } catch (error) {
++    throw new UsageError(`cannot read --body-file "${path}": ${error.message}`);
++  }
++  if (!content.trim()) throw new UsageError("--body-file must not be empty");
++  return content;
++}
++
++async function parse(argv) {
++  let parsed;
++  try {
++    parsed = parseArgs({
++      args: argv,
++      allowPositionals: true,
++      options: {
++        repo: { type: "string" },
++        owner: { type: "string" },
++        pr: { type: "string" },
++        list: { type: "boolean", default: false },
++        all: { type: "boolean", default: false },
++        json: { type: "boolean", default: false },
++        reply: { type: "string" },
++        "body-file": { type: "string" },
++        resolve: { type: "string" },
++        help: { type: "boolean", short: "h", default: false },
++      },
++    });
++  } catch (error) {
++    throw new UsageError(error.message);
++  }
++  const { values, positionals } = parsed;
++  if (values.help) return null;
++  if (positionals.length > 1) throw new UsageError("name at most one pull request");
++  if (positionals.length && values.pr !== undefined) throw new UsageError("name the pull request once");
++  const target = positionals[0] ?? values.pr;
++
++  const replyId = values.reply?.trim();
++  const resolveId = values.resolve?.trim();
++  if (values.reply !== undefined && !replyId) throw new UsageError("--reply requires a non-empty thread ID");
++  if (values.resolve !== undefined && !resolveId) throw new UsageError("--resolve requires a non-empty thread ID");
++  if (replyId && !values["body-file"]) throw new UsageError("--reply requires --body-file <path>");
++  if (!replyId && values["body-file"] !== undefined) throw new UsageError("--body-file can only be used with --reply");
++
++  const hasMutation = Boolean(replyId || resolveId);
++  const doList = values.list || (!hasMutation && target !== undefined);
++  if (!doList && !hasMutation) {
++    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, or --resolve <threadId>");
++  }
++  if (doList && target === undefined) throw new UsageError("--list requires a pull request number or URL");
++
++  let pr = null;
++  let repoTarget = null;
++  if (target !== undefined) {
++    const resolved = await parsePrTarget(target, { owner: values.owner, repo: values.repo });
++    if (resolved.error) throw new UsageError(resolved.error);
++    pr = resolved.pr;
++    repoTarget = { owner: pr.owner, repo: pr.repo };
++  } else {
++    repoTarget = await resolveRepo({ owner: values.owner, repo: values.repo });
++    if (!repoTarget) throw new UsageError("name the repository: --repo OWNER/NAME");
++  }
++
++  return {
++    pr,
++    repo: repoTarget,
++    list: doList,
++    all: values.all,
++    json: values.json,
++    replyId: replyId ?? null,
++    bodyFile: values["body-file"] ?? null,
++    resolveId: resolveId ?? null,
++  };
++}
++
++/** Posts a reply to one review thread via GraphQL. */
++export async function replyToThread(client, threadId, body) {
++  const result = await client.graphql(REPLY_MUTATION, { threadId, body });
++  const comment = result?.data?.addPullRequestReviewThreadReply?.comment;
++  if (!comment) throw new QueryError(`GitHub returned no comment when replying to thread ${threadId}`);
++  return comment;
++}
++
++/** Marks one review thread as resolved via GraphQL. */
++export async function resolveThread(client, threadId) {
++  const result = await client.graphql(RESOLVE_MUTATION, { threadId });
++  const thread = result?.data?.resolveReviewThread?.thread;
++  if (!thread || !thread.isResolved) {
++    throw new QueryError(`GitHub did not confirm resolution of thread ${threadId}`);
++  }
++  return thread;
++}
++
++async function main(argv, env) {
++  const options = await parse(argv);
++  if (options === null) {
++    process.stdout.write(USAGE);
++    return 0;
++  }
++  const body = options.replyId ? readBodyFile(options.bodyFile) : null;
++  const settingsPath = configPath(env);
++  const settings = settingsFor(loadConfig(settingsPath), options.repo.owner, options.repo.repo);
++  const { executable, source } = resolveGitHubCli(settings, { env, settingsPath });
++  const client = createGhClient(executable, { env });
++  const github = createGitHub(client);
++
++  try {
++    if (options.replyId) {
++      const comment = await replyToThread(client, options.replyId, body);
++      process.stdout.write(`replied: ${options.replyId} -> ${comment.url ?? comment.id}\n`);
++    }
++    if (options.resolveId) {
++      await resolveThread(client, options.resolveId);
++      process.stdout.write(`resolved: ${options.resolveId}\n`);
++    }
++    if (options.list) {
++      const facts = await github.pullRequest(options.pr);
++      const threads = options.all ? facts.allThreads : facts.threads;
++      if (options.json) {
++        process.stdout.write(`${JSON.stringify({
++          pr: facts.url,
++          head: facts.head,
++          unresolvedCount: facts.threads.length,
++          threads,
++        }, null, 2)}\n`);
++      } else {
++        process.stdout.write(formatThreadList({
++          url: facts.url,
++          head: facts.head,
++          threads,
++          includeResolved: options.all,
++        }));
++      }
++    }
++    return 0;
++  } catch (error) {
++    if (!(error instanceof QueryError)) throw error;
++    const reason = error.rateLimit ? formatRateLimit(error.rateLimit) : error.message;
++    process.stderr.write([
++      `pr-threads: GitHub query failed: ${reason}`,
++      `github cli: ${executable} (${source})`,
++    ].join("\n").concat("\n"));
++    return EXIT.queryFailed;
++  }
++}
++
++if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
++  try {
++    process.exitCode = await main(process.argv.slice(2), process.env);
++  } catch (error) {
++    if (!(error instanceof UsageError) && !(error instanceof ConfigError)) throw error;
++    process.stderr.write(`pr-threads: ${error.message}\n${error instanceof UsageError ? USAGE : ""}`);
++    process.exitCode = EXIT.usage;
++  }
++}
+diff --git a/skills/watch-pr/scripts/repo-config.mjs b/skills/watch-pr/scripts/repo-config.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..84a7374ea28ffd72ce4f86fe15543d5cf8679a37
+--- /dev/null
++++ b/skills/watch-pr/scripts/repo-config.mjs
+@@ -0,0 +1,197 @@
++// Shared repository configuration and GitHub CLI routing for watch-pr tools
++// (`watch-pr.mjs`, `pr-threads.mjs`, and future `watch-run.mjs`).
++
++import { execFile } from "node:child_process";
 +import { readFileSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { join } from "node:path";
 +
 +export class ConfigError extends Error {}
++
++/**
++ * Built-in optional checks for repositories with known manual-approval or
++ * non-blocking jobs. Required checks declared by GitHub branch protection or
++ * rulesets always take precedence and are never ignored.
++ */
++export const DEFAULT_OPTIONAL_CHECKS = Object.freeze({
++  "workos/tars": Object.freeze(["Build & Deploy / Deploy to Production"]),
++});
++
++const ALLOWED_KEYS = new Set(["gh", "reviewers", "mergeWithoutApproval", "optionalChecks"]);
 +
 +/** `WATCH_PR_CONFIG`, or `watch-pr.json` in the Pi agent directory. */
 +export function configPath(env = process.env) {
@@ -3642,12 +4370,23 @@ index 0000000000000000000000000000000000000000..c04b3782def97a5c97f42c4628afc787
 +  return fail(path, `${where} must have the keys name and check, or name, author, verdict, pass and commit`);
 +}
 +
++function optionalChecks(path, where, value) {
++  if (!Array.isArray(value)) fail(path, `${where} must be a list`);
++  return value.map((item, index) => {
++    if (typeof item !== "string" || !item.trim()) {
++      fail(path, `${where}[${index}] must be a non-empty string`);
++    }
++    return item.trim();
++  });
++}
++
 +/**
 + * Reads the settings file. A missing file is an empty configuration.
 + *
 + * The file is a JSON object. Each key is `*` (every repository), an owner, or
 + * `owner/repository`. Each value may hold `gh` (the GitHub CLI executable),
-+ * `reviewers` (a list of rules) and `mergeWithoutApproval` (true or false).
++ * `reviewers` (a list of rules), `mergeWithoutApproval` (true or false), and
++ * `optionalChecks` (a list of check names that may settle while pending or cancelled).
 + * Unknown keys are rejected: a misspelled rule must not be silently dropped.
 + */
 +export function loadConfig(path) {
@@ -3669,7 +4408,7 @@ index 0000000000000000000000000000000000000000..c04b3782def97a5c97f42c4628afc787
 +  for (const [scope, value] of Object.entries(parsed)) {
 +    if (typeof value !== "object" || value === null || Array.isArray(value)) fail(path, `"${scope}" must be an object`);
 +    for (const key of Object.keys(value)) {
-+      if (!["gh", "reviewers", "mergeWithoutApproval"].includes(key)) fail(path, `"${scope}" has the unknown key "${key}"`);
++      if (!ALLOWED_KEYS.has(key)) fail(path, `"${scope}" has the unknown key "${key}"`);
 +    }
 +    if ("gh" in value && (typeof value.gh !== "string" || !value.gh)) fail(path, `"${scope}".gh must be a non-empty string`);
 +    if ("reviewers" in value && !Array.isArray(value.reviewers)) fail(path, `"${scope}".reviewers must be a list`);
@@ -3680,6 +4419,7 @@ index 0000000000000000000000000000000000000000..c04b3782def97a5c97f42c4628afc787
 +      gh: value.gh,
 +      mergeWithoutApproval: value.mergeWithoutApproval,
 +      reviewers: (value.reviewers ?? []).map((rule, index) => reviewer(path, `"${scope}".reviewers[${index}]`, rule)),
++      optionalChecks: "optionalChecks" in value ? optionalChecks(path, `"${scope}".optionalChecks`, value.optionalChecks) : [],
 +    });
 +  }
 +  return scopes;
@@ -3688,347 +4428,240 @@ index 0000000000000000000000000000000000000000..c04b3782def97a5c97f42c4628afc787
 +/**
 + * Settings for one repository. The most specific `gh` and
 + * `mergeWithoutApproval` win: repository, then owner, then `*`. Reviewer rules
-+ * add up across all three.
++ * and `optionalChecks` add up across built-in defaults, `*`, owner, and repo.
 + */
 +export function settingsFor(scopes, owner, repo) {
-+  const matching = ["*", owner, `${owner}/${repo}`].map((scope) => scopes.get(scope.toLowerCase())).filter(Boolean);
++  const repoKey = `${owner}/${repo}`.toLowerCase();
++  const matching = ["*", owner, repoKey].map((scope) => scopes.get(scope.toLowerCase())).filter(Boolean);
++  const defaults = DEFAULT_OPTIONAL_CHECKS[repoKey] ?? [];
 +  return {
 +    gh: matching.map((scope) => scope.gh).filter(Boolean).at(-1) ?? null,
 +    mergeWithoutApproval: matching.map((scope) => scope.mergeWithoutApproval).filter((value) => value !== undefined).at(-1) ?? false,
 +    reviewers: matching.flatMap((scope) => scope.reviewers),
++    optionalChecks: [...new Set([...defaults, ...matching.flatMap((scope) => scope.optionalChecks ?? [])])],
 +  };
 +}
-diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
-new file mode 100644
-index 0000000000000000000000000000000000000000..f9e7ae39a9a58bdc84749204a9f47c0cc9e32277
---- /dev/null
-+++ b/skills/watch-pr/scripts/github.mjs
-@@ -0,0 +1,326 @@
-+// Read-only GitHub queries for the watcher, through one GitHub CLI executable.
-+// Every REST read names the commit it is about, so one poll never mixes two heads.
 +
-+import { spawn } from "node:child_process";
-+import { basename } from "node:path";
-+
-+/** A GitHub read that failed. `retryable` is false when repeating it cannot help. */
-+export class QueryError extends Error {
-+  constructor(message, { retryable = true, rateLimit } = {}) {
-+    super(message);
-+    this.name = "QueryError";
-+    this.retryable = retryable;
-+    this.rateLimit = rateLimit;
-+  }
++/**
++ * Resolves the GitHub CLI executable and its provenance description for a repository.
++ * Precedence: `WATCH_PR_GH` env var > repo/owner/`*` config `gh` > `"gh"`.
++ */
++export function resolveGitHubCli(settings, { env = process.env, settingsPath = configPath(env) } = {}) {
++  const executable = env.WATCH_PR_GH || settings.gh || "gh";
++  const source = env.WATCH_PR_GH
++    ? "WATCH_PR_GH"
++    : settings.gh
++      ? settingsPath
++      : `the default; none is set in WATCH_PR_GH or ${settingsPath}`;
++  return { executable, source };
 +}
 +
-+/** Finish the in-flight reads before deciding whether and when to poll again. */
-+export async function readTogether(reads) {
-+  const results = await Promise.allSettled(reads);
-+  const errors = results.filter((result) => result.status === "rejected").map((result) => result.reason);
-+  if (errors.length) {
-+    const terminal = errors.find((error) => !(error instanceof QueryError) || !error.retryable);
-+    const limits = errors.filter((error) => error.rateLimit);
-+    // Preserve the longest reported pause when more than one request was limited.
-+    const latest = limits.reduce((last, error) => !last ||
-+      error.rateLimit.notBefore > last.rateLimit.notBefore ? error : last, null);
-+    throw terminal ?? latest ?? errors[0];
-+  }
-+  return results.map((result) => result.value);
-+}
-+
-+const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
-+  repository(owner:$owner,name:$repo){pullRequest(number:$number){
-+    url state isDraft mergedAt mergeable mergeStateStatus reviewDecision headRefOid baseRefName
-+    mergeCommit{oid}
-+    reviewThreads(first:100,after:$endCursor){
-+      pageInfo{hasNextPage endCursor}
-+      nodes{isResolved path line originalLine comments(first:1){nodes{author{login} body}}}
-+    }
-+  }}
-+}`;
-+const HEAD = `query($owner:String!,$repo:String!,$number:Int!){
-+  repository(owner:$owner,name:$repo){pullRequest(number:$number){headRefOid}}
-+}`;
-+const WORKFLOWS = `query($owner:String!,$repo:String!,$expression:String!){
-+  repository(owner:$owner,name:$repo){object(expression:$expression){
-+    ... on Tree{entries{name type object{... on Blob{text}}}}
-+  }}
-+}`;
-+
-+// Check run and workflow run conclusions:
-+// https://docs.github.com/en/rest/checks/runs#get-a-check-run
-+const PASSED = new Set(["success"]);
-+const SKIPPED = new Set(["neutral", "skipped"]);
-+/** State of a check run or workflow run from its `status` and `conclusion`. */
-+function stateOf({ status, conclusion }) {
-+  if (status !== "completed") return "pending";
-+  return PASSED.has(conclusion) ? "passed" : SKIPPED.has(conclusion) ? "skipped" : "failed";
-+}
-+
-+function parseJSON(text) {
-+  try {
-+    return JSON.parse(text);
-+  } catch {
-+    return undefined;
-+  }
-+}
-+
-+function responsePages(stdout) {
-+  // `gh api --include --paginate --jq .` prints each response's status and
-+  // headers, then one JSON value and a newline for each successful page.
-+  const blocks = stdout.split(/^(?=HTTP\/[\d.]+ \d{3}\b)/m);
-+  return blocks.filter(Boolean).map((block) => {
-+    const [head, ...body] = block.split(/\r?\n\r?\n/);
-+    const [line, ...fields] = head.split(/\r?\n/);
-+    const headers = new Map(fields.map((field) => {
-+      const colon = field.indexOf(":");
-+      return [field.slice(0, colon).toLowerCase(), field.slice(colon + 1).trim()];
-+    }));
-+    return { status: Number(/^HTTP\/[\d.]+ (\d{3})\b/.exec(line)?.[1]), headers, body: parseJSON(body.join("\n\n")) };
++/** Reads the `origin` remote URL of `cwd`, or returns `""` if unavailable. */
++export function originRemote(cwd = process.cwd()) {
++  return new Promise((resolve) => {
++    execFile("git", ["remote", "get-url", "origin"], { cwd }, (error, stdout) => resolve(error ? "" : stdout.trim()));
 +  });
 +}
 +
-+function headerTime(value, from = 0) {
-+  if (!/^\d+$/.test(value ?? "")) return;
-+  const time = from + Number(value) * 1000;
-+  if (Number.isFinite(new Date(time).getTime())) return time;
++/** Extracts `{ owner, repo }` from a GitHub HTTPS or SSH remote URL. */
++export function parseGitHubRepoUrl(remote) {
++  const match = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(remote ?? "");
++  return match ? { owner: match[1], repo: match[2] } : null;
 +}
-+
-+function rateLimitOf({ status, headers, body }, graphqlErrors) {
-+  if (status !== 403 && status !== 429 && !(status === 200 && graphqlErrors.length)) return;
-+  const receivedAt = Date.now();
-+  const reset = headers.get("x-ratelimit-remaining") === "0"
-+    ? headerTime(headers.get("x-ratelimit-reset")) : undefined;
-+  const after = headerTime(headers.get("retry-after"), receivedAt);
-+  const messages = [body?.message, ...graphqlErrors.map((error) => error.message)];
-+  const secondary = messages.some((message) => /\bsecondary rate limit\b/i.test(message ?? ""));
-+  // A plain 403 can also mean insufficient permissions, even when quota is low.
-+  const quotaError = graphqlErrors.some((error) => error.type === "RATE_LIMITED") ||
-+    /^API rate limit exceeded\b/i.test(body?.message ?? "") || status === 429;
-+  if (!secondary && !quotaError) return;
-+  if (!secondary && reset === undefined && after === undefined) return;
-+  const kind = secondary ? "secondary" : reset !== undefined ? "primary" : null;
-+  // GitHub asks for at least one minute when a secondary limit has no deadline.
-+  const notBefore = Math.max(reset ?? -Infinity, after ?? -Infinity);
-+  return { kind, notBefore: notBefore === -Infinity ? receivedAt + 60_000 : notBefore };
-+}
-+
-+const segment = (value) => value.split("/").map(encodeURIComponent).join("/");
-+/** Bot logins end in `[bot]` in REST and not in GraphQL; compare without it. */
-+export const login = (value) => (value ?? "").replace(/\[bot\]$/, "").toLowerCase();
 +
 +/**
-+ * @param {string} executable GitHub CLI name on PATH, or a path to it.
++ * Resolves `{ owner, repo }` from CLI `--owner`/`--repo` flags or the git `origin` remote.
++ * Returns `null` if neither provides a complete GitHub repository identity.
 + */
-+export function createGitHub(executable) {
-+  function run(args) {
-+    return new Promise((resolve, reject) => {
-+      const child = spawn(executable, args, {
-+        stdio: ["ignore", "pipe", "pipe"],
-+        env: { ...process.env, NO_COLOR: "1" },
-+      });
-+      let stdout = "";
-+      let stderr = "";
-+      child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
-+      child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
-+      child.on("error", (error) => reject(new QueryError(
-+        `cannot run GitHub CLI "${executable}": ${error.message}`, { retryable: false })));
-+      child.on("close", (code) => resolve({ code, stdout, stderr }));
-+    });
++export async function resolveRepo({ owner, repo, cwd = process.cwd() } = {}) {
++  let resolvedOwner = owner;
++  let resolvedRepo = repo;
++  if (resolvedRepo?.includes("/")) {
++    const parts = resolvedRepo.split("/");
++    if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
++    [resolvedOwner, resolvedRepo] = parts;
 +  }
-+
-+  async function json(args) {
-+    const { code, stdout, stderr } = await run([...args, "--include", "--jq", "."]);
-+    const pages = responsePages(stdout);
-+    const response = pages.at(-1);
-+    const errors = response?.body?.errors;
-+    const graphqlErrors = args[1] === "graphql" && Array.isArray(errors) ? errors : [];
-+    if (code !== 0 || graphqlErrors.length) {
-+      const rateLimit = response && rateLimitOf(response, graphqlErrors);
-+      const detail = stderr.trim().split(/\r?\n/, 1)[0].slice(0, 240);
-+      const retryable = code !== 4 && response?.status !== 401 &&
-+        !graphqlErrors.some((error) => ["NOT_FOUND", "FORBIDDEN", "UNAUTHORIZED"].includes(error.type));
-+      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} exited ${code}${detail ? `: ${detail}` : ""}`,
-+        { retryable, rateLimit: retryable ? rateLimit : undefined });
-+    }
-+    if (!pages.length || pages.some((page) => page.body === undefined)) {
-+      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);
-+    }
-+    return args.includes("--paginate") ? pages.map((page) => page.body) : pages[0].body;
++  if (!resolvedOwner || !resolvedRepo) {
++    const origin = parseGitHubRepoUrl(await originRemote(cwd));
++    resolvedOwner ??= origin?.owner;
++    resolvedRepo ??= origin?.repo;
 +  }
++  if (!resolvedOwner || !resolvedRepo) return null;
++  return { owner: resolvedOwner, repo: resolvedRepo };
++}
 +
-+  /** All pages of a REST list, as an array of page bodies. */
-+  const rest = (path) => json(["api", path, "--paginate"]);
++/** Parses a PR URL or number (`123`, `#123`) into `{ owner, repo, number }`. */
++export async function parsePrTarget(target, { owner, repo, cwd = process.cwd() } = {}) {
++  let parsedOwner = owner;
++  let parsedRepo = repo;
++  let number = String(target).replace(/^#/, "");
++  const url = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(target);
++  if (url) [, parsedOwner, parsedRepo, number] = url;
++  if (!/^[1-9]\d*$/.test(number)) return { error: `not a pull request number or URL: ${target}` };
++  const resolved = await resolveRepo({ owner: parsedOwner, repo: parsedRepo, cwd });
++  if (!resolved) return { error: "name the repository: --repo OWNER/NAME" };
++  return { pr: { owner: resolved.owner, repo: resolved.repo, number: Number(number) } };
++}
+diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
+new file mode 100644
+index 0000000000000000000000000000000000000000..8f07dad2e9cb2b7de3ddbc0586595080d46ceea9
+--- /dev/null
++++ b/skills/watch-pr/scripts/threads.mjs
+@@ -0,0 +1,155 @@
++// Review thread normalization, severity tag parsing, and formatting shared by
++// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
-+  function graphql(query, variables, paginate = false) {
-+    const args = ["api", "graphql", "-f", `query=${query}`];
-+    for (const [name, value] of Object.entries(variables)) {
-+      args.push(typeof value === "number" ? "-F" : "-f", `${name}=${value}`);
-+    }
-+    if (paginate) args.push("--paginate");
-+    return json(args);
++export const SEVERITY_TAGS = Object.freeze([
++  "blocks",
++  "fix-if-cheap",
++  "next-action",
++  "critical",
++  "high",
++  "medium",
++  "low",
++  "nit",
++]);
++
++const TAG_ALT = SEVERITY_TAGS.join("|");
++const EXPLICIT_LABEL = new RegExp(
++  `(?:^|[\\s(\\[*_>])(?:severity|priority|level|class|verdict|category|tag)(?:<[^>]+>|[*_\`\\s])*[:=](?:<[^>]+>|[*_\`\\[\\]()\\s])*(${TAG_ALT})(?![a-z0-9-])`,
++  "i",
++);
++const BRACKET_TAG = new RegExp(`\\[(${TAG_ALT})\\]`, "i");
++const LINE_START_MARKUP = new RegExp(
++  `^\\s*(?:(?:<[^>]+>|[#>*•\\-]+|[^\\w\\s]{1,4})\\s*)*(?:\\*\\*|__|<b>|<strong>|\`)\\s*(${TAG_ALT})(?![a-z0-9-])\\s*(?:[:—–\\-|]|(?:\\*\\*|__|<\\/b>|<\\/strong>|\`)(?:\\s*[:—–\\-|]|\\s|$))`,
++  "im",
++);
++const LINE_START_COLON = new RegExp(
++  `^\\s*(?:[#>*•\\-]+\\s*|[^\\w\\s]{1,4}\\s*)*(${TAG_ALT})\\s*:`,
++  "im",
++);
++const COMPOUND_TAG = /(?:`|\*\*|__)(fix-if-cheap|next-action)(?:`|\*\*|__)/i;
++
++const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
++
++/** Strips HTML comments and tags and collapses whitespace for single-line display. */
++export function cleanSnippet(body, maxLength = 200) {
++  const cleaned = (body ?? "")
++    .replace(/<!--[\s\S]*?-->/g, "")
++    .replace(/<[^>]*>/g, "")
++    .replace(/\s+/g, " ")
++    .trim();
++  return clip(cleaned, maxLength);
++}
++
++/**
++ * Extracts a TARS, Greptile, or Cursor severity tag from comment markdown/HTML.
++ * Matches structured labels/prefixes rather than arbitrary prose words.
++ *
++ * @param {string} body
++ * @returns {string | null}
++ */
++export function parseSeverity(body) {
++  if (!body) return null;
++  const visible = body.replace(/<!--[\s\S]*?-->/g, "");
++  for (const pattern of [EXPLICIT_LABEL, BRACKET_TAG, LINE_START_MARKUP, LINE_START_COLON, COMPOUND_TAG]) {
++    const match = pattern.exec(visible);
++    if (match?.[1]) return match[1].toLowerCase();
 +  }
++  return null;
++}
 +
-+  function pullRequestNode(page, pr) {
-+    const node = page?.data?.repository?.pullRequest;
-+    if (!node) throw new QueryError(`GitHub returned no pull request for ${pr.owner}/${pr.repo}#${pr.number}`);
-+    return node;
++function sameCommit(a, b) {
++  if (!a || !b) return false;
++  const left = a.toLowerCase();
++  const right = b.toLowerCase();
++  return left.startsWith(right) || right.startsWith(left);
++}
++
++/**
++ * Normalizes a GraphQL `PullRequestReviewThread` node into a flat record with
++ * commit SHA, head comparison, parsed severity, and comment metadata.
++ */
++export function normalizeThread(node, headSha = null) {
++  const rawComments = node.comments?.nodes ?? [];
++  const comments = rawComments.map((comment) => ({
++    id: comment.id ?? null,
++    databaseId: comment.fullDatabaseId ?? comment.databaseId ?? null,
++    commit: comment.commit?.oid ?? null,
++    originalCommit: comment.originalCommit?.oid ?? null,
++    author: comment.author?.login ?? null,
++    body: comment.body ?? "",
++    url: comment.url ?? null,
++    createdAt: comment.createdAt ?? null,
++    isOutdated: Boolean(comment.outdated ?? comment.isOutdated ?? false),
++  }));
++  const first = comments[0];
++  // Prefer originalCommit so an un-rebased comment still shows the commit it
++  // was authored on rather than a newer commit the diff hunk slid onto.
++  const commitOid = first?.originalCommit ?? first?.commit ?? null;
++  let severity = null;
++  for (const comment of comments) {
++    severity = parseSeverity(comment.body);
++    if (severity) break;
 +  }
-+
 +  return {
-+    /** State of the pull request and its unresolved review threads, in one snapshot per page. */
-+    async pullRequest(pr) {
-+      const pages = await graphql(PULL_REQUEST, pr, true);
-+      const nodes = pages.map((page) => pullRequestNode(page, pr));
-+      const last = nodes.at(-1);
-+      return {
-+        url: last.url,
-+        state: last.state,
-+        isDraft: last.isDraft,
-+        mergedAt: last.mergedAt,
-+        mergeCommit: last.mergeCommit?.oid ?? null,
-+        mergeable: last.mergeable,
-+        mergeState: last.mergeStateStatus,
-+        reviewDecision: last.reviewDecision || null,
-+        head: last.headRefOid,
-+        baseRef: last.baseRefName,
-+        threads: nodes.flatMap((node) => node.reviewThreads.nodes).filter((thread) => !thread.isResolved)
-+          .map((thread) => {
-+            const comment = thread.comments.nodes[0];
-+            return {
-+              path: thread.path,
-+              line: thread.line ?? thread.originalLine,
-+              author: comment?.author?.login ?? null,
-+              body: comment?.body ?? "",
-+            };
-+          }),
-+      };
-+    },
-+
-+    async head(pr) {
-+      return pullRequestNode(await graphql(HEAD, pr), pr).headRefOid;
-+    },
-+
-+    /**
-+     * Checks and workflow runs on one commit.
-+     *
-+     * Reads the commit, not the pull request: the pull request's check list
-+     * omits runs started by workflow_dispatch on the same commit.
-+     * https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference
-+     * https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference
-+     * https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository
-+     */
-+    async commitChecks(pr, sha) {
-+      const base = `repos/${pr.owner}/${pr.repo}`;
-+      const [checkPages, statusPages, runPages] = await readTogether([
-+        rest(`${base}/commits/${sha}/check-runs?per_page=100`),
-+        rest(`${base}/commits/${sha}/status?per_page=100`),
-+        rest(`${base}/actions/runs?head_sha=${sha}&per_page=100`),
-+      ]);
-+      const runs = runPages.flatMap((page) => page.workflow_runs).map((run) => ({
-+        id: run.id, path: run.path, event: run.event, suite: run.check_suite_id,
-+        status: run.status, conclusion: run.conclusion, link: run.html_url,
-+      }));
-+      const bySuite = new Map(runs.map((run) => [run.suite, run]));
-+      const runKey = (run) => `${run.path} ${run.event}`;
-+      const latestRun = new Map();
-+      for (const run of runs) {
-+        if (!latestRun.has(runKey(run)) || latestRun.get(runKey(run)).id < run.id) latestRun.set(runKey(run), run);
-+      }
-+      // A workflow can run again on the same commit and event: a cancelled run,
-+      // a reopened pull request, a label. The runs can hold different jobs, so
-+      // every job name counts, with its newest check.
-+      const newest = new Map();
-+      for (const check of checkPages.flatMap((page) => page.check_runs)) {
-+        const run = bySuite.get(check.check_suite?.id);
-+        const key = `${run ? runKey(run) : `suite ${check.check_suite?.id}`}\n${check.name}`;
-+        const previous = newest.get(key);
-+        if (!previous || previous.id < check.id) newest.set(key, check);
-+      }
-+      const checks = [...newest.values()]
-+        // The check of an earlier run is not final while a later run of the same workflow is unfinished.
-+        .filter((check) => {
-+          const run = bySuite.get(check.check_suite?.id);
-+          return !run || latestRun.get(runKey(run)) === run || latestRun.get(runKey(run)).status === "completed";
-+        })
-+        .map((check) => ({
-+          name: check.name,
-+          state: stateOf(check),
-+          detail: check.status !== "completed" ? check.status : check.conclusion,
-+          link: check.details_url || check.html_url || "",
-+          suite: check.check_suite?.id,
-+        }));
-+      // A workflow run exists before its jobs do. GitHub creates a job that
-+      // needs another job only when that job ends, and a run can end without
-+      // any job (approval required, invalid workflow file). So an unfinished
-+      // run, and a latest run that did not succeed, count even when no check says so.
-+      for (const run of runs) {
-+        const state = stateOf(run);
-+        const counts = state === "pending" || (state === "failed" && latestRun.get(runKey(run)) === run);
-+        if (!counts || checks.some((check) => check.suite === run.suite && check.state === state)) continue;
-+        checks.push({
-+          name: `workflow ${basename(run.path)}`,
-+          state,
-+          detail: run.status !== "completed" ? run.status : run.conclusion,
-+          link: run.link,
-+        });
-+      }
-+      for (const status of statusPages.flatMap((page) => page.statuses)) {
-+        checks.push({
-+          name: status.context,
-+          state: status.state === "success" ? "passed" : status.state === "pending" ? "pending" : "failed",
-+          detail: status.state,
-+          link: status.target_url || "",
-+        });
-+      }
-+      return { checks, runs };
-+    },
-+
-+    /** Workflow files in the tree of one commit: `[{ path, text }]`; text is null when GitHub returns none. */
-+    async workflowFiles(pr, sha) {
-+      const result = await graphql(WORKFLOWS, { owner: pr.owner, repo: pr.repo, expression: `${sha}:.github/workflows` });
-+      if (!result?.data?.repository) throw new QueryError(`GitHub returned no repository for ${pr.owner}/${pr.repo}`);
-+      return (result.data.repository.object?.entries ?? [])
-+        .filter((entry) => entry.type === "blob" && /\.ya?ml$/.test(entry.name))
-+        .map((entry) => ({ path: `.github/workflows/${entry.name}`, text: entry.object?.text ?? null }));
-+    },
-+
-+    /**
-+     * Names of the status checks GitHub requires before merging into `baseRef`,
-+     * from rulesets and from classic branch protection.
-+     * https://docs.github.com/en/rest/repos/rules#get-rules-for-a-branch
-+     * https://docs.github.com/en/rest/branches/branches#get-a-branch
-+     */
-+    async requiredChecks(pr, baseRef) {
-+      const base = `repos/${pr.owner}/${pr.repo}`;
-+      const [rulePages, branchPages] = await readTogether([
-+        rest(`${base}/rules/branches/${segment(baseRef)}?per_page=100`),
-+        rest(`${base}/branches/${segment(baseRef)}`),
-+      ]);
-+      const names = rulePages.flat().filter((rule) => rule.type === "required_status_checks")
-+        .flatMap((rule) => rule.parameters.required_status_checks.map((check) => check.context));
-+      const classic = branchPages[0]?.protection?.required_status_checks;
-+      if (classic && classic.enforcement_level !== "off") names.push(...(classic.contexts ?? []));
-+      return [...new Set(names)];
-+    },
-+
-+    /**
-+     * Text that reviewers left on the pull request, newest first: issue comments
-+     * and review bodies. A review names its commit; a comment does not.
-+     */
-+    async reviewTexts(pr) {
-+      const base = `repos/${pr.owner}/${pr.repo}`;
-+      const [commentPages, reviewPages] = await readTogether([
-+        rest(`${base}/issues/${pr.number}/comments?per_page=100`),
-+        rest(`${base}/pulls/${pr.number}/reviews?per_page=100`),
-+      ]);
-+      return [
-+        ...commentPages.flat().map((comment) => (
-+          { author: login(comment.user?.login), body: comment.body ?? "", at: comment.updated_at, commit: null })),
-+        ...reviewPages.flat().map((review) => (
-+          { author: login(review.user?.login), body: review.body ?? "", at: review.submitted_at, commit: review.commit_id })),
-+      ].sort((a, b) => (a.at < b.at ? 1 : -1));
-+    },
++    id: node.id ?? null,
++    isResolved: Boolean(node.isResolved),
++    isOutdated: Boolean(node.isOutdated ?? first?.isOutdated ?? false),
++    path: node.path ?? null,
++    line: node.line ?? node.originalLine ?? null,
++    author: first?.author ?? null,
++    body: first?.body ?? "",
++    url: first?.url ?? null,
++    createdAt: first?.createdAt ?? null,
++    commentId: first?.id ?? null,
++    databaseId: first?.databaseId ?? null,
++    commit: first?.commit ?? null,
++    originalCommit: first?.originalCommit ?? null,
++    commitOid,
++    shortCommit: commitOid ? commitOid.slice(0, 7) : null,
++    onHead: sameCommit(commitOid, headSha),
++    severity,
++    commentCount: comments.length,
++    comments,
 +  };
++}
++
++/**
++ * Formats one unresolved thread line for `watch-pr`'s compact 20-line verdict block.
++ * Keeps metadata concise: `[<sha> head|older, <severity>]` when present.
++ */
++export function formatVerdictThread(thread, maxExcerpt = 200) {
++  const tags = [];
++  if (thread.shortCommit) tags.push(`${thread.shortCommit} ${thread.onHead ? "head" : "older"}`);
++  if (thread.severity) tags.push(thread.severity);
++  const meta = tags.length ? ` [${tags.join(", ")}]` : "";
++  return `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${thread.author ?? "unknown"}${meta}: ${cleanSnippet(thread.body, maxExcerpt)}`;
++}
++
++/** Formats the detailed thread list for `pr-threads.mjs --list`. */
++export function formatThreadList({ url, head, threads, includeResolved = false }) {
++  const lines = [
++    `pr: ${url}`,
++    `head: ${head}`,
++    `${includeResolved ? "threads" : "unresolved threads"}: ${threads.length}`,
++  ];
++  for (const thread of threads) {
++    const location = `${thread.path ?? "(no file)"}:${thread.line ?? "?"}`;
++    const commitLabel = thread.shortCommit
++      ? `${thread.shortCommit} (${thread.onHead ? "head" : "older"}${thread.isOutdated ? ", outdated" : ""})`
++      : thread.isOutdated ? "(outdated)" : "(no commit)";
++    const parts = [
++      thread.id ?? "(no id)",
++      location,
++      `@${thread.author ?? "unknown"}`,
++      commitLabel,
++    ];
++    if (thread.severity) parts.push(`[${thread.severity}]`);
++    if (includeResolved && thread.isResolved) parts.push("[resolved]");
++    if (thread.commentCount > 1) parts.push(`(${thread.commentCount} comments)`);
++    lines.push("");
++    lines.push(parts.join("  "));
++    if (thread.url) lines.push(`  url: ${thread.url}`);
++    lines.push(`  snippet: ${cleanSnippet(thread.body, 240)}`);
++  }
++  return `${lines.join("\n")}\n`;
 +}
 diff --git a/skills/watch-pr/scripts/triggers.mjs b/skills/watch-pr/scripts/triggers.mjs
 new file mode 100644
@@ -4293,15 +4926,16 @@ index 0000000000000000000000000000000000000000..7ee236a8170f556b38b8f46425174fa4
 +}
 diff --git a/skills/watch-pr/scripts/verdict.mjs b/skills/watch-pr/scripts/verdict.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0562c7fd0
+index 0000000000000000000000000000000000000000..098ce44a4f809c4a2dde6d07cb59db18492e4e3f
 --- /dev/null
 +++ b/skills/watch-pr/scripts/verdict.mjs
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,398 @@
 +// Turns one observation of a pull request into the merge-readiness verdict:
 +// what the watcher decides, and the short block it prints last.
 +
 +import { basename } from "node:path";
-+import { login } from "./github.mjs";
++import { login } from "./gh-client.mjs";
++import { formatVerdictThread } from "./threads.mjs";
 +import { classifyWorkflow } from "./triggers.mjs";
 +
 +/**
@@ -4334,6 +4968,55 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +  return names.length > max ? `${names.slice(0, max).join(", ")} (+${names.length - max} more)` : names.join(", ");
 +}
 +
++function matchesCheckName(check, set) {
++  if (set.has(check.name)) return true;
++  if (check.workflow && set.has(`${check.workflow} / ${check.name}`)) return true;
++  return false;
++}
++
++/**
++ * Partitions checks into active buckets and `ignored` (optional checks that are
++ * `pending` or `cancelled`).
++ *
++ * Fail-closed rules:
++ * - Required status checks from branch protection/rulesets and configured
++ *   reviewer checks are NEVER ignored, even if listed in `optionalChecks` or
++ *   passed to `--ignore-check`.
++ * - An optional check that explicitly fails (`failure`, `timed_out`,
++ *   `action_required`, etc.) STILL counts as `failed`.
++ * - `--required-checks-only` only classifies non-required checks as optional
++ *   when GitHub actually declares at least one required status check.
++ */
++export function partitionChecks(checks, {
++  required = [],
++  reviewerChecks = [],
++  optionalChecks = [],
++  requiredChecksOnly = false,
++} = {}) {
++  const protectedSet = new Set([...required, ...reviewerChecks]);
++  const optionalSet = new Set(optionalChecks);
++  const buckets = { passed: [], failed: [], pending: [], skipped: [], ignored: [] };
++  for (const check of checks) {
++    const isProtected = matchesCheckName(check, protectedSet);
++    const isOptional = !isProtected && (
++      matchesCheckName(check, optionalSet) || (requiredChecksOnly && required.length > 0)
++    );
++    const isIgnorableState = check.state === "pending" || (check.state === "failed" && check.detail === "cancelled");
++    if (isOptional && isIgnorableState) {
++      buckets.ignored.push(check);
++    } else if (check.state === "passed") {
++      buckets.passed.push(check);
++    } else if (check.state === "skipped") {
++      buckets.skipped.push(check);
++    } else if (check.state === "pending") {
++      buckets.pending.push(check);
++    } else {
++      buckets.failed.push(check);
++    }
++  }
++  return buckets;
++}
++
 +/**
 + * Which checks GitHub still owes this commit.
 + *
@@ -4361,9 +5044,11 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +  return expected;
 +}
 +
-+function missingText({ missingWorkflows, missingRequired }) {
++function missingText({ missingWorkflows, missingRequired }, { requiredChecksOnly = false } = {}) {
 +  const parts = [];
-+  if (missingWorkflows.length) parts.push(`no run of ${plural(missingWorkflows.length, "workflow")} (${some(missingWorkflows)})`);
++  if (!requiredChecksOnly && missingWorkflows.length) {
++    parts.push(`no run of ${plural(missingWorkflows.length, "workflow")} (${some(missingWorkflows)})`);
++  }
 +  if (missingRequired.length) parts.push(`${plural(missingRequired.length, "required check")} not reported (${some(missingRequired)})`);
 +  return parts.join("; ");
 +}
@@ -4425,21 +5110,38 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 + *
 + * @returns {{ kind: "merged" | "ready" | "blocked" | "unknown" | "waiting", exitCode?: number, reason?: string, waiting?: string[] }}
 + */
-+export function assess({ facts, checks, expected, reviewers, mergeWithoutApproval }, { firstLook }) {
++export function assess({
++  facts,
++  checks,
++  expected,
++  reviewers,
++  mergeWithoutApproval,
++  reviewerChecks = [],
++  optionalChecks = [],
++  requiredChecksOnly = false,
++}, { firstLook }) {
 +  if (facts.state === "MERGED") return { kind: "merged", exitCode: EXIT.ready };
 +  if (facts.state === "CLOSED") return blocked(EXIT.mergeGate, "pull request is closed without a merge");
 +  if (facts.mergeable === "CONFLICTING" || facts.mergeState === "DIRTY") {
 +    return blocked(EXIT.conflicts, `merge conflicts with ${facts.baseRef}`);
 +  }
 +  if (facts.threads.length) return blocked(EXIT.threads, plural(facts.threads.length, "unresolved review thread"));
-+  const failed = checks.filter((check) => check.state === "failed");
-+  if (failed.length) return blocked(EXIT.failingChecks, `${plural(failed.length, "check")} failed`);
++
++  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
++  const buckets = partitionChecks(checks, {
++    required: expected.required,
++    reviewerChecks,
++    optionalChecks,
++    requiredChecksOnly,
++  });
++
++  if (buckets.failed.length) return blocked(EXIT.failingChecks, `${plural(buckets.failed.length, "check")} failed`);
 +  if (facts.reviewDecision === "CHANGES_REQUESTED") return blocked(EXIT.mergeGate, "a reviewer requested changes");
 +  const rejected = reviewers.find((reviewer) => reviewer.state === "rejected");
 +  if (rejected) return blocked(EXIT.reviewerRejected, `${rejected.name} did not sign off: ${rejected.text}`);
 +
 +  const absent = [];
-+  if (expected.undetermined.length) {
++  if (!enforceRequiredOnly && expected.undetermined.length) {
 +    absent.push(`cannot tell whether ${some(expected.undetermined)} ${expected.undetermined.length === 1 ? "was" : "were"} skipped by filters or ${expected.undetermined.length === 1 ? "has" : "have"} not started`);
 +  }
 +  if (checks.length === 0 && expected.workflows.length + expected.required.length === 0) {
@@ -4447,9 +5149,8 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +  }
 +
 +  const waiting = [];
-+  const pending = checks.filter((check) => check.state === "pending");
-+  if (pending.length) waiting.push(`${plural(pending.length, "check")} pending`);
-+  const missing = missingText(expected);
++  if (buckets.pending.length) waiting.push(`${plural(buckets.pending.length, "check")} pending`);
++  const missing = missingText(expected, { requiredChecksOnly: enforceRequiredOnly });
 +  if (missing) waiting.push(missing);
 +  if (facts.mergeable === "UNKNOWN" || facts.mergeState === "UNKNOWN") waiting.push("GitHub is still computing mergeability");
 +  if (!facts.isDraft) {
@@ -4464,7 +5165,10 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +    return blocked(EXIT.mergeGate, "GitHub requires an approving review");
 +  }
 +  const unknown = [
-+    ...expected.unreadable.map((name) => `cannot read the triggers of ${name}`),
++    ...(requiredChecksOnly && expected.required.length === 0
++      ? [`--required-checks-only requested, but GitHub declares no required status checks for ${facts.baseRef}`]
++      : []),
++    ...(!enforceRequiredOnly ? expected.unreadable.map((name) => `cannot read the triggers of ${name}`) : []),
 +    ...absent,
 +    ...reviewers.filter((reviewer) => reviewer.state === "unknown").map((reviewer) => `${reviewer.name}: ${reviewer.text}`),
 +  ];
@@ -4486,9 +5190,16 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +  return clip(`${outcome.kind === "unknown" ? "UNKNOWN" : "BLOCKED"}: ${outcome.reason}`, 400);
 +}
 +
-+function expectedLine(expected) {
-+  const missing = missingText(expected);
++function expectedLine(expected, { requiredChecksOnly = false } = {}) {
++  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
++  const missing = missingText(expected, { requiredChecksOnly: enforceRequiredOnly });
 +  if (missing) return `expected checks: not registered: ${missing}`;
++  if (requiredChecksOnly && expected.required.length === 0) {
++    return "expected checks: none declared (required by --required-checks-only)";
++  }
++  if (enforceRequiredOnly) {
++    return `expected checks: all required present (${plural(expected.required.length, "required check")}; --required-checks-only)`;
++  }
 +  const unknown = [...expected.undetermined, ...expected.unreadable];
 +  if (unknown.length) return `expected checks: unknown for ${some(unknown)} (no run on this commit)`;
 +  const known = [];
@@ -4524,7 +5235,19 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 + * @param {string | null} view.startHead Head commit when the watch began.
 + * @param {string} view.configPath Shown when no reviewer rule applies.
 + */
-+export function render({ pr, startHead, configPath, facts, checks, expected, reviewers, mergeWithoutApproval }, outcome) {
++export function render({
++  pr,
++  startHead,
++  configPath,
++  facts,
++  checks,
++  expected,
++  reviewers,
++  mergeWithoutApproval,
++  reviewerChecks = [],
++  optionalChecks = [],
++  requiredChecksOnly = false,
++}, outcome) {
 +  const head = facts.head;
 +  const top = [headline(outcome), `pr: ${facts.url}`];
 +  if (facts.state !== "OPEN") {
@@ -4535,30 +5258,42 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +  }
 +  top.push(`commit: ${head} (${startHead === head
 +    ? "head did not move during this watch" : `head moved during this watch; it started on ${short(startHead)}`})`);
-+  const count = (state) => checks.filter((check) => check.state === state).length;
-+  top.push(`checks on ${short(head)}: ${count("passed")} passed, ${count("failed")} failed, ${count("pending")} pending, ${count("skipped")} skipped`);
-+  const pending = checks.filter((check) => check.state === "pending").map((check) => check.name);
++  const buckets = partitionChecks(checks, {
++    required: expected.required,
++    reviewerChecks,
++    optionalChecks,
++    requiredChecksOnly,
++  });
++  const countParts = [
++    `${buckets.passed.length} passed`,
++    `${buckets.failed.length} failed`,
++    `${buckets.pending.length} pending`,
++    `${buckets.skipped.length} skipped`,
++    ...(buckets.ignored.length ? [`${buckets.ignored.length} optional`] : []),
++  ];
++  top.push(`checks on ${short(head)}: ${countParts.join(", ")}`);
++  const pendingNames = buckets.pending.map((check) => check.name);
++  const ignoredLabels = buckets.ignored.map((check) => `${check.name} (${check.detail})`);
 +  // Each part is a heading, then items that are shown while the block fits.
 +  const parts = [
 +    {
 +      items: reviewers.map((reviewer) => clip(`  ${reviewer.name}: ${reviewer.text}`, 200)),
 +      before: [
-+        ...(pending.length ? [clip(`  pending: ${some(pending)}`, 300)] : []),
-+        clip(expectedLine(expected), 400),
++        ...(pendingNames.length ? [clip(`  pending: ${some(pendingNames)}`, 300)] : []),
++        ...(ignoredLabels.length ? [clip(`  optional (ignored): ${some(ignoredLabels)}`, 300)] : []),
++        clip(expectedLine(expected, { requiredChecksOnly }), 400),
 +        reviewers.length ? "reviewers:" : `reviewers: no rule for ${pr.owner}/${pr.repo} in ${configPath}`,
 +      ],
 +      more: "reviewers",
 +    },
 +    {
-+      items: checks.filter((check) => check.state === "failed")
++      items: buckets.failed
 +        .map((check) => `  failed: ${clip(check.name, 80)} (${check.detail}) ${check.link}`),
 +      before: [],
 +      more: "failed checks",
 +    },
 +    {
-+      items: facts.threads.map((thread) =>
-+        `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${thread.author ?? "unknown"}: ${
-+          clip(thread.body.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim(), THREAD_EXCERPT)}`),
++      items: facts.threads.map((thread) => formatVerdictThread(thread, THREAD_EXCERPT)),
 +      before: [`unresolved review threads: ${facts.threads.length}`],
 +      more: "threads",
 +    },
@@ -4595,40 +5330,55 @@ index 0000000000000000000000000000000000000000..f7d1a90bcd76039ba305f0522d10daa0
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9765da22e
+index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc8a67e524
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
-@@ -0,0 +1,259 @@
+@@ -0,0 +1,253 @@
 +#!/usr/bin/env node
 +// Waits until one pull request is ready to merge or blocked, then prints a
 +// short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
 +
-+import { execFile } from "node:child_process";
 +import { setTimeout as delay } from "node:timers/promises";
 +import { parseArgs } from "node:util";
-+import { ConfigError, configPath, loadConfig, settingsFor } from "./config.mjs";
-+import { QueryError, createGitHub, readTogether } from "./github.mjs";
++import {
++  MAX_QUERY_FAILURES,
++  QueryError,
++  createGhClient,
++  createRateLimitBackoff,
++  readTogether,
++  waitUntilElapsed,
++} from "./gh-client.mjs";
++import { createGitHub } from "./github.mjs";
++import {
++  ConfigError,
++  configPath,
++  loadConfig,
++  parsePrTarget,
++  resolveGitHubCli,
++  settingsFor,
++} from "./repo-config.mjs";
 +import { EXIT, assess, expectedChecks, render, reviewerStates, stillWaiting } from "./verdict.mjs";
 +
-+const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--once]
++const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--ignore-check NAME]... [--required-checks-only] [--once]
 +
 +Waits until the pull request is ready to merge or blocked. The last output is the verdict.
 +
-+  <number|url>   pull request number or URL (also --pr NUMBER)
-+  --repo         OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
-+  --timeout      give up after this many seconds; default 3600, 0 waits without limit
-+  --interval     seconds between ordinary polls; default 60
-+  --sha          evaluate only once the pull request head is this commit, full or short
-+  --once         print the verdict for the current state and exit
++  <number|url>            pull request number or URL (also --pr NUMBER)
++  --repo                  OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
++  --timeout               give up after this many seconds; default 3600, 0 waits without limit
++  --interval              seconds between ordinary polls; default 60
++  --sha                   evaluate only once the pull request head is this commit, full or short
++  --ignore-check          repeatable check name to treat as optional when pending or cancelled
++                          (explicit failures still block; required checks are never ignored)
++  --required-checks-only  treat non-required checks as optional when pending or cancelled
++                          (requires branch protection or rulesets to declare required checks)
++  --once                  print the verdict for the current state and exit
 +
 +Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads, 4 failed checks,
 +5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft, closed,
 +changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
 +reviewer did not sign off, 9 unknown, 64 usage.
 +`;
-+
-+// Consecutive failed polls before the watch gives up; the packaged poteto-mode watcher uses the same budget.
-+const MAX_QUERY_FAILURES = 5;
 +
 +class UsageError extends Error {}
 +
@@ -4638,12 +5388,6 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +    throw new UsageError(`--${name} must be a number ${zero ? "of at least 0" : "greater than 0"}`);
 +  }
 +  return parsed;
-+}
-+
-+function originRemote() {
-+  return new Promise((resolve) => {
-+    execFile("git", ["remote", "get-url", "origin"], (error, stdout) => resolve(error ? "" : stdout.trim()));
-+  });
 +}
 +
 +async function parse(argv) {
@@ -4659,6 +5403,8 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +        timeout: { type: "string", default: "3600" },
 +        interval: { type: "string", default: "60" },
 +        sha: { type: "string" },
++        "ignore-check": { type: "string", multiple: true, default: [] },
++        "required-checks-only": { type: "boolean", default: false },
 +        once: { type: "boolean", default: false },
 +        help: { type: "boolean", short: "h", default: false },
 +      },
@@ -4672,28 +5418,24 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +  const target = positionals[0] ?? values.pr;
 +  if (target === undefined) throw new UsageError("name the pull request: a number or a URL");
 +  if (positionals.length && values.pr !== undefined) throw new UsageError("name the pull request once");
-+  let owner = values.owner;
-+  let repo = values.repo;
-+  let number = target.replace(/^#/, "");
-+  const url = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(target);
-+  if (url) [, owner, repo, number] = url;
-+  else if (repo?.includes("/")) [owner, repo] = repo.split("/");
-+  if (!/^[1-9]\d*$/.test(number)) throw new UsageError(`not a pull request number or URL: ${target}`);
-+  if (!owner || !repo) {
-+    const origin = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(await originRemote());
-+    owner ??= origin?.[1];
-+    repo ??= origin?.[2];
-+  }
-+  if (!owner || !repo) throw new UsageError("name the repository: --repo OWNER/NAME");
++  const resolved = await parsePrTarget(target, { owner: values.owner, repo: values.repo });
++  if (resolved.error) throw new UsageError(resolved.error);
 +  const sha = values.sha?.toLowerCase();
 +  if (sha !== undefined && !/^[0-9a-f]{7,40}$/.test(sha)) {
 +    throw new UsageError(`--sha must be the 7 to 40 hex digits of a commit, not: ${values.sha}`);
 +  }
++  const ignoreChecks = values["ignore-check"].map((name) => {
++    const trimmed = name.trim();
++    if (!trimmed) throw new UsageError("--ignore-check must be a non-empty check name");
++    return trimmed;
++  });
 +  return {
-+    pr: { owner, repo, number: Number(number) },
++    pr: resolved.pr,
 +    timeout: seconds("timeout", values.timeout, { zero: true }),
 +    interval: seconds("interval", values.interval, { zero: false }),
 +    sha,
++    ignoreChecks,
++    requiredChecksOnly: values["required-checks-only"],
 +    once: values.once,
 +  };
 +}
@@ -4704,12 +5446,14 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +    process.stdout.write(USAGE);
 +    return 0;
 +  }
-+  const { pr, timeout, interval, sha, once } = options;
++  const { pr, timeout, interval, sha, ignoreChecks, requiredChecksOnly, once } = options;
 +  const settingsPath = configPath(env);
 +  const settings = settingsFor(loadConfig(settingsPath), pr.owner, pr.repo);
-+  const executable = env.WATCH_PR_GH || settings.gh || "gh";
-+  const source = env.WATCH_PR_GH ? "WATCH_PR_GH" : settings.gh ? settingsPath : "the default; none is set in WATCH_PR_GH or " + settingsPath;
-+  const github = createGitHub(executable);
++  const { executable, source } = resolveGitHubCli(settings, { env, settingsPath });
++  const client = createGhClient(executable, { env });
++  const github = createGitHub(client);
++  const optionalChecks = [...new Set([...settings.optionalChecks, ...ignoreChecks])];
++  const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
 +  const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
 +  const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
 +  const workflowFiles = new Map();
@@ -4727,8 +5471,17 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +  async function observe() {
 +    const facts = await github.pullRequest(pr);
 +    const view = {
-+      pr, startHead, configPath: settingsPath, mergeWithoutApproval: settings.mergeWithoutApproval,
-+      facts, checks: [], expected: empty, reviewers: [],
++      pr,
++      startHead,
++      configPath: settingsPath,
++      mergeWithoutApproval: settings.mergeWithoutApproval,
++      reviewerChecks,
++      optionalChecks,
++      requiredChecksOnly,
++      facts,
++      checks: [],
++      expected: empty,
++      reviewers: [],
 +    };
 +    if (facts.state !== "OPEN") return view;
 +    if (!headReached) {
@@ -4753,13 +5506,6 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +  const remaining = () => timeout > 0 ? Math.max(0, timeout - elapsed()) : Infinity;
 +  const timedOut = () => remaining() === 0;
 +  const sleep = () => delay(1000 * Math.min(interval, remaining()));
-+  async function waitForRateLimit(elapsedDeadline) {
-+    let seconds;
-+    while ((seconds = Math.min(elapsedDeadline - elapsed(), remaining())) > 0) {
-+      // Node turns a delay above its signed 32-bit timer limit into 1 ms.
-+      await delay(Math.min(Math.ceil(1000 * seconds), 2 ** 31 - 1));
-+    }
-+  }
 +  const log = (text) => process.stdout.write(`${new Date().toISOString()} ${text}\n`);
 +  function queryBlocked(exitCode, reason) {
 +    process.stdout.write([
@@ -4769,10 +5515,8 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +    ].join("\n").concat("\n"));
 +    return exitCode;
 +  }
++  const backoff = createRateLimitBackoff({ interval, maxFailures: MAX_QUERY_FAILURES });
 +  const seen = new Set();
-+  let failures = 0;
-+  let secondaryFailures = 0;
-+  let previousSecondaryWait = 0;
 +  let progress = null;
 +  for (;;) {
 +    let view;
@@ -4790,8 +5534,7 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +        const line = `waiting for the head to reach ${shortSha}: now ${view.facts.head.slice(0, 7)}`;
 +        if (line !== progress) log(line);
 +        progress = line;
-+        failures = 0;
-+        secondaryFailures = previousSecondaryWait = 0;
++        backoff.reset();
 +        await sleep();
 +        continue;
 +      }
@@ -4799,41 +5542,27 @@ index 0000000000000000000000000000000000000000..6924f30258b65df73ad1290a581d33e9
 +      // A push during the reads would make READY describe a commit that is no longer the head.
 +      if (outcome.kind === "ready" && (await github.head(pr)) !== view.facts.head) continue;
 +      seen.add(view.facts.head);
-+      failures = 0;
-+      secondaryFailures = previousSecondaryWait = 0;
++      backoff.reset();
 +    } catch (error) {
 +      if (!(error instanceof QueryError)) throw error;
 +      if (error.rateLimit) {
-+        const { kind, notBefore } = error.rateLimit;
-+        const description = `GitHub ${kind ? `${kind} ` : ""}rate limit; retry no earlier than ${new Date(notBefore).toISOString()}`;
-+        if (once) return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}`);
-+        if (timedOut()) return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
-+        const untilReset = (notBefore - Date.now()) / 1000;
-+        let wait = untilReset > 0 ? untilReset : interval;
-+        if (kind === "secondary") {
-+          // GitHub asks for exponential backoff and a separate stop on repeated secondary limits.
-+          if (++secondaryFailures >= MAX_QUERY_FAILURES) {
-+            return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}; hit ${secondaryFailures} secondary limits`);
-+          }
-+          wait = previousSecondaryWait = Math.max(wait, previousSecondaryWait * 2);
++        const decision = backoff.onRateLimit(error.rateLimit, { once, timedOut: timedOut(), timeout });
++        if (decision.action === "abort") {
++          return queryBlocked(EXIT[decision.kind], decision.message);
 +        }
-+        const wake = elapsed() + wait;
-+        log(`${description}; ${wait >= remaining() ? "waiting for the watch timeout" : `next poll in ${Math.ceil(wait)} s`}`);
-+        await waitForRateLimit(wake);
++        const wake = elapsed() + decision.waitSeconds;
++        log(`${decision.description}; ${decision.waitSeconds >= remaining() ? "waiting for the watch timeout" : `next poll in ${Math.ceil(decision.waitSeconds)} s`}`);
++        await waitUntilElapsed(wake, { elapsed, remaining });
 +        if (timedOut()) {
-+          return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
++          return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${decision.description}`);
 +        }
 +        continue;
 +      }
-+      failures++;
-+      const gaveUp = !error.retryable || once || failures >= MAX_QUERY_FAILURES;
-+      if (gaveUp || timedOut()) {
-+        const reason = gaveUp
-+          ? `GitHub query failed${failures > 1 ? ` ${failures} times in a row` : ""}`
-+          : `timed out after ${timeout} s; GitHub query failed`;
-+        return queryBlocked(gaveUp ? EXIT.queryFailed : EXIT.timeout, `${reason}: ${error.message}`);
++      const decision = backoff.onFailure(error, { once, timedOut: timedOut(), timeout });
++      if (decision.action === "abort") {
++        return queryBlocked(EXIT[decision.kind], decision.message);
 +      }
-+      log(`retry ${failures}/${MAX_QUERY_FAILURES}: ${error.message}`);
++      log(`retry ${decision.failures}/${decision.maxFailures}: ${error.message}`);
 +      await sleep();
 +      continue;
 +    }

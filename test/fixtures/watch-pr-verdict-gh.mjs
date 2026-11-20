@@ -5,7 +5,15 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
-appendFileSync(process.env.WATCH_PR_FIXTURE_LOG, `${JSON.stringify({ program: process.argv[1], argv, at: Date.now() })}\n`);
+appendFileSync(process.env.WATCH_PR_FIXTURE_LOG, `${JSON.stringify({
+  program: process.argv[1],
+  argv,
+  at: Date.now(),
+  env: {
+    hasGhToken: "GH_TOKEN" in process.env,
+    hasGithubToken: "GITHUB_TOKEN" in process.env,
+  },
+})}\n`);
 if (!argv.some((arg, index) => arg === "--jq" && argv[index + 1] === ".")) {
   throw new Error("The fixture only supports gh api --jq . output.");
 }
@@ -28,7 +36,7 @@ const counter = `${process.env.WATCH_PR_SCENARIO}.poll`;
 let poll = existsSync(counter) ? Number(readFileSync(counter, "utf8")) : -1;
 const query = argv.find((arg) => arg.startsWith("query=")) ?? "";
 if (query.includes("reviewThreads")) writeFileSync(counter, String(++poll));
-const state = polls[Math.min(poll, polls.length - 1)];
+const state = polls.length ? polls[Math.max(0, Math.min(poll, polls.length - 1))] : {};
 if (state.fail && (!state.fail.endpoint || argv[1].includes(state.fail.endpoint))) {
   if (state.fail.firstPage) print(state.fail.firstPage, 200, state.fail.firstHeaders);
   failure(state.fail);
@@ -48,6 +56,33 @@ if (argv[1] === "graphql") {
       { name, type: "blob", object: { text } })) } } } });
   } else if (query.includes("headRefOid")) {
     print(pullRequest({ headRefOid: state.confirmHead ?? state.pullRequest.headRefOid }));
+  } else if (query.includes("addPullRequestReviewThreadReply")) {
+    const threadId = argv.find((arg) => arg.startsWith("threadId="))?.slice("threadId=".length) ?? "";
+    const body = argv.find((arg) => arg.startsWith("body="))?.slice("body=".length) ?? "";
+    print({
+      data: {
+        addPullRequestReviewThreadReply: {
+          comment: state.replyComment ?? {
+            id: "PRRC_reply_1",
+            fullDatabaseId: "999001",
+            url: `https://github.com/example/repo/pull/418#discussion_r999001`,
+            createdAt: "2026-11-20T00:00:00Z",
+            author: { login: "author" },
+            threadId,
+            body,
+          },
+        },
+      },
+    });
+  } else if (query.includes("resolveReviewThread")) {
+    const threadId = argv.find((arg) => arg.startsWith("threadId="))?.slice("threadId=".length) ?? "";
+    print({
+      data: {
+        resolveReviewThread: {
+          thread: { id: threadId, isResolved: state.resolveConfirmed ?? true },
+        },
+      },
+    });
   } else throw new Error("Unexpected GraphQL query");
 } else {
   const path = argv[1];

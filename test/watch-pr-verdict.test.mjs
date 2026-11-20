@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { classifyWorkflow } from "../skills/watch-pr/scripts/triggers.mjs";
 
 const script = fileURLToPath(new URL("../skills/watch-pr/scripts/watch-pr.mjs", import.meta.url));
+const threadsScript = fileURLToPath(new URL("../skills/watch-pr/scripts/pr-threads.mjs", import.meta.url));
 const fixture = readFileSync(new URL("./fixtures/watch-pr-verdict-gh.mjs", import.meta.url), "utf8");
 
 const HEAD = "abe04d463cbda8f7f34b2237de00fcea57cb4c45";
@@ -40,8 +41,8 @@ const PI_WORKFLOWS = {
 };
 
 let nextId = 1;
-const check = (name, conclusion, suite = nextId) => ({
-  id: nextId++, name, status: conclusion === null ? "in_progress" : "completed", conclusion,
+const check = (name, conclusion, suite = nextId, status) => ({
+  id: nextId++, name, status: status ?? (conclusion === null ? "in_progress" : "completed"), conclusion,
   details_url: `https://example.test/${encodeURIComponent(name)}`, check_suite: { id: suite }, app: { slug: "app" },
 });
 const open = (overrides = {}) => ({
@@ -51,6 +52,23 @@ const open = (overrides = {}) => ({
 });
 const thread = (path, line, body) => ({
   isResolved: false, path, line, originalLine: line, comments: { nodes: [{ author: { login: "cursor" }, body }] },
+});
+const richThread = ({
+  id = "PRRT_thread_1",
+  isResolved = false,
+  isOutdated = false,
+  path = "src/app.ts",
+  line = 42,
+  originalLine = line,
+  comments = [],
+} = {}) => ({
+  id,
+  isResolved,
+  isOutdated,
+  path,
+  line,
+  originalLine,
+  comments: { nodes: comments },
 });
 const reviewersPassed = () => [check(DURABLE, "success"), check(CURSOR, "success")];
 const CI_SUITE = 116071010177;
@@ -78,6 +96,46 @@ function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONF
     writeFileSync(log, "");
     if (config !== null) writeFileSync(configFile, typeof config === "string" ? config : JSON.stringify(config));
     const result = spawnSync(process.execPath, [script, "418", "--repo", repo, ...args], {
+      encoding: "utf8",
+      env: {
+        PATH: `${temp}:${process.env.PATH}`, WATCH_PR_CONFIG: configFile,
+        WATCH_PR_SCENARIO: scenario, WATCH_PR_FIXTURE_LOG: log, ...env,
+      },
+    });
+    const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    return {
+      code: result.status,
+      out: result.stdout,
+      err: result.stderr,
+      lines: result.stdout.trimEnd().split("\n"),
+      gh: [...new Set(calls.map((call) => basename(call.program)))],
+      calls,
+    };
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+/** Runs `pr-threads.mjs` against the offline GitHub CLI fixture. */
+function runThreads(polls, { args = [], config = CONFIG, env = {}, fail, bodyFileContent } = {}) {
+  const temp = mkdtempSync(join(tmpdir(), "watch-pr-threads-"));
+  try {
+    for (const name of ["gh", "gh-personal", "gh-work", "gh-other"]) {
+      writeFileSync(join(temp, name), `#!${process.execPath}\n${fixture}`, { mode: 0o755 });
+    }
+    const scenario = join(temp, "scenario.json");
+    const log = join(temp, "calls.ndjson");
+    const configFile = join(temp, "watch-pr.json");
+    writeFileSync(scenario, JSON.stringify({ polls, fail }));
+    writeFileSync(log, "");
+    if (config !== null) writeFileSync(configFile, typeof config === "string" ? config : JSON.stringify(config));
+    let resolvedArgs = args;
+    if (bodyFileContent !== undefined) {
+      const bodyFile = join(temp, "reply.md");
+      writeFileSync(bodyFile, bodyFileContent);
+      resolvedArgs = args.map((arg) => (arg === "$BODY_FILE" ? bodyFile : arg));
+    }
+    const result = spawnSync(process.execPath, [threadsScript, ...resolvedArgs], {
       encoding: "utf8",
       env: {
         PATH: `${temp}:${process.env.PATH}`, WATCH_PR_CONFIG: configFile,
@@ -546,4 +604,356 @@ test("--sha waits for the pushed commit before evaluating anything", () => {
   ]);
 
   assert.equal(watch([{ pullRequest: open() }], { args: ["--sha", "zzzzzzz"] }).code, 64);
+});
+
+test("GH_TOKEN and GITHUB_TOKEN are stripped before invoking the configured GitHub CLI", () => {
+  const state = { pullRequest: open(), checkRuns: reviewersPassed() };
+  const result = watch([state], {
+    repo: "acme/app",
+    config: { "*": { gh: "gh-personal" }, acme: { gh: "gh-work" } },
+    env: { GH_TOKEN: "ghp_should_be_stripped", GITHUB_TOKEN: "ghp_also_stripped" },
+  });
+  assert.equal(result.code, 0);
+  assert.deepEqual(result.gh, ["gh-work"]);
+  assert.ok(result.calls.length > 0);
+  assert.ok(result.calls.every((call) => call.env.hasGhToken === false && call.env.hasGithubToken === false));
+});
+
+test("workos/tars optionalChecks and --ignore-check settle pending/cancelled without bypassing failures or required checks", () => {
+  const tarsConfig = {
+    "*": { gh: "gh-personal" },
+    workos: { gh: "gh-work" },
+    "workos/tars": { mergeWithoutApproval: true, reviewers: [{ name: "TARS review", check: "TARS review" }] },
+  };
+  const deploySuite = 90001;
+  const deployRun = (status, conclusion) => ({
+    id: 50001, name: "Build & Deploy", path: ".github/workflows/deploy.yml", event: "pull_request",
+    check_suite_id: deploySuite, status, conclusion, html_url: "https://example.test/runs/50001",
+  });
+  const baseState = (deployCheck, run) => ({
+    pullRequest: open({ url: "https://github.com/workos/tars/pull/418" }),
+    runs: [run],
+    checkRuns: [
+      check("TARS review", "success"),
+      check("Build & Deploy / Test", "success", deploySuite),
+      deployCheck,
+    ],
+  });
+
+  // Built-in workos/tars optionalChecks settles waiting manual-approval deploy job to READY.
+  const waiting = watch(
+    [baseState(check("Build & Deploy / Deploy to Production", null, deploySuite, "waiting"), deployRun("waiting", null))],
+    { repo: "workos/tars", config: tarsConfig },
+  );
+  assert.equal(waiting.code, 0, waiting.out);
+  assert.deepEqual(waiting.gh, ["gh-work"]);
+  assert.equal(waiting.lines[0], "READY");
+  assert.ok(waiting.lines.includes(`checks on ${HEAD.slice(0, 7)}: 2 passed, 0 failed, 0 pending, 0 skipped, 1 optional`));
+  assert.ok(waiting.lines.includes("  optional (ignored): Build & Deploy / Deploy to Production (waiting)"));
+
+  // Also matches when GitHub emits workflow name separately from the job name.
+  const splitName = watch(
+    [baseState(check("Deploy to Production", null, deploySuite, "waiting"), deployRun("waiting", null))],
+    { repo: "workos/tars", config: tarsConfig },
+  );
+  assert.equal(splitName.code, 0, splitName.out);
+  assert.ok(splitName.lines.includes("  optional (ignored): Deploy to Production (waiting)"));
+
+  // Cancelled optional deploy job also settles to READY.
+  const cancelled = watch(
+    [baseState(check("Build & Deploy / Deploy to Production", "cancelled", deploySuite), deployRun("completed", "cancelled"))],
+    { repo: "workos/tars", config: tarsConfig },
+  );
+  assert.equal(cancelled.code, 0, cancelled.out);
+  assert.ok(cancelled.lines.includes("  optional (ignored): Build & Deploy / Deploy to Production (cancelled)"));
+
+  // Explicit failure or timed_out on an optional check STILL blocks with exit 4.
+  for (const conclusion of ["failure", "timed_out"]) {
+    const failed = watch(
+      [baseState(check("Build & Deploy / Deploy to Production", conclusion, deploySuite), deployRun("completed", conclusion))],
+      { repo: "workos/tars", config: tarsConfig },
+    );
+    assert.equal(failed.code, 4, `expected exit 4 for ${conclusion}: ${failed.out}`);
+    assert.equal(failed.lines[0], "BLOCKED: 1 check failed");
+    assert.ok(failed.lines.some((line) => line.includes(`Build & Deploy / Deploy to Production (${conclusion})`)));
+  }
+
+  // Waiting settles as soon as non-ignored checks pass, without counting optional checks toward waiting.
+  const poll1 = {
+    pullRequest: open({ url: "https://github.com/workos/tars/pull/418" }),
+    runs: [deployRun("in_progress", null)],
+    checkRuns: [
+      check("TARS review", "success"),
+      check("Build & Deploy / Test", null, deploySuite, "in_progress"),
+      check("Build & Deploy / Deploy to Production", null, deploySuite, "waiting"),
+    ],
+  };
+  const poll2 = baseState(check("Build & Deploy / Deploy to Production", null, deploySuite, "waiting"), deployRun("waiting", null));
+  const settled = watch([poll1, poll2], { repo: "workos/tars", config: tarsConfig, args: ["--interval", "0.05"] });
+  assert.equal(settled.code, 0, settled.out);
+  assert.match(settled.lines[0], /waiting on abe04d4: 1 check pending$/);
+  assert.equal(verdict(settled)[0], "READY");
+
+  // Repeatable --ignore-check ignores multiple non-required pending/cancelled checks.
+  const multi = watch([{
+    pullRequest: open(),
+    checkRuns: [
+      ...reviewersPassed(),
+      check("Deploy Preview", null, 8001, "waiting"),
+      check("Manual Canary", "cancelled", 8002),
+    ],
+  }], { args: ["--once", "--ignore-check", "Deploy Preview", "--ignore-check", "Manual Canary"] });
+  assert.equal(multi.code, 0, multi.out);
+  assert.ok(multi.lines.includes(`checks on ${HEAD.slice(0, 7)}: 2 passed, 0 failed, 0 pending, 0 skipped, 2 optional`));
+
+  // Fail-closed: required checks declared by branch protection/rulesets are NEVER ignored even if passed to --ignore-check.
+  const rules = [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "CI / required" }] } }];
+  const reqPending = watch([{
+    pullRequest: open(),
+    rules,
+    checkRuns: [...reviewersPassed(), check("CI / required", null, 8010, "in_progress")],
+  }], { args: ["--once", "--ignore-check", "CI / required"] });
+  assert.equal(reqPending.code, 5, reqPending.out);
+  assert.equal(reqPending.lines[0], "BLOCKED: not ready; waiting for: 1 check pending");
+
+  const reqCancelled = watch([{
+    pullRequest: open(),
+    rules,
+    checkRuns: [...reviewersPassed(), check("CI / required", "cancelled", 8011)],
+  }], { args: ["--once", "--ignore-check", "CI / required"] });
+  assert.equal(reqCancelled.code, 4, reqCancelled.out);
+  assert.equal(reqCancelled.lines[0], "BLOCKED: 1 check failed");
+
+  // Fail-closed: configured reviewer checks are NEVER ignored even if passed to --ignore-check.
+  const revPending = watch([{
+    pullRequest: open(),
+    checkRuns: [check(DURABLE, null), check(CURSOR, "success")],
+  }], { args: ["--once", "--ignore-check", DURABLE] });
+  assert.equal(revPending.code, 5, revPending.out);
+  assert.match(revPending.lines[0], new RegExp(`${DURABLE}: running`));
+
+  assert.equal(watch([{ pullRequest: open() }], { args: ["--once", "--ignore-check", "   "] }).code, 64);
+});
+
+test("--required-checks-only settles non-required pending/cancelled checks and fails closed without required checks", () => {
+  const rules = [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "Depot CI / verify" }] } }];
+  const greptilePass = {
+    user: { login: "greptile-apps[bot]" }, updated_at: "2026-11-10T16:30:56Z",
+    body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
+  };
+  const state = {
+    pullRequest: open({ mergeStateStatus: "CLEAN" }),
+    rules,
+    workflows: PI_WORKFLOWS,
+    checkRuns: [
+      check("Review bot", "success"),
+      check("Depot CI / verify", "success"),
+      check("Optional Deploy", null, 9100, "waiting"),
+      check("Cancelled Bench", "cancelled", 9101),
+    ],
+    comments: [greptilePass],
+  };
+  const ready = watch([state], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+  assert.equal(ready.code, 0, ready.out);
+  assert.equal(ready.lines[0], "READY");
+  assert.ok(ready.lines.includes(`checks on ${HEAD.slice(0, 7)}: 2 passed, 0 failed, 0 pending, 0 skipped, 2 optional`));
+  assert.ok(ready.lines.includes("expected checks: all required present (1 required check; --required-checks-only)"));
+
+  // Non-required explicit failure STILL blocks even with --required-checks-only.
+  const failedOptional = watch([{
+    ...state,
+    checkRuns: [...state.checkRuns, check("Optional Lint", "failure", 9102)],
+  }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+  assert.equal(failedOptional.code, 4, failedOptional.out);
+  assert.equal(failedOptional.lines[0], "BLOCKED: 1 check failed");
+
+  // Missing required check STILL waits under --required-checks-only.
+  const missingReq = watch([{
+    ...state,
+    checkRuns: [check("Review bot", "success"), check("Optional Deploy", null, 9100, "waiting")],
+  }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+  assert.equal(missingReq.code, 5, missingReq.out);
+  assert.equal(missingReq.lines[0], "BLOCKED: not ready; waiting for: 1 required check not reported (Depot CI / verify)");
+
+  // Fail-closed: if GitHub declares no required status checks, --required-checks-only returns UNKNOWN (exit 9).
+  const noRules = watch([{
+    pullRequest: open(),
+    checkRuns: [...reviewersPassed(), check("build", "success")],
+  }], { args: ["--once", "--required-checks-only"] });
+  assert.equal(noRules.code, 9, noRules.out);
+  assert.equal(noRules.lines[0], "UNKNOWN: --required-checks-only requested, but GitHub declares no required status checks for main");
+});
+
+test("unresolved review threads show commit SHA (head vs older) and parsed severity in watch-pr without extra API calls", () => {
+  const headThread = richThread({
+    id: "PRRT_head",
+    path: "app/auth.ts",
+    line: 88,
+    comments: [{
+      id: "PRRC_1",
+      fullDatabaseId: "1001",
+      commit: { oid: HEAD },
+      originalCommit: { oid: HEAD },
+      author: { login: "tars-reviewer" },
+      body: "[blocks] Missing tenant check before lookup",
+      url: "https://github.com/fitchmultz/pi/pull/418#discussion_r1001",
+      createdAt: "2026-11-20T01:00:00Z",
+      outdated: false,
+    }],
+  });
+  const olderThread = richThread({
+    id: "PRRT_older",
+    isOutdated: true,
+    path: "app/rate.ts",
+    line: null,
+    originalLine: 210,
+    comments: [{
+      id: "PRRC_2",
+      fullDatabaseId: "1002",
+      // Even if GitHub slid commit.oid to HEAD, originalCommit reflects where it was authored.
+      commit: { oid: HEAD },
+      originalCommit: { oid: OLD },
+      author: { login: "cursor" },
+      body: "<!-- CURSOR_AUTOMATION_ID: abc -->\n**Medium: Rate-limit wait floors on interval**",
+      url: "https://github.com/fitchmultz/pi/pull/418#discussion_r1002",
+      createdAt: "2026-11-19T23:00:00Z",
+      outdated: true,
+    }],
+  });
+  const result = watch([{
+    pullRequest: open(),
+    checkRuns: reviewersPassed(),
+    threads: [headThread, olderThread],
+  }]);
+  assert.equal(result.code, 3, result.out);
+  assert.ok(result.lines.length <= 20);
+  assert.ok(Buffer.byteLength(result.out) <= 2048);
+  assert.ok(result.lines.includes(
+    `  app/auth.ts:88 @tars-reviewer [${HEAD.slice(0, 7)} head, blocks]: [blocks] Missing tenant check before lookup`,
+  ), result.out);
+  assert.ok(result.lines.includes(
+    `  app/rate.ts:210 @cursor [${OLD.slice(0, 7)} older, medium]: **Medium: Rate-limit wait floors on interval**`,
+  ), result.out);
+  // Verify only ONE reviewThreads GraphQL query was made (no extra API call).
+  const threadQueries = result.calls.filter(({ argv }) => argv.some((arg) => arg.includes("reviewThreads")));
+  assert.equal(threadQueries.length, 1);
+  const queryArg = threadQueries[0].argv.find((arg) => arg.startsWith("query="));
+  assert.match(queryArg, /comments\(first:20\)/);
+  assert.match(queryArg, /originalCommit\{oid\}/);
+  assert.match(queryArg, /isOutdated/);
+});
+
+test("pr-threads.mjs lists, replies to, and resolves threads using shared repo routing and env sanitization", () => {
+  const threads = [
+    richThread({
+      id: "PRRT_open_1",
+      path: "src/server.ts",
+      line: 54,
+      comments: [
+        {
+          id: "PRRC_10",
+          fullDatabaseId: "2010",
+          commit: { oid: HEAD },
+          originalCommit: { oid: HEAD },
+          author: { login: "tars-reviewer" },
+          body: "`fix-if-cheap`: extract repeated header parser",
+          url: "https://github.com/acme/app/pull/418#discussion_r2010",
+          createdAt: "2026-11-20T02:00:00Z",
+          outdated: false,
+        },
+        {
+          id: "PRRC_11",
+          fullDatabaseId: "2011",
+          commit: { oid: HEAD },
+          originalCommit: { oid: HEAD },
+          author: { login: "dev" },
+          body: "Will clean up in next push.",
+          url: "https://github.com/acme/app/pull/418#discussion_r2011",
+          createdAt: "2026-11-20T02:05:00Z",
+          outdated: false,
+        },
+      ],
+    }),
+    richThread({
+      id: "PRRT_resolved_1",
+      isResolved: true,
+      isOutdated: true,
+      path: "src/old.ts",
+      line: 12,
+      comments: [{
+        id: "PRRC_12",
+        fullDatabaseId: "2012",
+        commit: { oid: OLD },
+        originalCommit: { oid: OLD },
+        author: { login: "cursor" },
+        body: "Nit: typo in log message",
+        url: "https://github.com/acme/app/pull/418#discussion_r2012",
+        createdAt: "2026-11-19T22:00:00Z",
+        outdated: true,
+      }],
+    }),
+  ];
+  const pollState = {
+    pullRequest: open({ url: "https://github.com/acme/app/pull/418" }),
+    threads,
+  };
+
+  // --list routes acme/app through gh-work, strips GH_TOKEN/GITHUB_TOKEN, and omits resolved threads.
+  const listed = runThreads([pollState], {
+    args: ["https://github.com/acme/app/pull/418", "--list"],
+    env: { GH_TOKEN: "leaked", GITHUB_TOKEN: "leaked2" },
+  });
+  assert.equal(listed.code, 0, listed.err);
+  assert.deepEqual(listed.gh, ["gh-work"]);
+  assert.ok(listed.calls.every((call) => !call.env.hasGhToken && !call.env.hasGithubToken));
+  assert.match(listed.out, /^pr: https:\/\/github\.com\/acme\/app\/pull\/418$/m);
+  assert.match(listed.out, /^unresolved threads: 1$/m);
+  assert.match(listed.out, /PRRT_open_1\s+src\/server\.ts:54\s+@tars-reviewer\s+abe04d4 \(head\)\s+\[fix-if-cheap\]\s+\(2 comments\)/);
+  assert.match(listed.out, /url: https:\/\/github\.com\/acme\/app\/pull\/418#discussion_r2010/);
+  assert.doesNotMatch(listed.out, /PRRT_resolved_1/);
+
+  // --list --all --json includes resolved threads and structured metadata.
+  const listedJson = runThreads([pollState], {
+    args: ["418", "--repo", "acme/app", "--list", "--all", "--json"],
+  });
+  assert.equal(listedJson.code, 0, listedJson.err);
+  const payload = JSON.parse(listedJson.out);
+  assert.equal(payload.unresolvedCount, 1);
+  assert.equal(payload.threads.length, 2);
+  assert.equal(payload.threads[0].id, "PRRT_open_1");
+  assert.equal(payload.threads[0].severity, "fix-if-cheap");
+  assert.equal(payload.threads[0].databaseId, "2010");
+  assert.equal(payload.threads[1].isResolved, true);
+  assert.equal(payload.threads[1].severity, "nit");
+
+  // --reply + --resolve works without a PR number, preserves special shell characters in body-file,
+  // and routes through gh-work.
+  const replyText = "Fixed in `abc1234` — safe against $(whoami) and \"$HOME\".\n\nSecond line.";
+  const replied = runThreads([pollState], {
+    args: ["--repo", "acme/app", "--reply", "PRRT_open_1", "--body-file", "$BODY_FILE", "--resolve", "PRRT_open_1"],
+    bodyFileContent: replyText,
+    env: { GH_TOKEN: "leaked", GITHUB_TOKEN: "leaked2" },
+  });
+  assert.equal(replied.code, 0, replied.err);
+  assert.deepEqual(replied.gh, ["gh-work"]);
+  assert.ok(replied.calls.every((call) => !call.env.hasGhToken && !call.env.hasGithubToken));
+  assert.equal(replied.calls.length, 2);
+  assert.ok(replied.calls[0].argv.includes("threadId=PRRT_open_1"));
+  assert.ok(replied.calls[0].argv.includes(`body=${replyText}`));
+  assert.ok(replied.calls[1].argv.some((arg) => arg.includes("resolveReviewThread")));
+  assert.match(replied.out, /^replied: PRRT_open_1 -> https:\/\/github\.com\/example\/repo\/pull\/418#discussion_r999001$/m);
+  assert.match(replied.out, /^resolved: PRRT_open_1$/m);
+
+  // If --resolve returns isResolved: false, exit 7.
+  const unconfirmed = runThreads([{ ...pollState, resolveConfirmed: false }], {
+    args: ["--repo", "acme/app", "--resolve", "PRRT_open_1"],
+  });
+  assert.equal(unconfirmed.code, 7);
+  assert.match(unconfirmed.err, /did not confirm resolution/);
+
+  // Usage validation exits 64 without calling GitHub.
+  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--reply", "PRRT_open_1"] }).code, 64);
+  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--body-file", "$BODY_FILE"], bodyFileContent: "hi" }).code, 64);
+  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--reply", "PRRT_open_1", "--body-file", "$BODY_FILE"], bodyFileContent: "   \n" }).code, 64);
+  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--list"] }).code, 64);
 });
