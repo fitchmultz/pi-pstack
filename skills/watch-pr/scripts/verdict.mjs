@@ -30,9 +30,9 @@ export const EXIT = {
 };
 
 const short = (sha) => sha.slice(0, 7);
-const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-function some(names, max = 3) {
+export const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+export const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+export function some(names, max = 3) {
   return names.length > max ? `${names.slice(0, max).join(", ")} (+${names.length - max} more)` : names.join(", ");
 }
 
@@ -291,6 +291,40 @@ function clipBytes(text, max) {
   return `${text.slice(0, end)}\u2026`;
 }
 
+/** Renders a bounded verdict block fitting within BLOCK_LINES lines and BLOCK_BYTES bytes. */
+export function formatBoundedBlock(top, parts, { order = parts, bottom = [] } = {}) {
+  const build = (shown) => [
+    ...top,
+    ...order.flatMap((part) => {
+      const visible = shown.get(part);
+      return [
+        ...part.before,
+        ...part.items.slice(0, visible),
+        ...(visible < part.items.length ? [`  ... ${part.items.length - visible} more ${part.more}`] : []),
+      ];
+    }),
+    ...bottom,
+  ];
+  const fits = (lines) => lines.length <= BLOCK_LINES && bytes(lines.join("\n")) < BLOCK_BYTES;
+  const shown = new Map(parts.map((part) => [part, 0]));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const part of parts) {
+      if (shown.get(part) === part.items.length) continue;
+      shown.set(part, shown.get(part) + 1);
+      if (fits(build(shown))) grew = true;
+      else shown.set(part, shown.get(part) - 1);
+    }
+  }
+  let lines = build(shown);
+  // Without any item the block has at most 12 lines; 100 bytes each always fit.
+  for (let width = 400; !fits(lines) && width >= 60; width -= 100) {
+    lines = lines.map((line) => clipBytes(line, width));
+  }
+  if (lines.length > BLOCK_LINES) lines = lines.slice(0, BLOCK_LINES);
+  return `${lines.join("\n")}\n`;
+}
+
 /**
  * The verdict block: at most BLOCK_LINES lines and BLOCK_BYTES bytes, newline included.
  *
@@ -363,32 +397,8 @@ export function render({
     },
   ];
   // Failed checks belong under the checks line, so they are printed first.
-  const order = [parts[1], parts[0], parts[2]];
-  const build = (shown) => [
-    ...top,
-    ...order.flatMap((part) => {
-      const visible = shown.get(part);
-      return [
-        ...part.before,
-        ...part.items.slice(0, visible),
-        ...(visible < part.items.length ? [`  ... ${part.items.length - visible} more ${part.more}`] : []),
-      ];
-    }),
-    mergeLine(facts, mergeWithoutApproval),
-  ];
-  const fits = (lines) => lines.length <= BLOCK_LINES && bytes(lines.join("\n")) < BLOCK_BYTES;
-  const shown = new Map(parts.map((part) => [part, 0]));
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const part of parts) {
-      if (shown.get(part) === part.items.length) continue;
-      shown.set(part, shown.get(part) + 1);
-      if (fits(build(shown))) grew = true;
-      else shown.set(part, shown.get(part) - 1);
-    }
-  }
-  let lines = build(shown);
-  // Without any item the block has at most 12 lines; 100 bytes each always fit.
-  for (let width = 400; !fits(lines); width -= 100) lines = lines.map((line) => clipBytes(line, width));
-  return `${lines.join("\n")}\n`;
+  return formatBoundedBlock(top, parts, {
+    order: [parts[1], parts[0], parts[2]],
+    bottom: [mergeLine(facts, mergeWithoutApproval)],
+  });
 }

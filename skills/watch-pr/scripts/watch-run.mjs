@@ -21,13 +21,7 @@ import {
   resolveRepo,
   settingsFor,
 } from "./repo-config.mjs";
-
-/**
- * The verdict block must arrive whole in a background_command completion notice
- * (last 20 lines and 2048 bytes of output).
- */
-const BLOCK_LINES = 20;
-const BLOCK_BYTES = 2048;
+import { clip, formatBoundedBlock, plural, some } from "./verdict.mjs";
 
 const EXIT = {
   passed: 0,
@@ -65,21 +59,6 @@ Exit: 0 passed or settled, 4 failed or cancelled, 7 unknown or GitHub query fail
 `;
 
 class UsageError extends Error {}
-
-const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-const clip = (text, max) => (text.length > max ? `${text.slice(0, max - 1)}\u2026` : text);
-const bytes = (text) => Buffer.byteLength(text);
-
-function clipBytes(text, max) {
-  if (bytes(text) <= max) return text;
-  let end = text.length;
-  while (bytes(text.slice(0, end)) > max - 3) end--;
-  return `${text.slice(0, end)}\u2026`;
-}
-
-function some(names, max = 3) {
-  return names.length > max ? `${names.slice(0, max).join(", ")} (+${names.length - max} more)` : names.join(", ");
-}
 
 function seconds(name, value, { zero }) {
   const parsed = Number(value);
@@ -273,6 +252,9 @@ function assessRun({ run, buckets }, { untilJobs, stopAtWaiting }) {
     if (failedTargetJobs.length) {
       return failureOutcome(failedTargetJobs, "target");
     }
+    if (stopAtWaiting && buckets.failed.length) {
+      return failureOutcome(buckets.failed);
+    }
     if (skippedTargets.length) {
       const allCancelled = buckets.failed.length > 0 && buckets.failed.every((job) => job.detail === "cancelled");
       return {
@@ -301,9 +283,6 @@ function assessRun({ run, buckets }, { untilJobs, stopAtWaiting }) {
         exitCode: EXIT.unknown,
         reason: `${plural(missing.length, "target job")} not found in completed run (${some(missing)})`,
       };
-    }
-    if (stopAtWaiting && buckets.failed.length) {
-      return failureOutcome(buckets.failed);
     }
     return { kind: "waiting", waiting: waitingSummary(buckets, run, pendingTargets) };
   }
@@ -335,37 +314,6 @@ function headline(outcome) {
     pending: "PENDING",
   }[outcome.kind] ?? "UNKNOWN";
   return clip(outcome.reason ? `${prefix}: ${outcome.reason}` : prefix, 400);
-}
-
-function formatBounded(top, parts) {
-  const build = (shown) => [
-    ...top,
-    ...parts.flatMap((part) => {
-      const visible = shown.get(part);
-      return [
-        ...part.before,
-        ...part.items.slice(0, visible),
-        ...(visible < part.items.length ? [`  ... ${part.items.length - visible} more ${part.more}`] : []),
-      ];
-    }),
-  ];
-  const fits = (lines) => lines.length <= BLOCK_LINES && bytes(lines.join("\n")) < BLOCK_BYTES;
-  const shown = new Map(parts.map((part) => [part, 0]));
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const part of parts) {
-      if (shown.get(part) === part.items.length) continue;
-      shown.set(part, shown.get(part) + 1);
-      if (fits(build(shown))) grew = true;
-      else shown.set(part, shown.get(part) - 1);
-    }
-  }
-  let lines = build(shown);
-  for (let width = 400; !fits(lines) && width >= 60; width -= 80) {
-    lines = lines.map((line) => clipBytes(line, width));
-  }
-  if (lines.length > BLOCK_LINES) lines = lines.slice(0, BLOCK_LINES);
-  return `${lines.join("\n")}\n`;
 }
 
 function renderRun({ target, run, buckets }, outcome) {
@@ -412,12 +360,12 @@ function renderRun({ target, run, buckets }, outcome) {
       more: "pending jobs",
     },
   ];
-  return formatBounded(top, parts);
+  return formatBoundedBlock(top, parts);
 }
 
 function renderQueryError(target, executable, source, prefix, reason) {
   const runUrl = `https://github.com/${target.owner}/${target.repo}/actions/runs/${target.runId}`;
-  return formatBounded([
+  return formatBoundedBlock([
     clip(`${prefix}: ${reason}`, 400),
     `run: ${runUrl}`,
     clip(`github cli: ${executable} (${source})`, 300),
