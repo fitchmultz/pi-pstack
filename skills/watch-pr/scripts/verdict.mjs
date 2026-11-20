@@ -207,6 +207,13 @@ export function assess({
   if (facts.reviewDecision === "CHANGES_REQUESTED") return blocked(EXIT.mergeGate, "a reviewer requested changes");
   const rejected = reviewers.find((reviewer) => reviewer.state === "rejected");
   if (rejected) return blocked(EXIT.reviewerRejected, `${rejected.name} did not sign off: ${rejected.text}`);
+  if (requiredChecksOnly && expected.required.length === 0) {
+    return {
+      kind: "unknown",
+      exitCode: EXIT.unknown,
+      reason: `--required-checks-only requested, but GitHub declares no required status checks for ${facts.baseRef}`,
+    };
+  }
 
   const absent = [];
   if (!enforceRequiredOnly && expected.undetermined.length) {
@@ -233,9 +240,6 @@ export function assess({
     return blocked(EXIT.mergeGate, "GitHub requires an approving review");
   }
   const unknown = [
-    ...(requiredChecksOnly && expected.required.length === 0
-      ? [`--required-checks-only requested, but GitHub declares no required status checks for ${facts.baseRef}`]
-      : []),
     ...(!enforceRequiredOnly ? expected.unreadable.map((name) => `cannot read the triggers of ${name}`) : []),
     ...absent,
     ...reviewers.filter((reviewer) => reviewer.state === "unknown").map((reviewer) => `${reviewer.name}: ${reviewer.text}`),
@@ -259,12 +263,12 @@ function headline(outcome) {
 }
 
 function expectedLine(expected, { requiredChecksOnly = false } = {}) {
-  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
-  const missing = missingText(expected, { requiredChecksOnly: enforceRequiredOnly });
-  if (missing) return `expected checks: not registered: ${missing}`;
   if (requiredChecksOnly && expected.required.length === 0) {
     return "expected checks: none declared (required by --required-checks-only)";
   }
+  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
+  const missing = missingText(expected, { requiredChecksOnly: enforceRequiredOnly });
+  if (missing) return `expected checks: not registered: ${missing}`;
   if (enforceRequiredOnly) {
     return `expected checks: all required present (${plural(expected.required.length, "required check")}; --required-checks-only)`;
   }

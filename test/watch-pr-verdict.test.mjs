@@ -782,6 +782,16 @@ test("--required-checks-only settles non-required pending/cancelled checks and f
   }], { args: ["--once", "--required-checks-only"] });
   assert.equal(noRules.code, 9, noRules.out);
   assert.equal(noRules.lines[0], "UNKNOWN: --required-checks-only requested, but GitHub declares no required status checks for main");
+
+  // Must fail closed immediately even when pending checks or an always-on workflow are still waiting.
+  const noRulesPending = watch([{
+    pullRequest: open(),
+    workflows: PI_WORKFLOWS,
+    checkRuns: [...reviewersPassed(), check("build", null)],
+  }], { args: ["--once", "--required-checks-only"] });
+  assert.equal(noRulesPending.code, 9, noRulesPending.out);
+  assert.equal(noRulesPending.lines[0], "UNKNOWN: --required-checks-only requested, but GitHub declares no required status checks for main");
+  assert.ok(noRulesPending.lines.includes("expected checks: none declared (required by --required-checks-only)"));
 });
 
 test("unresolved review threads show commit SHA (head vs older) and parsed severity in watch-pr without extra API calls", () => {
