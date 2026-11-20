@@ -8,16 +8,7 @@ import { join } from "node:path";
 
 export class ConfigError extends Error {}
 
-/**
- * Built-in optional checks for repositories with known manual-approval or
- * non-blocking jobs. Required checks declared by GitHub branch protection or
- * rulesets always take precedence and are never ignored.
- */
-export const DEFAULT_OPTIONAL_CHECKS = Object.freeze({
-  "workos/tars": Object.freeze(["Build & Deploy / Deploy to Production"]),
-});
-
-const ALLOWED_KEYS = new Set(["gh", "reviewers", "mergeWithoutApproval", "optionalChecks"]);
+const ALLOWED_KEYS = new Set(["gh", "reviewers", "mergeWithoutApproval"]);
 
 /** `WATCH_PR_CONFIG`, or `watch-pr.json` in the Pi agent directory. */
 export function configPath(env = process.env) {
@@ -63,23 +54,12 @@ function reviewer(path, where, value) {
   return fail(path, `${where} must have the keys name and check, or name, author, verdict, pass and commit`);
 }
 
-function optionalChecks(path, where, value) {
-  if (!Array.isArray(value)) fail(path, `${where} must be a list`);
-  return value.map((item, index) => {
-    if (typeof item !== "string" || !item.trim()) {
-      fail(path, `${where}[${index}] must be a non-empty string`);
-    }
-    return item.trim();
-  });
-}
-
 /**
  * Reads the settings file. A missing file is an empty configuration.
  *
  * The file is a JSON object. Each key is `*` (every repository), an owner, or
  * `owner/repository`. Each value may hold `gh` (the GitHub CLI executable),
- * `reviewers` (a list of rules), `mergeWithoutApproval` (true or false), and
- * `optionalChecks` (a list of check names that may settle while pending or cancelled).
+ * `reviewers` (a list of rules), and `mergeWithoutApproval` (true or false).
  * Unknown keys are rejected: a misspelled rule must not be silently dropped.
  */
 export function loadConfig(path) {
@@ -112,7 +92,6 @@ export function loadConfig(path) {
       gh: value.gh,
       mergeWithoutApproval: value.mergeWithoutApproval,
       reviewers: (value.reviewers ?? []).map((rule, index) => reviewer(path, `"${scope}".reviewers[${index}]`, rule)),
-      optionalChecks: "optionalChecks" in value ? optionalChecks(path, `"${scope}".optionalChecks`, value.optionalChecks) : [],
     });
   }
   return scopes;
@@ -121,17 +100,14 @@ export function loadConfig(path) {
 /**
  * Settings for one repository. The most specific `gh` and
  * `mergeWithoutApproval` win: repository, then owner, then `*`. Reviewer rules
- * and `optionalChecks` add up across built-in defaults, `*`, owner, and repo.
+ * add up across `*`, owner, and repo.
  */
 export function settingsFor(scopes, owner, repo) {
-  const repoKey = `${owner}/${repo}`.toLowerCase();
-  const matching = ["*", owner, repoKey].map((scope) => scopes.get(scope.toLowerCase())).filter(Boolean);
-  const defaults = DEFAULT_OPTIONAL_CHECKS[repoKey] ?? [];
+  const matching = ["*", owner, `${owner}/${repo}`].map((scope) => scopes.get(scope.toLowerCase())).filter(Boolean);
   return {
     gh: matching.map((scope) => scope.gh).filter(Boolean).at(-1) ?? null,
     mergeWithoutApproval: matching.map((scope) => scope.mergeWithoutApproval).filter((value) => value !== undefined).at(-1) ?? false,
     reviewers: matching.flatMap((scope) => scope.reviewers),
-    optionalChecks: [...new Set([...defaults, ...matching.flatMap((scope) => scope.optionalChecks ?? [])])],
   };
 }
 

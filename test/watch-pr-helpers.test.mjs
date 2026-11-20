@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   QueryError,
   createRateLimitBackoff,
@@ -12,7 +13,6 @@ import {
 } from "../skills/watch-pr/scripts/gh-client.mjs";
 import {
   ConfigError,
-  DEFAULT_OPTIONAL_CHECKS,
   loadConfig,
   resolveGitHubCli,
   settingsFor,
@@ -24,45 +24,45 @@ import {
 } from "../skills/watch-pr/scripts/threads.mjs";
 import { partitionChecks } from "../skills/watch-pr/scripts/verdict.mjs";
 
-test("repo-config resolves gh precedence, merges optionalChecks, and includes workos/tars default", () => {
+const exampleConfig = fileURLToPath(new URL("../skills/watch-pr/config.example.json", import.meta.url));
+
+test("repo-config resolves gh/approval precedence, merges reviewers, and rejects unknown keys", () => {
   const temp = mkdtempSync(join(tmpdir(), "repo-config-test-"));
   try {
     const file = join(temp, "watch-pr.json");
     writeFileSync(file, JSON.stringify({
-      "*": { gh: "gh-personal", optionalChecks: ["Global Optional"] },
-      workos: { gh: "gh-work", optionalChecks: ["Org Optional"] },
-      "workos/tars": { mergeWithoutApproval: true, optionalChecks: ["Repo Optional", "Global Optional"] },
+      "*": { gh: "gh-personal", reviewers: [{ name: "Global Bot", check: "Global Bot" }] },
+      workos: { gh: "gh-work", reviewers: [{ name: "Org Bot", check: "Org Bot" }] },
+      "workos/tars": { mergeWithoutApproval: true, reviewers: [{ name: "TARS review", check: "TARS review" }] },
     }));
     const scopes = loadConfig(file);
     const tars = settingsFor(scopes, "workos", "tars");
     assert.equal(tars.gh, "gh-work");
     assert.equal(tars.mergeWithoutApproval, true);
-    assert.deepEqual(tars.optionalChecks, [
-      ...DEFAULT_OPTIONAL_CHECKS["workos/tars"],
-      "Global Optional",
-      "Org Optional",
-      "Repo Optional",
+    assert.deepEqual(tars.reviewers.map((rule) => rule.name), [
+      "Global Bot",
+      "Org Bot",
+      "TARS review",
     ]);
 
-    // Missing config file still provides built-in workos/tars optionalChecks.
+    // Missing config file produces empty defaults.
     const empty = loadConfig(join(temp, "missing.json"));
-    assert.deepEqual(settingsFor(empty, "workos", "tars").optionalChecks, [
-      "Build & Deploy / Deploy to Production",
-    ]);
+    assert.deepEqual(settingsFor(empty, "workos", "tars"), {
+      gh: null,
+      mergeWithoutApproval: false,
+      reviewers: [],
+    });
 
     // WATCH_PR_GH overrides configured gh executable.
     assert.equal(resolveGitHubCli(tars, { env: {}, settingsPath: file }).executable, "gh-work");
     assert.equal(resolveGitHubCli(tars, { env: { WATCH_PR_GH: "gh-custom" }, settingsPath: file }).executable, "gh-custom");
     assert.equal(resolveGitHubCli(settingsFor(empty, "owner", "repo"), { env: {}, settingsPath: file }).executable, "gh");
 
-    // Rejects invalid optionalChecks definitions.
-    const badList = join(temp, "bad-list.json");
-    writeFileSync(badList, JSON.stringify({ workos: { optionalChecks: "not-a-list" } }));
-    assert.throws(() => loadConfig(badList), ConfigError);
-
-    const badItem = join(temp, "bad-item.json");
-    writeFileSync(badItem, JSON.stringify({ workos: { optionalChecks: ["  "] } }));
-    assert.throws(() => loadConfig(badItem), ConfigError);
+    // Bundled example config parses cleanly; unknown keys fail fast.
+    assert.equal(settingsFor(loadConfig(exampleConfig), "my-company", "admin-repo").mergeWithoutApproval, true);
+    const unknownKey = join(temp, "unknown-key.json");
+    writeFileSync(unknownKey, JSON.stringify({ workos: { unknownOption: true } }));
+    assert.throws(() => loadConfig(unknownKey), ConfigError);
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
@@ -183,7 +183,7 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
   assert.equal(normalized.line, 19);
 });
 
-test("partitionChecks protects required and reviewer checks and only ignores pending/cancelled optional checks", () => {
+test("partitionChecks protects required and reviewer checks under --required-checks-only and fails closed otherwise", () => {
   const checks = [
     { name: "CI / required", workflow: null, state: "pending", detail: "in_progress" },
     { name: "TARS review", workflow: null, state: "failed", detail: "cancelled" },
@@ -194,9 +194,24 @@ test("partitionChecks protects required and reviewer checks and only ignores pen
   const buckets = partitionChecks(checks, {
     required: ["CI / required"],
     reviewerChecks: ["TARS review"],
-    optionalChecks: ["CI / required", "TARS review", "Build & Deploy / Deploy to Production", "Canary", "Staging"],
+    requiredChecksOnly: true,
   });
   assert.deepEqual(buckets.pending.map((c) => c.name), ["CI / required"]);
   assert.deepEqual(buckets.failed.map((c) => c.name), ["TARS review", "Staging"]);
   assert.deepEqual(buckets.ignored.map((c) => c.name), ["Deploy to Production", "Canary"]);
+
+  // Fail-closed: without declared required checks or without --required-checks-only, nothing is ignored.
+  const noRequired = partitionChecks(checks, {
+    required: [],
+    reviewerChecks: ["TARS review"],
+    requiredChecksOnly: true,
+  });
+  assert.deepEqual(noRequired.ignored, []);
+  assert.deepEqual(noRequired.pending.map((c) => c.name), ["CI / required", "Deploy to Production"]);
+
+  const defaultMode = partitionChecks(checks, {
+    required: ["CI / required"],
+    reviewerChecks: ["TARS review"],
+  });
+  assert.deepEqual(defaultMode.ignored, []);
 });

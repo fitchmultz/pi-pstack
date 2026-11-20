@@ -3461,10 +3461,10 @@ index 97f5b6412148fa5b2a2fe478836fe8923ffa5cbb..d99835d19c61f673dac22bc41548128d
  ## Patterns to detect and fix
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..ff834590a5cbc5ee84915b178333fb3546c9bf3b
+index 0000000000000000000000000000000000000000..1793a77dab94787168b73374712ea35741542d5f
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,108 @@
 +---
 +name: watch-pr
 +description: "Wait for a GitHub PR's checks, reviews, or merge readiness with one background watcher, not a hand-written loop."
@@ -3491,8 +3491,7 @@ index 0000000000000000000000000000000000000000..ff834590a5cbc5ee84915b178333fb35
 +- `--interval SECONDS` is the time between ordinary polls. The default is 60.
 +- `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 +- `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
-+- `--ignore-check NAME` (repeatable) marks a non-required check as optional so `pending` (including `waiting`, `queued`, `in_progress`) and `cancelled` states do not block readiness or keep the watcher waiting once all other checks and reviewers are green. Explicit failures (`failure`, `timed_out`, `action_required`, etc.) still block with exit 4. Checks required by GitHub branch protection/rulesets or configured reviewer rules are never ignored.
-+- `--required-checks-only` treats all non-required, non-reviewer checks as optional when `pending` or `cancelled`. Explicit failures still block with exit 4. Fail-closed: if branch protection and rulesets declare no required status checks for the base branch, the watcher reports `UNKNOWN` (exit 9).
++- `--required-checks-only` treats non-required, non-reviewer checks as optional when `pending` (including `waiting`, `queued`, `in_progress`) or `cancelled`, so manual-approval or non-blocking jobs do not block readiness once required checks and reviewers are green. Explicit failures (`failure`, `timed_out`, `action_required`, etc.) still block with exit 4. Required status checks from branch protection/rulesets and configured reviewer checks are never ignored. Fail-closed: if branch protection and rulesets declare no required status checks for the base branch, the watcher reports `UNKNOWN` (exit 9).
 +- Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 +- Start one job for each pull request.
 +
@@ -3538,7 +3537,7 @@ index 0000000000000000000000000000000000000000..ff834590a5cbc5ee84915b178333fb35
 +## How the watcher decides
 +
 +- **Checks.** It reads the check runs, commit statuses and workflow runs of the head commit. It does not read the pull request's check list, which omits runs that `workflow_dispatch` started. A workflow run that is not finished, or did not succeed, counts as a check even while it has no job.
-+- **Optional checks.** Checks listed in `optionalChecks` or `--ignore-check` (or non-required checks under `--required-checks-only`) settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored.
++- **Optional checks.** With `--required-checks-only`, non-required checks settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored. If GitHub declares no required status checks for the base branch, `--required-checks-only` fails closed with `UNKNOWN` (exit 9).
 +- **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 +- **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
 +- **Threads and merge state.** Every unresolved review thread blocks. The watcher fetches up to 20 comments per thread in the same pull request GraphQL query (no extra API call) and includes each thread's short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
@@ -3568,7 +3567,6 @@ index 0000000000000000000000000000000000000000..ff834590a5cbc5ee84915b178333fb35
 +  - `{"name", "check"}`: a check with this name must pass on the head commit.
 +  - `{"name", "author", "verdict", "pass", "commit"}`: the newest comment or review by `author` that matches the `verdict` pattern must capture the text `pass`. The `commit` pattern must capture the head commit from the same text. A review that does not match `commit` counts for the commit that GitHub recorded for it. Each pattern is a JavaScript regular expression with one capture group.
 +- `mergeWithoutApproval`: `true` when the user may merge although GitHub requires an approving review. The default is `false`, and that state then blocks with exit 6.
-+- `optionalChecks`: list of check names (exact job name or `"Workflow / Job"`) treated as optional when `pending` or `cancelled`. The rules of built-in defaults (`workos/tars` includes `"Build & Deploy / Deploy to Production"`), `*`, the owner, and the repository add up. Required checks from branch protection/rulesets and configured reviewer checks are never ignored.
 +
 +The watcher rejects a file with an unknown key. Both `watch-pr.mjs` and `pr-threads.mjs` strip ambient `GH_TOKEN` and `GITHUB_TOKEN` before running the configured GitHub CLI so account-routing wrappers always use their selected account.
 +
@@ -3577,10 +3575,10 @@ index 0000000000000000000000000000000000000000..ff834590a5cbc5ee84915b178333fb35
 +`gh pr checks --watch` and `gh run watch` remain correct when the question is only "did these checks finish". The stack and merge-queue watcher is `../poteto-mode/scripts/watch-pr/watch-pr`.
 diff --git a/skills/watch-pr/config.example.json b/skills/watch-pr/config.example.json
 new file mode 100644
-index 0000000000000000000000000000000000000000..9655fb1a2f92196eb74a3a6fcab354e34d9d8c4c
+index 0000000000000000000000000000000000000000..c8760d677a95d1b6bf40fd16ba391eb82ecae7f4
 --- /dev/null
 +++ b/skills/watch-pr/config.example.json
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,19 @@
 +{
 +  "*": { "gh": "gh" },
 +  "my-user": {
@@ -3598,10 +3596,7 @@ index 0000000000000000000000000000000000000000..9655fb1a2f92196eb74a3a6fcab354e3
 +      }
 +    ]
 +  },
-+  "my-company/admin-repo": {
-+    "mergeWithoutApproval": true,
-+    "optionalChecks": ["Build & Deploy / Deploy to Production"]
-+  }
++  "my-company/admin-repo": { "mergeWithoutApproval": true }
 +}
 diff --git a/skills/watch-pr/scripts/gh-client.mjs b/skills/watch-pr/scripts/gh-client.mjs
 new file mode 100644
@@ -4301,10 +4296,10 @@ index 0000000000000000000000000000000000000000..2e6be605b6b0fba655dfc85c08816c82
 +}
 diff --git a/skills/watch-pr/scripts/repo-config.mjs b/skills/watch-pr/scripts/repo-config.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..84a7374ea28ffd72ce4f86fe15543d5cf8679a37
+index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b4a7c62a4
 --- /dev/null
 +++ b/skills/watch-pr/scripts/repo-config.mjs
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,173 @@
 +// Shared repository configuration and GitHub CLI routing for watch-pr tools
 +// (`watch-pr.mjs`, `pr-threads.mjs`, and future `watch-run.mjs`).
 +
@@ -4315,16 +4310,7 @@ index 0000000000000000000000000000000000000000..84a7374ea28ffd72ce4f86fe15543d5c
 +
 +export class ConfigError extends Error {}
 +
-+/**
-+ * Built-in optional checks for repositories with known manual-approval or
-+ * non-blocking jobs. Required checks declared by GitHub branch protection or
-+ * rulesets always take precedence and are never ignored.
-+ */
-+export const DEFAULT_OPTIONAL_CHECKS = Object.freeze({
-+  "workos/tars": Object.freeze(["Build & Deploy / Deploy to Production"]),
-+});
-+
-+const ALLOWED_KEYS = new Set(["gh", "reviewers", "mergeWithoutApproval", "optionalChecks"]);
++const ALLOWED_KEYS = new Set(["gh", "reviewers", "mergeWithoutApproval"]);
 +
 +/** `WATCH_PR_CONFIG`, or `watch-pr.json` in the Pi agent directory. */
 +export function configPath(env = process.env) {
@@ -4370,23 +4356,12 @@ index 0000000000000000000000000000000000000000..84a7374ea28ffd72ce4f86fe15543d5c
 +  return fail(path, `${where} must have the keys name and check, or name, author, verdict, pass and commit`);
 +}
 +
-+function optionalChecks(path, where, value) {
-+  if (!Array.isArray(value)) fail(path, `${where} must be a list`);
-+  return value.map((item, index) => {
-+    if (typeof item !== "string" || !item.trim()) {
-+      fail(path, `${where}[${index}] must be a non-empty string`);
-+    }
-+    return item.trim();
-+  });
-+}
-+
 +/**
 + * Reads the settings file. A missing file is an empty configuration.
 + *
 + * The file is a JSON object. Each key is `*` (every repository), an owner, or
 + * `owner/repository`. Each value may hold `gh` (the GitHub CLI executable),
-+ * `reviewers` (a list of rules), `mergeWithoutApproval` (true or false), and
-+ * `optionalChecks` (a list of check names that may settle while pending or cancelled).
++ * `reviewers` (a list of rules), and `mergeWithoutApproval` (true or false).
 + * Unknown keys are rejected: a misspelled rule must not be silently dropped.
 + */
 +export function loadConfig(path) {
@@ -4419,7 +4394,6 @@ index 0000000000000000000000000000000000000000..84a7374ea28ffd72ce4f86fe15543d5c
 +      gh: value.gh,
 +      mergeWithoutApproval: value.mergeWithoutApproval,
 +      reviewers: (value.reviewers ?? []).map((rule, index) => reviewer(path, `"${scope}".reviewers[${index}]`, rule)),
-+      optionalChecks: "optionalChecks" in value ? optionalChecks(path, `"${scope}".optionalChecks`, value.optionalChecks) : [],
 +    });
 +  }
 +  return scopes;
@@ -4428,17 +4402,14 @@ index 0000000000000000000000000000000000000000..84a7374ea28ffd72ce4f86fe15543d5c
 +/**
 + * Settings for one repository. The most specific `gh` and
 + * `mergeWithoutApproval` win: repository, then owner, then `*`. Reviewer rules
-+ * and `optionalChecks` add up across built-in defaults, `*`, owner, and repo.
++ * add up across `*`, owner, and repo.
 + */
 +export function settingsFor(scopes, owner, repo) {
-+  const repoKey = `${owner}/${repo}`.toLowerCase();
-+  const matching = ["*", owner, repoKey].map((scope) => scopes.get(scope.toLowerCase())).filter(Boolean);
-+  const defaults = DEFAULT_OPTIONAL_CHECKS[repoKey] ?? [];
++  const matching = ["*", owner, `${owner}/${repo}`].map((scope) => scopes.get(scope.toLowerCase())).filter(Boolean);
 +  return {
 +    gh: matching.map((scope) => scope.gh).filter(Boolean).at(-1) ?? null,
 +    mergeWithoutApproval: matching.map((scope) => scope.mergeWithoutApproval).filter((value) => value !== undefined).at(-1) ?? false,
 +    reviewers: matching.flatMap((scope) => scope.reviewers),
-+    optionalChecks: [...new Set([...defaults, ...matching.flatMap((scope) => scope.optionalChecks ?? [])])],
 +  };
 +}
 +
@@ -4926,10 +4897,10 @@ index 0000000000000000000000000000000000000000..7ee236a8170f556b38b8f46425174fa4
 +}
 diff --git a/skills/watch-pr/scripts/verdict.mjs b/skills/watch-pr/scripts/verdict.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4ef42de98
+index 0000000000000000000000000000000000000000..57c4cbf4a793863c74b599be8fea4c5b6db7de33
 --- /dev/null
 +++ b/skills/watch-pr/scripts/verdict.mjs
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,394 @@
 +// Turns one observation of a pull request into the merge-readiness verdict:
 +// what the watcher decides, and the short block it prints last.
 +
@@ -4975,14 +4946,13 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +}
 +
 +/**
-+ * Partitions checks into active buckets and `ignored` (optional checks that are
-+ * `pending` or `cancelled`).
++ * Partitions checks into active buckets and `ignored` (non-required checks that
++ * are `pending` or `cancelled` when `--required-checks-only` is active).
 + *
 + * Fail-closed rules:
 + * - Required status checks from branch protection/rulesets and configured
-+ *   reviewer checks are NEVER ignored, even if listed in `optionalChecks` or
-+ *   passed to `--ignore-check`.
-+ * - An optional check that explicitly fails (`failure`, `timed_out`,
++ *   reviewer checks are NEVER ignored.
++ * - A non-required check that explicitly fails (`failure`, `timed_out`,
 + *   `action_required`, etc.) STILL counts as `failed`.
 + * - `--required-checks-only` only classifies non-required checks as optional
 + *   when GitHub actually declares at least one required status check.
@@ -4990,17 +4960,14 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +export function partitionChecks(checks, {
 +  required = [],
 +  reviewerChecks = [],
-+  optionalChecks = [],
 +  requiredChecksOnly = false,
 +} = {}) {
 +  const protectedSet = new Set([...required, ...reviewerChecks]);
-+  const optionalSet = new Set(optionalChecks);
++  const allowOptional = requiredChecksOnly && required.length > 0;
 +  const buckets = { passed: [], failed: [], pending: [], skipped: [], ignored: [] };
 +  for (const check of checks) {
 +    const isProtected = matchesCheckName(check, protectedSet);
-+    const isOptional = !isProtected && (
-+      matchesCheckName(check, optionalSet) || (requiredChecksOnly && required.length > 0)
-+    );
++    const isOptional = allowOptional && !isProtected;
 +    const isIgnorableState = check.state === "pending" || (check.state === "failed" && check.detail === "cancelled");
 +    if (isOptional && isIgnorableState) {
 +      buckets.ignored.push(check);
@@ -5117,7 +5084,6 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +  reviewers,
 +  mergeWithoutApproval,
 +  reviewerChecks = [],
-+  optionalChecks = [],
 +  requiredChecksOnly = false,
 +}, { firstLook }) {
 +  if (facts.state === "MERGED") return { kind: "merged", exitCode: EXIT.ready };
@@ -5131,7 +5097,6 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +  const buckets = partitionChecks(checks, {
 +    required: expected.required,
 +    reviewerChecks,
-+    optionalChecks,
 +    requiredChecksOnly,
 +  });
 +
@@ -5249,7 +5214,6 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +  reviewers,
 +  mergeWithoutApproval,
 +  reviewerChecks = [],
-+  optionalChecks = [],
 +  requiredChecksOnly = false,
 +}, outcome) {
 +  const head = facts.head;
@@ -5265,7 +5229,6 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +  const buckets = partitionChecks(checks, {
 +    required: expected.required,
 +    reviewerChecks,
-+    optionalChecks,
 +    requiredChecksOnly,
 +  });
 +  const countParts = [
@@ -5334,10 +5297,10 @@ index 0000000000000000000000000000000000000000..a3d60edea26ba006b029c41497ca12c4
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc8a67e524
+index 0000000000000000000000000000000000000000..e3e81641c9525f1916068b383c65a04dc3e5f758
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
-@@ -0,0 +1,253 @@
+@@ -0,0 +1,242 @@
 +#!/usr/bin/env node
 +// Waits until one pull request is ready to merge or blocked, then prints a
 +// short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
@@ -5363,7 +5326,7 @@ index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc
 +} from "./repo-config.mjs";
 +import { EXIT, assess, expectedChecks, render, reviewerStates, stillWaiting } from "./verdict.mjs";
 +
-+const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--ignore-check NAME]... [--required-checks-only] [--once]
++const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--required-checks-only] [--once]
 +
 +Waits until the pull request is ready to merge or blocked. The last output is the verdict.
 +
@@ -5372,8 +5335,6 @@ index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc
 +  --timeout               give up after this many seconds; default 3600, 0 waits without limit
 +  --interval              seconds between ordinary polls; default 60
 +  --sha                   evaluate only once the pull request head is this commit, full or short
-+  --ignore-check          repeatable check name to treat as optional when pending or cancelled
-+                          (explicit failures still block; required checks are never ignored)
 +  --required-checks-only  treat non-required checks as optional when pending or cancelled
 +                          (requires branch protection or rulesets to declare required checks)
 +  --once                  print the verdict for the current state and exit
@@ -5407,7 +5368,6 @@ index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc
 +        timeout: { type: "string", default: "3600" },
 +        interval: { type: "string", default: "60" },
 +        sha: { type: "string" },
-+        "ignore-check": { type: "string", multiple: true, default: [] },
 +        "required-checks-only": { type: "boolean", default: false },
 +        once: { type: "boolean", default: false },
 +        help: { type: "boolean", short: "h", default: false },
@@ -5428,17 +5388,11 @@ index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc
 +  if (sha !== undefined && !/^[0-9a-f]{7,40}$/.test(sha)) {
 +    throw new UsageError(`--sha must be the 7 to 40 hex digits of a commit, not: ${values.sha}`);
 +  }
-+  const ignoreChecks = values["ignore-check"].map((name) => {
-+    const trimmed = name.trim();
-+    if (!trimmed) throw new UsageError("--ignore-check must be a non-empty check name");
-+    return trimmed;
-+  });
 +  return {
 +    pr: resolved.pr,
 +    timeout: seconds("timeout", values.timeout, { zero: true }),
 +    interval: seconds("interval", values.interval, { zero: false }),
 +    sha,
-+    ignoreChecks,
 +    requiredChecksOnly: values["required-checks-only"],
 +    once: values.once,
 +  };
@@ -5450,13 +5404,12 @@ index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc
 +    process.stdout.write(USAGE);
 +    return 0;
 +  }
-+  const { pr, timeout, interval, sha, ignoreChecks, requiredChecksOnly, once } = options;
++  const { pr, timeout, interval, sha, requiredChecksOnly, once } = options;
 +  const settingsPath = configPath(env);
 +  const settings = settingsFor(loadConfig(settingsPath), pr.owner, pr.repo);
 +  const { executable, source } = resolveGitHubCli(settings, { env, settingsPath });
 +  const client = createGhClient(executable, { env });
 +  const github = createGitHub(client);
-+  const optionalChecks = [...new Set([...settings.optionalChecks, ...ignoreChecks])];
 +  const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
 +  const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
 +  const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
@@ -5480,7 +5433,6 @@ index 0000000000000000000000000000000000000000..32d68f8e4463a34ff4454581ce80f7dc
 +      configPath: settingsPath,
 +      mergeWithoutApproval: settings.mergeWithoutApproval,
 +      reviewerChecks,
-+      optionalChecks,
 +      requiredChecksOnly,
 +      facts,
 +      checks: [],

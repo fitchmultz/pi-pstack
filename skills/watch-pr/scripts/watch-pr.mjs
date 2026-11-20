@@ -23,7 +23,7 @@ import {
 } from "./repo-config.mjs";
 import { EXIT, assess, expectedChecks, render, reviewerStates, stillWaiting } from "./verdict.mjs";
 
-const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--ignore-check NAME]... [--required-checks-only] [--once]
+const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--required-checks-only] [--once]
 
 Waits until the pull request is ready to merge or blocked. The last output is the verdict.
 
@@ -32,8 +32,6 @@ Waits until the pull request is ready to merge or blocked. The last output is th
   --timeout               give up after this many seconds; default 3600, 0 waits without limit
   --interval              seconds between ordinary polls; default 60
   --sha                   evaluate only once the pull request head is this commit, full or short
-  --ignore-check          repeatable check name to treat as optional when pending or cancelled
-                          (explicit failures still block; required checks are never ignored)
   --required-checks-only  treat non-required checks as optional when pending or cancelled
                           (requires branch protection or rulesets to declare required checks)
   --once                  print the verdict for the current state and exit
@@ -67,7 +65,6 @@ async function parse(argv) {
         timeout: { type: "string", default: "3600" },
         interval: { type: "string", default: "60" },
         sha: { type: "string" },
-        "ignore-check": { type: "string", multiple: true, default: [] },
         "required-checks-only": { type: "boolean", default: false },
         once: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
@@ -88,17 +85,11 @@ async function parse(argv) {
   if (sha !== undefined && !/^[0-9a-f]{7,40}$/.test(sha)) {
     throw new UsageError(`--sha must be the 7 to 40 hex digits of a commit, not: ${values.sha}`);
   }
-  const ignoreChecks = values["ignore-check"].map((name) => {
-    const trimmed = name.trim();
-    if (!trimmed) throw new UsageError("--ignore-check must be a non-empty check name");
-    return trimmed;
-  });
   return {
     pr: resolved.pr,
     timeout: seconds("timeout", values.timeout, { zero: true }),
     interval: seconds("interval", values.interval, { zero: false }),
     sha,
-    ignoreChecks,
     requiredChecksOnly: values["required-checks-only"],
     once: values.once,
   };
@@ -110,13 +101,12 @@ async function main(argv, env) {
     process.stdout.write(USAGE);
     return 0;
   }
-  const { pr, timeout, interval, sha, ignoreChecks, requiredChecksOnly, once } = options;
+  const { pr, timeout, interval, sha, requiredChecksOnly, once } = options;
   const settingsPath = configPath(env);
   const settings = settingsFor(loadConfig(settingsPath), pr.owner, pr.repo);
   const { executable, source } = resolveGitHubCli(settings, { env, settingsPath });
   const client = createGhClient(executable, { env });
   const github = createGitHub(client);
-  const optionalChecks = [...new Set([...settings.optionalChecks, ...ignoreChecks])];
   const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
   const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
   const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
@@ -140,7 +130,6 @@ async function main(argv, env) {
       configPath: settingsPath,
       mergeWithoutApproval: settings.mergeWithoutApproval,
       reviewerChecks,
-      optionalChecks,
       requiredChecksOnly,
       facts,
       checks: [],

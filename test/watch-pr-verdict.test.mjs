@@ -619,122 +619,6 @@ test("GH_TOKEN and GITHUB_TOKEN are stripped before invoking the configured GitH
   assert.ok(result.calls.every((call) => call.env.hasGhToken === false && call.env.hasGithubToken === false));
 });
 
-test("workos/tars optionalChecks and --ignore-check settle pending/cancelled without bypassing failures or required checks", () => {
-  const tarsConfig = {
-    "*": { gh: "gh-personal" },
-    workos: { gh: "gh-work" },
-    "workos/tars": { mergeWithoutApproval: true, reviewers: [{ name: "TARS review", check: "TARS review" }] },
-  };
-  const deploySuite = 90001;
-  const deployRun = (status, conclusion) => ({
-    id: 50001, name: "Build & Deploy", path: ".github/workflows/deploy.yml", event: "pull_request",
-    check_suite_id: deploySuite, status, conclusion, html_url: "https://example.test/runs/50001",
-  });
-  const baseState = (deployCheck, run) => ({
-    pullRequest: open({ url: "https://github.com/workos/tars/pull/418" }),
-    runs: [run],
-    checkRuns: [
-      check("TARS review", "success"),
-      check("Build & Deploy / Test", "success", deploySuite),
-      deployCheck,
-    ],
-  });
-
-  // Built-in workos/tars optionalChecks settles waiting manual-approval deploy job to READY.
-  const waiting = watch(
-    [baseState(check("Build & Deploy / Deploy to Production", null, deploySuite, "waiting"), deployRun("waiting", null))],
-    { repo: "workos/tars", config: tarsConfig },
-  );
-  assert.equal(waiting.code, 0, waiting.out);
-  assert.deepEqual(waiting.gh, ["gh-work"]);
-  assert.equal(waiting.lines[0], "READY");
-  assert.ok(waiting.lines.includes(`checks on ${HEAD.slice(0, 7)}: 2 passed, 0 failed, 0 pending, 0 skipped, 1 optional`));
-  assert.ok(waiting.lines.includes("  optional (ignored): Build & Deploy / Deploy to Production (waiting)"));
-
-  // Also matches when GitHub emits workflow name separately from the job name.
-  const splitName = watch(
-    [baseState(check("Deploy to Production", null, deploySuite, "waiting"), deployRun("waiting", null))],
-    { repo: "workos/tars", config: tarsConfig },
-  );
-  assert.equal(splitName.code, 0, splitName.out);
-  assert.ok(splitName.lines.includes("  optional (ignored): Deploy to Production (waiting)"));
-
-  // Cancelled optional deploy job also settles to READY.
-  const cancelled = watch(
-    [baseState(check("Build & Deploy / Deploy to Production", "cancelled", deploySuite), deployRun("completed", "cancelled"))],
-    { repo: "workos/tars", config: tarsConfig },
-  );
-  assert.equal(cancelled.code, 0, cancelled.out);
-  assert.ok(cancelled.lines.includes("  optional (ignored): Build & Deploy / Deploy to Production (cancelled)"));
-
-  // Explicit failure or timed_out on an optional check STILL blocks with exit 4.
-  for (const conclusion of ["failure", "timed_out"]) {
-    const failed = watch(
-      [baseState(check("Build & Deploy / Deploy to Production", conclusion, deploySuite), deployRun("completed", conclusion))],
-      { repo: "workos/tars", config: tarsConfig },
-    );
-    assert.equal(failed.code, 4, `expected exit 4 for ${conclusion}: ${failed.out}`);
-    assert.equal(failed.lines[0], "BLOCKED: 1 check failed");
-    assert.ok(failed.lines.some((line) => line.includes(`Build & Deploy / Deploy to Production (${conclusion})`)));
-  }
-
-  // Waiting settles as soon as non-ignored checks pass, without counting optional checks toward waiting.
-  const poll1 = {
-    pullRequest: open({ url: "https://github.com/workos/tars/pull/418" }),
-    runs: [deployRun("in_progress", null)],
-    checkRuns: [
-      check("TARS review", "success"),
-      check("Build & Deploy / Test", null, deploySuite, "in_progress"),
-      check("Build & Deploy / Deploy to Production", null, deploySuite, "waiting"),
-    ],
-  };
-  const poll2 = baseState(check("Build & Deploy / Deploy to Production", null, deploySuite, "waiting"), deployRun("waiting", null));
-  const settled = watch([poll1, poll2], { repo: "workos/tars", config: tarsConfig, args: ["--interval", "0.05"] });
-  assert.equal(settled.code, 0, settled.out);
-  assert.match(settled.lines[0], /waiting on abe04d4: 1 check pending$/);
-  assert.equal(verdict(settled)[0], "READY");
-
-  // Repeatable --ignore-check ignores multiple non-required pending/cancelled checks.
-  const multi = watch([{
-    pullRequest: open(),
-    checkRuns: [
-      ...reviewersPassed(),
-      check("Deploy Preview", null, 8001, "waiting"),
-      check("Manual Canary", "cancelled", 8002),
-    ],
-  }], { args: ["--once", "--ignore-check", "Deploy Preview", "--ignore-check", "Manual Canary"] });
-  assert.equal(multi.code, 0, multi.out);
-  assert.ok(multi.lines.includes(`checks on ${HEAD.slice(0, 7)}: 2 passed, 0 failed, 0 pending, 0 skipped, 2 optional`));
-
-  // Fail-closed: required checks declared by branch protection/rulesets are NEVER ignored even if passed to --ignore-check.
-  const rules = [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "CI / required" }] } }];
-  const reqPending = watch([{
-    pullRequest: open(),
-    rules,
-    checkRuns: [...reviewersPassed(), check("CI / required", null, 8010, "in_progress")],
-  }], { args: ["--once", "--ignore-check", "CI / required"] });
-  assert.equal(reqPending.code, 5, reqPending.out);
-  assert.equal(reqPending.lines[0], "BLOCKED: not ready; waiting for: 1 check pending");
-
-  const reqCancelled = watch([{
-    pullRequest: open(),
-    rules,
-    checkRuns: [...reviewersPassed(), check("CI / required", "cancelled", 8011)],
-  }], { args: ["--once", "--ignore-check", "CI / required"] });
-  assert.equal(reqCancelled.code, 4, reqCancelled.out);
-  assert.equal(reqCancelled.lines[0], "BLOCKED: 1 check failed");
-
-  // Fail-closed: configured reviewer checks are NEVER ignored even if passed to --ignore-check.
-  const revPending = watch([{
-    pullRequest: open(),
-    checkRuns: [check(DURABLE, null), check(CURSOR, "success")],
-  }], { args: ["--once", "--ignore-check", DURABLE] });
-  assert.equal(revPending.code, 5, revPending.out);
-  assert.match(revPending.lines[0], new RegExp(`${DURABLE}: running`));
-
-  assert.equal(watch([{ pullRequest: open() }], { args: ["--once", "--ignore-check", "   "] }).code, 64);
-});
-
 test("--required-checks-only settles non-required pending/cancelled checks and fails closed without required checks", () => {
   const rules = [{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "Depot CI / verify" }] } }];
   const greptilePass = {
@@ -757,15 +641,65 @@ test("--required-checks-only settles non-required pending/cancelled checks and f
   assert.equal(ready.code, 0, ready.out);
   assert.equal(ready.lines[0], "READY");
   assert.ok(ready.lines.includes(`checks on ${HEAD.slice(0, 7)}: 2 passed, 0 failed, 0 pending, 0 skipped, 2 optional`));
+  assert.ok(ready.lines.includes("  optional (ignored): Optional Deploy (waiting), Cancelled Bench (cancelled)"));
   assert.ok(ready.lines.includes("expected checks: all required present (1 required check; --required-checks-only)"));
 
-  // Non-required explicit failure STILL blocks even with --required-checks-only.
-  const failedOptional = watch([{
+  // Settles on poll transition as soon as the required check passes, while a manual-approval deploy job stays waiting.
+  const poll1 = {
     ...state,
-    checkRuns: [...state.checkRuns, check("Optional Lint", "failure", 9102)],
+    checkRuns: [
+      check("Review bot", "success"),
+      check("Depot CI / verify", null, 9105, "in_progress"),
+      check("Optional Deploy", null, 9100, "waiting"),
+    ],
+  };
+  const settled = watch([poll1, state], {
+    repo: "acme/app",
+    args: ["--required-checks-only", "--interval", "0.05"],
+  });
+  assert.equal(settled.code, 0, settled.out);
+  assert.match(settled.lines[0], /waiting on abe04d4: 1 check pending$/);
+  assert.equal(verdict(settled)[0], "READY");
+
+  // Non-required explicit failure or timed_out STILL blocks even with --required-checks-only.
+  for (const conclusion of ["failure", "timed_out"]) {
+    const failedOptional = watch([{
+      ...state,
+      checkRuns: [...state.checkRuns, check("Optional Lint", conclusion, 9102)],
+    }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+    assert.equal(failedOptional.code, 4, `expected exit 4 for ${conclusion}: ${failedOptional.out}`);
+    assert.equal(failedOptional.lines[0], "BLOCKED: 1 check failed");
+  }
+
+  // Fail-closed: required checks declared by branch protection/rulesets are NEVER ignored.
+  const reqPending = watch([{
+    ...state,
+    checkRuns: [check("Review bot", "success"), check("Depot CI / verify", null, 9103, "in_progress")],
   }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
-  assert.equal(failedOptional.code, 4, failedOptional.out);
-  assert.equal(failedOptional.lines[0], "BLOCKED: 1 check failed");
+  assert.equal(reqPending.code, 5, reqPending.out);
+  assert.equal(reqPending.lines[0], "BLOCKED: not ready; waiting for: 1 check pending");
+
+  const reqCancelled = watch([{
+    ...state,
+    checkRuns: [check("Review bot", "success"), check("Depot CI / verify", "cancelled", 9104)],
+  }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+  assert.equal(reqCancelled.code, 4, reqCancelled.out);
+  assert.equal(reqCancelled.lines[0], "BLOCKED: 1 check failed");
+
+  // Fail-closed: configured reviewer checks are NEVER ignored even if not listed in GitHub rules.
+  const revPending = watch([{
+    ...state,
+    checkRuns: [check("Review bot", null, 9106, "in_progress"), check("Depot CI / verify", "success")],
+  }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+  assert.equal(revPending.code, 5, revPending.out);
+  assert.match(revPending.lines[0], /Review bot: running/);
+
+  const revCancelled = watch([{
+    ...state,
+    checkRuns: [check("Review bot", "cancelled", 9107), check("Depot CI / verify", "success")],
+  }], { repo: "acme/app", args: ["--once", "--required-checks-only"] });
+  assert.equal(revCancelled.code, 4, revCancelled.out);
+  assert.equal(revCancelled.lines[0], "BLOCKED: 1 check failed");
 
   // Missing required check STILL waits under --required-checks-only.
   const missingReq = watch([{

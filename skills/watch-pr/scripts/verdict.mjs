@@ -43,14 +43,13 @@ function matchesCheckName(check, set) {
 }
 
 /**
- * Partitions checks into active buckets and `ignored` (optional checks that are
- * `pending` or `cancelled`).
+ * Partitions checks into active buckets and `ignored` (non-required checks that
+ * are `pending` or `cancelled` when `--required-checks-only` is active).
  *
  * Fail-closed rules:
  * - Required status checks from branch protection/rulesets and configured
- *   reviewer checks are NEVER ignored, even if listed in `optionalChecks` or
- *   passed to `--ignore-check`.
- * - An optional check that explicitly fails (`failure`, `timed_out`,
+ *   reviewer checks are NEVER ignored.
+ * - A non-required check that explicitly fails (`failure`, `timed_out`,
  *   `action_required`, etc.) STILL counts as `failed`.
  * - `--required-checks-only` only classifies non-required checks as optional
  *   when GitHub actually declares at least one required status check.
@@ -58,17 +57,14 @@ function matchesCheckName(check, set) {
 export function partitionChecks(checks, {
   required = [],
   reviewerChecks = [],
-  optionalChecks = [],
   requiredChecksOnly = false,
 } = {}) {
   const protectedSet = new Set([...required, ...reviewerChecks]);
-  const optionalSet = new Set(optionalChecks);
+  const allowOptional = requiredChecksOnly && required.length > 0;
   const buckets = { passed: [], failed: [], pending: [], skipped: [], ignored: [] };
   for (const check of checks) {
     const isProtected = matchesCheckName(check, protectedSet);
-    const isOptional = !isProtected && (
-      matchesCheckName(check, optionalSet) || (requiredChecksOnly && required.length > 0)
-    );
+    const isOptional = allowOptional && !isProtected;
     const isIgnorableState = check.state === "pending" || (check.state === "failed" && check.detail === "cancelled");
     if (isOptional && isIgnorableState) {
       buckets.ignored.push(check);
@@ -185,7 +181,6 @@ export function assess({
   reviewers,
   mergeWithoutApproval,
   reviewerChecks = [],
-  optionalChecks = [],
   requiredChecksOnly = false,
 }, { firstLook }) {
   if (facts.state === "MERGED") return { kind: "merged", exitCode: EXIT.ready };
@@ -199,7 +194,6 @@ export function assess({
   const buckets = partitionChecks(checks, {
     required: expected.required,
     reviewerChecks,
-    optionalChecks,
     requiredChecksOnly,
   });
 
@@ -317,7 +311,6 @@ export function render({
   reviewers,
   mergeWithoutApproval,
   reviewerChecks = [],
-  optionalChecks = [],
   requiredChecksOnly = false,
 }, outcome) {
   const head = facts.head;
@@ -333,7 +326,6 @@ export function render({
   const buckets = partitionChecks(checks, {
     required: expected.required,
     reviewerChecks,
-    optionalChecks,
     requiredChecksOnly,
   });
   const countParts = [

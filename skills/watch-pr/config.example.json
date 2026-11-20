@@ -15,8 +15,5 @@
       }
     ]
   },
-  "my-company/admin-repo": {
-    "mergeWithoutApproval": true,
-    "optionalChecks": ["Build & Deploy / Deploy to Production"]
-  }
+  "my-company/admin-repo": { "mergeWithoutApproval": true }
 }
