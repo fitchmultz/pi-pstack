@@ -4475,10 +4475,10 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..408a8d6a44607f41302f3544e64d03b2c69f4e63
+index 0000000000000000000000000000000000000000..d8a204314d546845901a8da035da8e3c0fc02a24
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,158 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
@@ -4530,7 +4530,10 @@ index 0000000000000000000000000000000000000000..408a8d6a44607f41302f3544e64d03b2
 + */
 +export function parseSeverity(body) {
 +  if (!body) return null;
-+  const plain = body.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]*>/g, "");
++  const plain = body
++    .replace(/<!--[\s\S]*?-->/g, "")
++    .replace(/<\/?(?:b|strong)\b[^>]*>/gi, "**")
++    .replace(/<[^>]*>/g, "");
 +  for (const pattern of [EXPLICIT_LABEL, BRACKET_TAG, LINE_START_MARKUP, LINE_START_COLON, COMPOUND_TAG]) {
 +    const match = pattern.exec(plain);
 +    if (match?.[1]) return match[1].toLowerCase();

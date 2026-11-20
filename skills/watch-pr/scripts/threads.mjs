@@ -49,7 +49,10 @@ export function cleanSnippet(body, maxLength = 200) {
  */
 export function parseSeverity(body) {
   if (!body) return null;
-  const plain = body.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]*>/g, "");
+  const plain = body
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<\/?(?:b|strong)\b[^>]*>/gi, "**")
+    .replace(/<[^>]*>/g, "");
   for (const pattern of [EXPLICIT_LABEL, BRACKET_TAG, LINE_START_MARKUP, LINE_START_COLON, COMPOUND_TAG]) {
     const match = pattern.exec(plain);
     if (match?.[1]) return match[1].toLowerCase();

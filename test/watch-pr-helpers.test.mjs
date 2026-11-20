@@ -123,6 +123,8 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
     ["🟡 **Low:** unused helper", "low"],
     ["Nit: prefer const over let", "nit"],
     ["<sub><b>[fix-if-cheap]</b></sub> Optional cleanup", "fix-if-cheap"],
+    ["<b>High</b> - unchecked cast", "high"],
+    ["<strong>Critical</strong> — missing guard", "critical"],
   ];
   for (const [body, expected] of samples) {
     assert.equal(parseSeverity(body), expected, body);
