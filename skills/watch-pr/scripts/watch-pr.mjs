@@ -2,32 +2,45 @@
 // Waits until one pull request is ready to merge or blocked, then prints a
 // short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
 
-import { execFile } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import { ConfigError, configPath, loadConfig, settingsFor } from "./config.mjs";
-import { QueryError, createGitHub, readTogether } from "./github.mjs";
+import {
+  MAX_QUERY_FAILURES,
+  QueryError,
+  createGhClient,
+  createRateLimitBackoff,
+  readTogether,
+  waitUntilElapsed,
+} from "./gh-client.mjs";
+import { createGitHub } from "./github.mjs";
+import {
+  ConfigError,
+  configPath,
+  loadConfig,
+  parsePrTarget,
+  resolveGitHubCli,
+  settingsFor,
+} from "./repo-config.mjs";
 import { EXIT, assess, expectedChecks, render, reviewerStates, stillWaiting } from "./verdict.mjs";
 
-const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--once]
+const USAGE = `Usage: watch-pr.mjs <number|url> [--repo OWNER/NAME] [--timeout SECONDS] [--interval SECONDS] [--sha SHA] [--required-checks-only] [--once]
 
 Waits until the pull request is ready to merge or blocked. The last output is the verdict.
 
-  <number|url>   pull request number or URL (also --pr NUMBER)
-  --repo         OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
-  --timeout      give up after this many seconds; default 3600, 0 waits without limit
-  --interval     seconds between ordinary polls; default 60
-  --sha          evaluate only once the pull request head is this commit, full or short
-  --once         print the verdict for the current state and exit
+  <number|url>            pull request number or URL (also --pr NUMBER)
+  --repo                  OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
+  --timeout               give up after this many seconds; default 3600, 0 waits without limit
+  --interval              seconds between ordinary polls; default 60
+  --sha                   evaluate only once the pull request head is this commit, full or short
+  --required-checks-only  treat non-required checks as optional when pending or cancelled
+                          (requires branch protection or rulesets to declare required checks)
+  --once                  print the verdict for the current state and exit
 
 Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads, 4 failed checks,
 5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft, closed,
 changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
 reviewer did not sign off, 9 unknown, 64 usage.
 `;
-
-// Consecutive failed polls before the watch gives up; the packaged poteto-mode watcher uses the same budget.
-const MAX_QUERY_FAILURES = 5;
 
 class UsageError extends Error {}
 
@@ -37,12 +50,6 @@ function seconds(name, value, { zero }) {
     throw new UsageError(`--${name} must be a number ${zero ? "of at least 0" : "greater than 0"}`);
   }
   return parsed;
-}
-
-function originRemote() {
-  return new Promise((resolve) => {
-    execFile("git", ["remote", "get-url", "origin"], (error, stdout) => resolve(error ? "" : stdout.trim()));
-  });
 }
 
 async function parse(argv) {
@@ -58,6 +65,7 @@ async function parse(argv) {
         timeout: { type: "string", default: "3600" },
         interval: { type: "string", default: "60" },
         sha: { type: "string" },
+        "required-checks-only": { type: "boolean", default: false },
         once: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
@@ -71,28 +79,18 @@ async function parse(argv) {
   const target = positionals[0] ?? values.pr;
   if (target === undefined) throw new UsageError("name the pull request: a number or a URL");
   if (positionals.length && values.pr !== undefined) throw new UsageError("name the pull request once");
-  let owner = values.owner;
-  let repo = values.repo;
-  let number = target.replace(/^#/, "");
-  const url = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/.exec(target);
-  if (url) [, owner, repo, number] = url;
-  else if (repo?.includes("/")) [owner, repo] = repo.split("/");
-  if (!/^[1-9]\d*$/.test(number)) throw new UsageError(`not a pull request number or URL: ${target}`);
-  if (!owner || !repo) {
-    const origin = /github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(await originRemote());
-    owner ??= origin?.[1];
-    repo ??= origin?.[2];
-  }
-  if (!owner || !repo) throw new UsageError("name the repository: --repo OWNER/NAME");
+  const resolved = await parsePrTarget(target, { owner: values.owner, repo: values.repo });
+  if (resolved.error) throw new UsageError(resolved.error);
   const sha = values.sha?.toLowerCase();
   if (sha !== undefined && !/^[0-9a-f]{7,40}$/.test(sha)) {
     throw new UsageError(`--sha must be the 7 to 40 hex digits of a commit, not: ${values.sha}`);
   }
   return {
-    pr: { owner, repo, number: Number(number) },
+    pr: resolved.pr,
     timeout: seconds("timeout", values.timeout, { zero: true }),
     interval: seconds("interval", values.interval, { zero: false }),
     sha,
+    requiredChecksOnly: values["required-checks-only"],
     once: values.once,
   };
 }
@@ -103,12 +101,13 @@ async function main(argv, env) {
     process.stdout.write(USAGE);
     return 0;
   }
-  const { pr, timeout, interval, sha, once } = options;
+  const { pr, timeout, interval, sha, requiredChecksOnly, once } = options;
   const settingsPath = configPath(env);
   const settings = settingsFor(loadConfig(settingsPath), pr.owner, pr.repo);
-  const executable = env.WATCH_PR_GH || settings.gh || "gh";
-  const source = env.WATCH_PR_GH ? "WATCH_PR_GH" : settings.gh ? settingsPath : "the default; none is set in WATCH_PR_GH or " + settingsPath;
-  const github = createGitHub(executable);
+  const { executable, source } = resolveGitHubCli(settings, { env, settingsPath });
+  const client = createGhClient(executable, { env });
+  const github = createGitHub(client);
+  const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
   const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
   const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
   const workflowFiles = new Map();
@@ -126,8 +125,16 @@ async function main(argv, env) {
   async function observe() {
     const facts = await github.pullRequest(pr);
     const view = {
-      pr, startHead, configPath: settingsPath, mergeWithoutApproval: settings.mergeWithoutApproval,
-      facts, checks: [], expected: empty, reviewers: [],
+      pr,
+      startHead,
+      configPath: settingsPath,
+      mergeWithoutApproval: settings.mergeWithoutApproval,
+      reviewerChecks,
+      requiredChecksOnly,
+      facts,
+      checks: [],
+      expected: empty,
+      reviewers: [],
     };
     if (facts.state !== "OPEN") return view;
     if (!headReached) {
@@ -152,13 +159,6 @@ async function main(argv, env) {
   const remaining = () => timeout > 0 ? Math.max(0, timeout - elapsed()) : Infinity;
   const timedOut = () => remaining() === 0;
   const sleep = () => delay(1000 * Math.min(interval, remaining()));
-  async function waitForRateLimit(elapsedDeadline) {
-    let seconds;
-    while ((seconds = Math.min(elapsedDeadline - elapsed(), remaining())) > 0) {
-      // Node turns a delay above its signed 32-bit timer limit into 1 ms.
-      await delay(Math.min(Math.ceil(1000 * seconds), 2 ** 31 - 1));
-    }
-  }
   const log = (text) => process.stdout.write(`${new Date().toISOString()} ${text}\n`);
   function queryBlocked(exitCode, reason) {
     process.stdout.write([
@@ -168,10 +168,8 @@ async function main(argv, env) {
     ].join("\n").concat("\n"));
     return exitCode;
   }
+  const backoff = createRateLimitBackoff({ interval, maxFailures: MAX_QUERY_FAILURES });
   const seen = new Set();
-  let failures = 0;
-  let secondaryFailures = 0;
-  let previousSecondaryWait = 0;
   let progress = null;
   for (;;) {
     let view;
@@ -189,8 +187,7 @@ async function main(argv, env) {
         const line = `waiting for the head to reach ${shortSha}: now ${view.facts.head.slice(0, 7)}`;
         if (line !== progress) log(line);
         progress = line;
-        failures = 0;
-        secondaryFailures = previousSecondaryWait = 0;
+        backoff.reset();
         await sleep();
         continue;
       }
@@ -198,41 +195,27 @@ async function main(argv, env) {
       // A push during the reads would make READY describe a commit that is no longer the head.
       if (outcome.kind === "ready" && (await github.head(pr)) !== view.facts.head) continue;
       seen.add(view.facts.head);
-      failures = 0;
-      secondaryFailures = previousSecondaryWait = 0;
+      backoff.reset();
     } catch (error) {
       if (!(error instanceof QueryError)) throw error;
       if (error.rateLimit) {
-        const { kind, notBefore } = error.rateLimit;
-        const description = `GitHub ${kind ? `${kind} ` : ""}rate limit; retry no earlier than ${new Date(notBefore).toISOString()}`;
-        if (once) return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}`);
-        if (timedOut()) return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
-        const untilReset = (notBefore - Date.now()) / 1000;
-        let wait = untilReset > 0 ? untilReset : interval;
-        if (kind === "secondary") {
-          // GitHub asks for exponential backoff and a separate stop on repeated secondary limits.
-          if (++secondaryFailures >= MAX_QUERY_FAILURES) {
-            return queryBlocked(EXIT.queryFailed, `GitHub query failed: ${description}; hit ${secondaryFailures} secondary limits`);
-          }
-          wait = previousSecondaryWait = Math.max(wait, previousSecondaryWait * 2);
+        const decision = backoff.onRateLimit(error.rateLimit, { once, timedOut: timedOut(), timeout });
+        if (decision.action === "abort") {
+          return queryBlocked(EXIT[decision.kind], decision.message);
         }
-        const wake = elapsed() + wait;
-        log(`${description}; ${wait >= remaining() ? "waiting for the watch timeout" : `next poll in ${Math.ceil(wait)} s`}`);
-        await waitForRateLimit(wake);
+        const wake = elapsed() + decision.waitSeconds;
+        log(`${decision.description}; ${decision.waitSeconds >= remaining() ? "waiting for the watch timeout" : `next poll in ${Math.ceil(decision.waitSeconds)} s`}`);
+        await waitUntilElapsed(wake, { elapsed, remaining });
         if (timedOut()) {
-          return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${description}`);
+          return queryBlocked(EXIT.timeout, `timed out after ${timeout} s; ${decision.description}`);
         }
         continue;
       }
-      failures++;
-      const gaveUp = !error.retryable || once || failures >= MAX_QUERY_FAILURES;
-      if (gaveUp || timedOut()) {
-        const reason = gaveUp
-          ? `GitHub query failed${failures > 1 ? ` ${failures} times in a row` : ""}`
-          : `timed out after ${timeout} s; GitHub query failed`;
-        return queryBlocked(gaveUp ? EXIT.queryFailed : EXIT.timeout, `${reason}: ${error.message}`);
+      const decision = backoff.onFailure(error, { once, timedOut: timedOut(), timeout });
+      if (decision.action === "abort") {
+        return queryBlocked(EXIT[decision.kind], decision.message);
       }
-      log(`retry ${failures}/${MAX_QUERY_FAILURES}: ${error.message}`);
+      log(`retry ${decision.failures}/${decision.maxFailures}: ${error.message}`);
       await sleep();
       continue;
     }

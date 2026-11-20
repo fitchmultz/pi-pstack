@@ -58,7 +58,7 @@ The bundled profiles inherit the session model instead of pinning a credentialed
 node /path/to/pi-pstack/skills/watch-pr/scripts/watch-pr.mjs https://github.com/OWNER/REPO/pull/123
 ```
 
-The last output is a verdict of at most 20 lines and 2048 bytes: `READY`, `MERGED`, `BLOCKED: <reason>` or `UNKNOWN: <reason>`, then the head commit, check counts, required reviewers, unresolved review threads and merge state. A commit whose expected checks have not started is never `READY`. [The skill](skills/watch-pr/SKILL.md) lists the exit codes and the decision rules.
+The last output is a verdict of at most 20 lines and 2048 bytes: `READY`, `MERGED`, `BLOCKED: <reason>` or `UNKNOWN: <reason>`, then the head commit, check counts (including any optional/ignored checks), required reviewers, unresolved review threads (with short commit SHA, `head`/`older` status, and parsed severity tag when present) and merge state. Pass `--required-checks-only` to let non-required pending or cancelled checks (such as manual-approval deploy jobs) settle without bypassing GitHub's declared required status checks, configured reviewers, or explicit failures. A commit whose expected checks have not started is never `READY`. The companion `skills/watch-pr/scripts/pr-threads.mjs` CLI lists unresolved threads and replies/resolves threads using the same shared repository routing (`repo-config.mjs` and `gh-client.mjs`). [The skill](skills/watch-pr/SKILL.md) lists the exit codes and the decision rules.
 
 `watch-pr.json` in the Pi agent directory selects the GitHub CLI and the required reviewers for each owner or repository. Start from [the example](skills/watch-pr/config.example.json). Without the file, the watcher runs `gh` and requires no reviewer.
 

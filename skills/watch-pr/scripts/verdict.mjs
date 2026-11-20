@@ -2,7 +2,8 @@
 // what the watcher decides, and the short block it prints last.
 
 import { basename } from "node:path";
-import { login } from "./github.mjs";
+import { login } from "./gh-client.mjs";
+import { formatVerdictThread } from "./threads.mjs";
 import { classifyWorkflow } from "./triggers.mjs";
 
 /**
@@ -35,6 +36,51 @@ function some(names, max = 3) {
   return names.length > max ? `${names.slice(0, max).join(", ")} (+${names.length - max} more)` : names.join(", ");
 }
 
+function matchesCheckName(check, set) {
+  if (set.has(check.name)) return true;
+  if (check.workflow && set.has(`${check.workflow} / ${check.name}`)) return true;
+  return false;
+}
+
+/**
+ * Partitions checks into active buckets and `ignored` (non-required checks that
+ * are `pending` or `cancelled` when `--required-checks-only` is active).
+ *
+ * Fail-closed rules:
+ * - Required status checks from branch protection/rulesets and configured
+ *   reviewer checks are NEVER ignored.
+ * - A non-required check that explicitly fails (`failure`, `timed_out`,
+ *   `action_required`, etc.) STILL counts as `failed`.
+ * - `--required-checks-only` only classifies non-required checks as optional
+ *   when GitHub actually declares at least one required status check.
+ */
+export function partitionChecks(checks, {
+  required = [],
+  reviewerChecks = [],
+  requiredChecksOnly = false,
+} = {}) {
+  const protectedSet = new Set([...required, ...reviewerChecks]);
+  const allowOptional = requiredChecksOnly && required.length > 0;
+  const buckets = { passed: [], failed: [], pending: [], skipped: [], ignored: [] };
+  for (const check of checks) {
+    const isProtected = matchesCheckName(check, protectedSet);
+    const isOptional = allowOptional && !isProtected;
+    const isIgnorableState = check.state === "pending" || (check.state === "failed" && check.detail === "cancelled");
+    if (isOptional && isIgnorableState) {
+      buckets.ignored.push(check);
+    } else if (check.state === "passed") {
+      buckets.passed.push(check);
+    } else if (check.state === "skipped") {
+      buckets.skipped.push(check);
+    } else if (check.state === "pending") {
+      buckets.pending.push(check);
+    } else {
+      buckets.failed.push(check);
+    }
+  }
+  return buckets;
+}
+
 /**
  * Which checks GitHub still owes this commit.
  *
@@ -62,9 +108,11 @@ export function expectedChecks({ files, baseRef, runs, required, checks }) {
   return expected;
 }
 
-function missingText({ missingWorkflows, missingRequired }) {
+function missingText({ missingWorkflows, missingRequired }, { requiredChecksOnly = false } = {}) {
   const parts = [];
-  if (missingWorkflows.length) parts.push(`no run of ${plural(missingWorkflows.length, "workflow")} (${some(missingWorkflows)})`);
+  if (!requiredChecksOnly && missingWorkflows.length) {
+    parts.push(`no run of ${plural(missingWorkflows.length, "workflow")} (${some(missingWorkflows)})`);
+  }
   if (missingRequired.length) parts.push(`${plural(missingRequired.length, "required check")} not reported (${some(missingRequired)})`);
   return parts.join("; ");
 }
@@ -126,21 +174,43 @@ const blocked = (exitCode, reason) => ({ kind: "blocked", exitCode, reason });
  *
  * @returns {{ kind: "merged" | "ready" | "blocked" | "unknown" | "waiting", exitCode?: number, reason?: string, waiting?: string[] }}
  */
-export function assess({ facts, checks, expected, reviewers, mergeWithoutApproval }, { firstLook }) {
+export function assess({
+  facts,
+  checks,
+  expected,
+  reviewers,
+  mergeWithoutApproval,
+  reviewerChecks = [],
+  requiredChecksOnly = false,
+}, { firstLook }) {
   if (facts.state === "MERGED") return { kind: "merged", exitCode: EXIT.ready };
   if (facts.state === "CLOSED") return blocked(EXIT.mergeGate, "pull request is closed without a merge");
   if (facts.mergeable === "CONFLICTING" || facts.mergeState === "DIRTY") {
     return blocked(EXIT.conflicts, `merge conflicts with ${facts.baseRef}`);
   }
   if (facts.threads.length) return blocked(EXIT.threads, plural(facts.threads.length, "unresolved review thread"));
-  const failed = checks.filter((check) => check.state === "failed");
-  if (failed.length) return blocked(EXIT.failingChecks, `${plural(failed.length, "check")} failed`);
+
+  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
+  const buckets = partitionChecks(checks, {
+    required: expected.required,
+    reviewerChecks,
+    requiredChecksOnly,
+  });
+
+  if (buckets.failed.length) return blocked(EXIT.failingChecks, `${plural(buckets.failed.length, "check")} failed`);
   if (facts.reviewDecision === "CHANGES_REQUESTED") return blocked(EXIT.mergeGate, "a reviewer requested changes");
   const rejected = reviewers.find((reviewer) => reviewer.state === "rejected");
   if (rejected) return blocked(EXIT.reviewerRejected, `${rejected.name} did not sign off: ${rejected.text}`);
+  if (requiredChecksOnly && expected.required.length === 0) {
+    return {
+      kind: "unknown",
+      exitCode: EXIT.unknown,
+      reason: `--required-checks-only requested, but GitHub declares no required status checks for ${facts.baseRef}`,
+    };
+  }
 
   const absent = [];
-  if (expected.undetermined.length) {
+  if (!enforceRequiredOnly && expected.undetermined.length) {
     absent.push(`cannot tell whether ${some(expected.undetermined)} ${expected.undetermined.length === 1 ? "was" : "were"} skipped by filters or ${expected.undetermined.length === 1 ? "has" : "have"} not started`);
   }
   if (checks.length === 0 && expected.workflows.length + expected.required.length === 0) {
@@ -148,9 +218,8 @@ export function assess({ facts, checks, expected, reviewers, mergeWithoutApprova
   }
 
   const waiting = [];
-  const pending = checks.filter((check) => check.state === "pending");
-  if (pending.length) waiting.push(`${plural(pending.length, "check")} pending`);
-  const missing = missingText(expected);
+  if (buckets.pending.length) waiting.push(`${plural(buckets.pending.length, "check")} pending`);
+  const missing = missingText(expected, { requiredChecksOnly: enforceRequiredOnly });
   if (missing) waiting.push(missing);
   if (facts.mergeable === "UNKNOWN" || facts.mergeState === "UNKNOWN") waiting.push("GitHub is still computing mergeability");
   if (!facts.isDraft) {
@@ -165,7 +234,7 @@ export function assess({ facts, checks, expected, reviewers, mergeWithoutApprova
     return blocked(EXIT.mergeGate, "GitHub requires an approving review");
   }
   const unknown = [
-    ...expected.unreadable.map((name) => `cannot read the triggers of ${name}`),
+    ...(!enforceRequiredOnly ? expected.unreadable.map((name) => `cannot read the triggers of ${name}`) : []),
     ...absent,
     ...reviewers.filter((reviewer) => reviewer.state === "unknown").map((reviewer) => `${reviewer.name}: ${reviewer.text}`),
   ];
@@ -187,9 +256,16 @@ function headline(outcome) {
   return clip(`${outcome.kind === "unknown" ? "UNKNOWN" : "BLOCKED"}: ${outcome.reason}`, 400);
 }
 
-function expectedLine(expected) {
-  const missing = missingText(expected);
+function expectedLine(expected, { requiredChecksOnly = false } = {}) {
+  if (requiredChecksOnly && expected.required.length === 0) {
+    return "expected checks: none declared (required by --required-checks-only)";
+  }
+  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
+  const missing = missingText(expected, { requiredChecksOnly: enforceRequiredOnly });
   if (missing) return `expected checks: not registered: ${missing}`;
+  if (enforceRequiredOnly) {
+    return `expected checks: all required present (${plural(expected.required.length, "required check")}; --required-checks-only)`;
+  }
   const unknown = [...expected.undetermined, ...expected.unreadable];
   if (unknown.length) return `expected checks: unknown for ${some(unknown)} (no run on this commit)`;
   const known = [];
@@ -225,7 +301,18 @@ function clipBytes(text, max) {
  * @param {string | null} view.startHead Head commit when the watch began.
  * @param {string} view.configPath Shown when no reviewer rule applies.
  */
-export function render({ pr, startHead, configPath, facts, checks, expected, reviewers, mergeWithoutApproval }, outcome) {
+export function render({
+  pr,
+  startHead,
+  configPath,
+  facts,
+  checks,
+  expected,
+  reviewers,
+  mergeWithoutApproval,
+  reviewerChecks = [],
+  requiredChecksOnly = false,
+}, outcome) {
   const head = facts.head;
   const top = [headline(outcome), `pr: ${facts.url}`];
   if (facts.state !== "OPEN") {
@@ -236,30 +323,41 @@ export function render({ pr, startHead, configPath, facts, checks, expected, rev
   }
   top.push(`commit: ${head} (${startHead === head
     ? "head did not move during this watch" : `head moved during this watch; it started on ${short(startHead)}`})`);
-  const count = (state) => checks.filter((check) => check.state === state).length;
-  top.push(`checks on ${short(head)}: ${count("passed")} passed, ${count("failed")} failed, ${count("pending")} pending, ${count("skipped")} skipped`);
-  const pending = checks.filter((check) => check.state === "pending").map((check) => check.name);
+  const buckets = partitionChecks(checks, {
+    required: expected.required,
+    reviewerChecks,
+    requiredChecksOnly,
+  });
+  const countParts = [
+    `${buckets.passed.length} passed`,
+    `${buckets.failed.length} failed`,
+    `${buckets.pending.length} pending`,
+    `${buckets.skipped.length} skipped`,
+    ...(buckets.ignored.length ? [`${buckets.ignored.length} optional`] : []),
+  ];
+  top.push(`checks on ${short(head)}: ${countParts.join(", ")}`);
+  const pendingNames = buckets.pending.map((check) => check.name);
+  const ignoredLabels = buckets.ignored.map((check) => `${check.name} (${check.detail})`);
   // Each part is a heading, then items that are shown while the block fits.
   const parts = [
     {
       items: reviewers.map((reviewer) => clip(`  ${reviewer.name}: ${reviewer.text}`, 200)),
       before: [
-        ...(pending.length ? [clip(`  pending: ${some(pending)}`, 300)] : []),
-        clip(expectedLine(expected), 400),
+        ...(pendingNames.length ? [clip(`  pending: ${some(pendingNames)}`, 300)] : []),
+        ...(ignoredLabels.length ? [clip(`  optional (ignored): ${some(ignoredLabels)}`, 300)] : []),
+        clip(expectedLine(expected, { requiredChecksOnly }), 400),
         reviewers.length ? "reviewers:" : `reviewers: no rule for ${pr.owner}/${pr.repo} in ${configPath}`,
       ],
       more: "reviewers",
     },
     {
-      items: checks.filter((check) => check.state === "failed")
+      items: buckets.failed
         .map((check) => `  failed: ${clip(check.name, 80)} (${check.detail}) ${check.link}`),
       before: [],
       more: "failed checks",
     },
     {
-      items: facts.threads.map((thread) =>
-        `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${thread.author ?? "unknown"}: ${
-          clip(thread.body.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim(), THREAD_EXCERPT)}`),
+      items: facts.threads.map((thread) => formatVerdictThread(thread, THREAD_EXCERPT)),
       before: [`unresolved review threads: ${facts.threads.length}`],
       more: "threads",
     },
