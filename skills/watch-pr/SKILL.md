@@ -9,7 +9,7 @@ Read [the Pi execution contract](../../docs/harness/pi.md).
 
 Use the watcher to wait until one GitHub pull request can be merged, or to learn what blocks it. It checks four things on the head commit: the checks finished, the required reviewers signed off, the review threads are resolved, and GitHub can merge. Do not write your own check loop. Do not add separate reads after `gh pr checks --watch`.
 
-The watcher (`scripts/watch-pr.mjs`) only reads from GitHub. It does not merge, comment, rerun or resolve. Use the companion helper `scripts/pr-threads.mjs` when you explicitly want to list, reply to, or resolve review threads using the same repository routing.
+The watcher (`scripts/watch-pr.mjs`) only reads from GitHub. It does not merge, comment, rerun or resolve. Use the companion helper `scripts/pr-threads.mjs` when you explicitly want to list, reply to, or resolve review threads, and `scripts/watch-run.mjs` when waiting on a single GitHub Actions workflow run (such as a post-merge deploy with a manual production approval gate) using the same repository routing.
 
 ## Start the watcher
 
@@ -89,6 +89,31 @@ node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --reply PRRT_... -
 
 Exit codes for `pr-threads.mjs`: `0` success, `7` GitHub query failed, `64` usage or configuration error.
 
+## Watch a workflow run (`watch-run.mjs`)
+
+Use `scripts/watch-run.mjs` with `background_command` to wait on one GitHub Actions workflow run without writing a custom polling loop. It reuses `watch-pr.json` / `WATCH_PR_GH` CLI routing, strips ambient `GH_TOKEN`/`GITHUB_TOKEN`, and applies the same primary/secondary rate-limit backoff as `watch-pr.mjs`.
+
+```json
+{"action":"start","command":"node SKILL_DIRECTORY/scripts/watch-run.mjs https://github.com/OWNER/REPO/actions/runs/123456789 --stop-at-waiting"}
+```
+
+- Name the run by URL (`https://github.com/OWNER/REPO/actions/runs/<id>`) or by numeric ID with `--repo OWNER/NAME` (defaults to the `origin` remote of the current directory).
+- `--interval SECONDS` sets the ordinary polling interval. The default is 60.
+- `--timeout SECONDS` ends the watch after that time. The default is 3600; `0` waits without limit.
+- `--until-job NAME` (repeatable) matches a job name (or `"Workflow / Job"`) and settles with exit `0` (`SETTLED` or `PASSED`) once all named jobs succeed, even while downstream manual-approval or other jobs remain `waiting` or `in_progress`. If any named job fails, is cancelled, times out, or is skipped, the watcher exits `4` immediately.
+- `--stop-at-waiting` settles with exit `0` (`SETTLED`) once all active non-waiting jobs have succeeded and the only remaining incomplete job(s) are in `waiting` status (GitHub Actions deployment environment approval gate). If any job fails or is cancelled, it fails closed immediately with exit `4`.
+- `--once` evaluates the current state and exits without polling (run with `bash`).
+
+The last output is a bounded summary (at most 20 lines and 2048 bytes) naming the run URL, workflow name and status, head commit SHA, job counts (`passed`, `failed`, `waiting`, `pending`, `skipped`), failed job URLs, and waiting deployment-gate jobs.
+
+| Exit | First line | Meaning |
+| --- | --- | --- |
+| 0 | `PASSED` or `SETTLED` | The workflow run succeeded, all `--until-job` targets passed, or only `waiting` deployment-gate jobs remain under `--stop-at-waiting`. |
+| 4 | `FAILED` or `CANCELLED` | The workflow run or a job (or `--until-job` target) failed, timed out, was cancelled, or was skipped. |
+| 7 | `UNKNOWN: ...` | GitHub query failed, a `--until-job` target never appeared in a completed run, or the run ended in an unexpected non-success conclusion (`skipped` / `neutral`). |
+| 8 | `TIMEOUT: ...` or `PENDING: ...` | The watch reached `--timeout`, or `--once` saw the run still in progress. |
+| 64 | none | Wrong arguments or an invalid configuration file. The message is on stderr. |
+
 ## Configure it
 
 The watcher reads `watch-pr.json` in the Pi agent directory (`${PI_CODING_AGENT_DIR:-~/.pi/agent}`), or the file that `WATCH_PR_CONFIG` names. Without the file, it runs `gh` and requires no reviewer. Copy [config.example.json](config.example.json) to begin.
@@ -101,8 +126,8 @@ Each key is `*` for every repository, an owner, or `OWNER/REPO`. Each value can 
   - `{"name", "author", "verdict", "pass", "commit"}`: the newest comment or review by `author` that matches the `verdict` pattern must capture the text `pass`. The `commit` pattern must capture the head commit from the same text. A review that does not match `commit` counts for the commit that GitHub recorded for it. Each pattern is a JavaScript regular expression with one capture group.
 - `mergeWithoutApproval`: `true` when the user may merge although GitHub requires an approving review. The default is `false`, and that state then blocks with exit 6.
 
-The watcher rejects a file with an unknown key. Both `watch-pr.mjs` and `pr-threads.mjs` strip ambient `GH_TOKEN` and `GITHUB_TOKEN` before running the configured GitHub CLI so account-routing wrappers always use their selected account.
+The watcher rejects a file with an unknown key. `watch-pr.mjs`, `pr-threads.mjs`, and `watch-run.mjs` strip ambient `GH_TOKEN` and `GITHUB_TOKEN` before running the configured GitHub CLI so account-routing wrappers always use their selected account.
 
 ## Other watchers
 
-`gh pr checks --watch` and `gh run watch` remain correct when the question is only "did these checks finish". The stack and merge-queue watcher is `../poteto-mode/scripts/watch-pr/watch-pr`.
+`gh pr checks --watch` and `gh run watch` remain correct when the question is only "did these checks finish" without repository routing, rate-limit backoff, or manual deployment gates. The stack and merge-queue watcher is `../poteto-mode/scripts/watch-pr/watch-pr`.
