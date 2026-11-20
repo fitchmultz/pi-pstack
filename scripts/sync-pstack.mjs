@@ -62,6 +62,7 @@ const TERMS = [
   { key: "`resume`", re: /`resume`/ },
   { key: "`file_attachments`", re: /file_attachments/ },
   { key: "claude-", re: /\bclaude-[a-z]+-\d/ },
+  { key: "gemini-", re: /\bgemini-\d/ },
   { key: "grok-", re: /\bgrok-\d/ },
   { key: "gpt-", re: /\bgpt-\d/ },
   { key: "inherit-parent", re: /inherit-parent/ },

@@ -734,7 +734,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           const cases = [
             ["create-formal-verification-skill", "TLA+ is the default", "Pi execution contract"],
             ["maintain-formal-verification-skill", "Do not move the sync commit for a blocked check", "Pi execution contract"],
-            ["sharpen", "Then rewrite my prompt", "Leave choices that are mine to make open"],
+            ["sharpen", "Then rewrite my prompt", "prototype any choice an experiment can settle", "Leave product or preference choices that no experiment can settle for me to make"],
           ];
           for (const [name, ...markers] of cases) {
             assert.equal(await session.followUp("/skill:" + name + " issue7-input"), "queued");

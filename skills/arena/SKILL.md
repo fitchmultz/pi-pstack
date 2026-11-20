@@ -26,7 +26,7 @@ Without a usable provider, create the same candidate artifacts serially in their
 
 ## Phase C: Cross-judge
 
-After all candidates finish, launch an independent read-only judge in the background when an authorized provider and suitable model are available. Give it the rubric and candidate paths; it scores each criterion and recommends a base with rationale. Do not start it while candidates are still writing.
+After all candidates finish, launch an independent read-only judge in the background when an authorized provider and a suitable model from another vendor are available (using `arena cross-judge pool` from `~/.pi/agent/pstack-models.md` when configured). Give it the rubric and candidate paths; it scores each criterion and recommends a base with rationale. Do not start it while candidates are still writing.
 
 Otherwise score each candidate yourself against the same rubric and state that the judge was not independent. An optional `pstack_opinion` may provide a text-only perspective on supplied material, but cannot inspect files or count as a tool-using judge.
 

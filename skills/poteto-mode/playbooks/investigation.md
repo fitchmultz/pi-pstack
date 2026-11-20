@@ -6,8 +6,8 @@ Follow [the Pi execution contract](../../../docs/harness/pi.md) for delegated or
 
 Investigation requests are read-only. They produce a cited explanation or a recommendation, not a code change.
 
-1. Route through the **how** skill. For motivation questions, also route through the **why** skill.
-2. Produce the `how`-shaped output (Overview / Key Concepts / How It Works / Where Things Live / Gotchas), or a recommendation with a tradeoffs table if the request is a decision between alternatives.
+1. Trace the code the question is about. For motivation questions, also route through the **why** skill.
+2. Produce the output (Overview / Key Concepts / How It Works / Where Things Live / Gotchas), or a recommendation with a tradeoffs table if the request is a decision between alternatives.
 3. Write a direct answer with supporting evidence.
 
 No PR, no babysit, no `architect` unless the investigation precedes a code change. If it does, hand back to the user and re-route to Bug fix or Feature.

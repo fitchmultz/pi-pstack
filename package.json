@@ -1,6 +1,6 @@
 {
   "name": "@fitch/pi-pstack",
-  "version": "0.15.36",
+  "version": "0.15.46",
   "private": true,
   "description": "Pi package adapter for Cursor pstack skills, playbooks, principles, and subagent profiles with automated upstream drift notifications.",
   "type": "module",
@@ -38,7 +38,7 @@
     "sync": "node scripts/sync-pstack.mjs --fetch",
     "record:overlay": "node scripts/sync-pstack.mjs --record",
     "check:sync": "node scripts/sync-pstack.mjs --check",
-    "test": "node --test test/*.test.mjs skills/poteto-mode/scripts/check-plan.test.ts",
+    "test": "node --test test/*.test.mjs",
     "smoke": "node --test test/discovery.test.mjs",
     "check:compat": "npm run check:sync && npm test && npm run pack:check",
     "pack:check": "npm pack --dry-run"
