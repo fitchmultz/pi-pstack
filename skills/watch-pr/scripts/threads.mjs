@@ -14,16 +14,16 @@ export const SEVERITY_TAGS = Object.freeze([
 
 const TAG_ALT = SEVERITY_TAGS.join("|");
 const EXPLICIT_LABEL = new RegExp(
-  `(?:^|[\\s(\\[*_>])(?:severity|priority|level|class|verdict|category|tag)(?:<[^>]+>|[*_\`\\s])*[:=](?:<[^>]+>|[*_\`\\[\\]()\\s])*(${TAG_ALT})(?![a-z0-9-])`,
+  `(?:^|[\\s(\\[*_>])(?:severity|priority|level|class|verdict|category|tag)[*_\`\\s]{0,8}[:=][*_\`\\[\\]()\\s]{0,8}(${TAG_ALT})(?![a-z0-9-])`,
   "i",
 );
 const BRACKET_TAG = new RegExp(`\\[(${TAG_ALT})\\]`, "i");
 const LINE_START_MARKUP = new RegExp(
-  `^\\s*(?:(?:<[^>]+>|[#>*•\\-]+|[^\\w\\s]{1,4})\\s*)*(?:\\*\\*|__|<b>|<strong>|\`)\\s*(${TAG_ALT})(?![a-z0-9-])\\s*(?:[:—–\\-|]|(?:\\*\\*|__|<\\/b>|<\\/strong>|\`)(?:\\s*[:—–\\-|]|\\s|$))`,
+  `^[^\\w\\n]{0,24}(?:\\*\\*|__|\`)\\s*(${TAG_ALT})(?![a-z0-9-])\\s*(?:[:—–\\-|]|(?:\\*\\*|__|\`)(?:\\s*[:—–\\-|]|\\s|$))`,
   "im",
 );
 const LINE_START_COLON = new RegExp(
-  `^\\s*(?:[#>*•\\-]+\\s*|[^\\w\\s]{1,4}\\s*)*(${TAG_ALT})\\s*:`,
+  `^[^\\w\\n]{0,24}(${TAG_ALT})\\s*:`,
   "im",
 );
 const COMPOUND_TAG = /(?:`|\*\*|__)(fix-if-cheap|next-action)(?:`|\*\*|__)/i;
@@ -49,9 +49,9 @@ export function cleanSnippet(body, maxLength = 200) {
  */
 export function parseSeverity(body) {
   if (!body) return null;
-  const visible = body.replace(/<!--[\s\S]*?-->/g, "");
+  const plain = body.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]*>/g, "");
   for (const pattern of [EXPLICIT_LABEL, BRACKET_TAG, LINE_START_MARKUP, LINE_START_COLON, COMPOUND_TAG]) {
-    const match = pattern.exec(visible);
+    const match = pattern.exec(plain);
     if (match?.[1]) return match[1].toLowerCase();
   }
   return null;

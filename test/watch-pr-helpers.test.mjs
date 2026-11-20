@@ -139,6 +139,18 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
     assert.equal(parseSeverity(prose), null, prose);
   }
 
+  // Long punctuation dividers/tables must parse in linear time without backtracking hangs.
+  const started = performance.now();
+  for (const divider of [
+    `${"*".repeat(40)} divider`,
+    "-".repeat(80),
+    `|${"-".repeat(60)}|`,
+    `${"### ".repeat(20)}Heading`,
+  ]) {
+    assert.equal(parseSeverity(divider), null, divider);
+  }
+  assert.ok(performance.now() - started < 500, "parseSeverity took too long on punctuation dividers");
+
   // Fallback to reply comments when root comment lacks a severity tag, and prefer originalCommit for head check.
   const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   const old = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
