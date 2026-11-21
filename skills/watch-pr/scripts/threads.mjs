@@ -198,10 +198,13 @@ function isReplyComment(comment, prAuthor, textReviewerRules) {
 }
 
 /**
- * Returns PR conversation comments that still need attention: attributed review
- * flags (such as Grok Bot), human reviewer comments from someone other than the
- * PR author, or bot findings carrying a severity tag, when no later non-flag
- * reply from the PR author follows them.
+ * Returns PR conversation comments that still need attention:
+ * - Attributed review flags (such as Grok Bot) remain unaddressed until
+ *   minimized (`isMinimized: true`, e.g. via `pr-threads.mjs --resolve IC_...`),
+ *   so an unrelated reply comment cannot silently clear earlier flags.
+ * - Human reviewer comments (from someone other than the PR author) and bot
+ *   findings carrying a severity tag remain unaddressed until either minimized
+ *   or followed by a later non-flag reply from the PR author.
  */
 export function unaddressedIssueComments(comments, { prAuthor = null, textReviewerRules = [] } = {}) {
   if (!Array.isArray(comments) || comments.length === 0) return [];
@@ -218,6 +221,10 @@ export function unaddressedIssueComments(comments, { prAuthor = null, textReview
   for (let i = 0; i < ordered.length; i++) {
     const comment = ordered[i];
     if (!isActionableIssueComment(comment, prAuthor, textReviewerRules)) continue;
+    if (comment.isReviewFlag) {
+      unaddressed.push(comment);
+      continue;
+    }
     const addressed = ordered.slice(i + 1).some((later) => isReplyComment(later, prAuthor, textReviewerRules));
     if (!addressed) unaddressed.push(comment);
   }

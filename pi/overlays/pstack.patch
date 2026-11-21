@@ -2788,7 +2788,7 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..223fb822b82760c31f63708d334faed9f12941b9
+index 0000000000000000000000000000000000000000..c6ade865da30dca3bf7f04546aa01541ca386ebe
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
 @@ -0,0 +1,133 @@
@@ -2867,7 +2867,7 @@ index 0000000000000000000000000000000000000000..223fb822b82760c31f63708d334faed9
 +- **Optional checks.** With `--required-checks-only`, non-required checks settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored. If GitHub declares no required status checks for the base branch, `--required-checks-only` fails closed with `UNKNOWN` (exit 9).
 +- **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 +- **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
-+- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks. The watcher also reads PR conversation comments in the same GraphQL query (no extra API call) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / `Review flag on head ...` comments, even when posted under the PR author's login), human reviewer comments from someone other than the PR author, and bot comments carrying a structured severity tag, until a later non-flag reply from the PR author follows them (or they are minimized). Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
++- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks. The watcher also reads PR conversation comments in the same GraphQL query (paginating automatically when a PR has >100 comments) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / leading `Review flag` comments, even when posted under the PR author's login) until minimized as resolved (e.g. `pr-threads.mjs --resolve IC_...`), plus human reviewer comments from someone other than the PR author and bot comments carrying a structured severity tag until minimized or followed by a later non-flag PR-author reply. Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots (GraphQL `Bot` accounts without a severity tag) do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
 +
 +## Manage review threads (`pr-threads.mjs`)
 +
@@ -3454,10 +3454,10 @@ index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25
 +}
 diff --git a/skills/watch-pr/scripts/pr-threads.mjs b/skills/watch-pr/scripts/pr-threads.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..dffa87b090882bceac853d344b2e98189a3188a4
+index 0000000000000000000000000000000000000000..00dbf3f3bcebe95f340a689a44fcbd860618f16d
 --- /dev/null
 +++ b/skills/watch-pr/scripts/pr-threads.mjs
-@@ -0,0 +1,222 @@
+@@ -0,0 +1,236 @@
 +#!/usr/bin/env node
 +// Lists, replies to, and resolves GitHub pull request review threads using the
 +// shared watch-pr repository config and gh-client routing.
@@ -3509,6 +3509,12 @@ index 0000000000000000000000000000000000000000..dffa87b090882bceac853d344b2e9818
 +const RESOLVE_MUTATION = `mutation($threadId:ID!){
 +  resolveReviewThread(input:{threadId:$threadId}){
 +    thread{id isResolved}
++  }
++}`;
++
++const MINIMIZE_MUTATION = `mutation($subjectId:ID!){
++  minimizeComment(input:{subjectId:$subjectId,classifier:RESOLVED}){
++    minimizedComment{isMinimized}
 +  }
 +}`;
 +
@@ -3599,12 +3605,20 @@ index 0000000000000000000000000000000000000000..dffa87b090882bceac853d344b2e9818
 +  return comment;
 +}
 +
-+/** Marks one review thread as resolved via GraphQL. */
-+export async function resolveThread(client, threadId) {
-+  const result = await client.graphql(RESOLVE_MUTATION, { threadId });
++/** Marks one review thread (`PRRT_...`) resolved or minimizes a PR comment (`IC_...`) as RESOLVED. */
++export async function resolveThread(client, targetId) {
++  if (targetId.startsWith("IC_")) {
++    const result = await client.graphql(MINIMIZE_MUTATION, { subjectId: targetId });
++    const comment = result?.data?.minimizeComment?.minimizedComment;
++    if (!comment || !comment.isMinimized) {
++      throw new QueryError(`GitHub did not confirm minimizing comment ${targetId}`);
++    }
++    return comment;
++  }
++  const result = await client.graphql(RESOLVE_MUTATION, { threadId: targetId });
 +  const thread = result?.data?.resolveReviewThread?.thread;
 +  if (!thread || !thread.isResolved) {
-+    throw new QueryError(`GitHub did not confirm resolution of thread ${threadId}`);
++    throw new QueryError(`GitHub did not confirm resolution of thread ${targetId}`);
 +  }
 +  return thread;
 +}
@@ -3861,10 +3875,10 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..45e88c5dd9be3cad9da40230c6fff2c3795816b5
+index 0000000000000000000000000000000000000000..bb367fd561999a46e0997480bbcc37987f732ba3
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,282 @@
+@@ -0,0 +1,289 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
@@ -4065,10 +4079,13 @@ index 0000000000000000000000000000000000000000..45e88c5dd9be3cad9da40230c6fff2c3
 +}
 +
 +/**
-+ * Returns PR conversation comments that still need attention: attributed review
-+ * flags (such as Grok Bot), human reviewer comments from someone other than the
-+ * PR author, or bot findings carrying a severity tag, when no later non-flag
-+ * reply from the PR author follows them.
++ * Returns PR conversation comments that still need attention:
++ * - Attributed review flags (such as Grok Bot) remain unaddressed until
++ *   minimized (`isMinimized: true`, e.g. via `pr-threads.mjs --resolve IC_...`),
++ *   so an unrelated reply comment cannot silently clear earlier flags.
++ * - Human reviewer comments (from someone other than the PR author) and bot
++ *   findings carrying a severity tag remain unaddressed until either minimized
++ *   or followed by a later non-flag reply from the PR author.
 + */
 +export function unaddressedIssueComments(comments, { prAuthor = null, textReviewerRules = [] } = {}) {
 +  if (!Array.isArray(comments) || comments.length === 0) return [];
@@ -4085,6 +4102,10 @@ index 0000000000000000000000000000000000000000..45e88c5dd9be3cad9da40230c6fff2c3
 +  for (let i = 0; i < ordered.length; i++) {
 +    const comment = ordered[i];
 +    if (!isActionableIssueComment(comment, prAuthor, textReviewerRules)) continue;
++    if (comment.isReviewFlag) {
++      unaddressed.push(comment);
++      continue;
++    }
 +    const addressed = ordered.slice(i + 1).some((later) => isReplyComment(later, prAuthor, textReviewerRules));
 +    if (!addressed) unaddressed.push(comment);
 +  }

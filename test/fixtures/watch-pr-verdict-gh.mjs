@@ -94,6 +94,14 @@ if (argv[1] === "graphql") {
         },
       },
     });
+  } else if (query.includes("minimizeComment")) {
+    print({
+      data: {
+        minimizeComment: {
+          minimizedComment: { isMinimized: state.resolveConfirmed ?? true },
+        },
+      },
+    });
   } else throw new Error("Unexpected GraphQL query");
 } else {
   const path = argv[1];

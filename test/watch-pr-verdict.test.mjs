@@ -944,8 +944,8 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(jsonPayload.unaddressedCommentCount, 1);
   assert.equal(jsonPayload.comments[0].attribution, "Grok Bot (PR Review)");
 
-  // 2. A subsequent non-flag reply from the PR author clears the Grok Bot comment,
-  //    even when the reply quotes the flag or mentions "review flag" in prose.
+  // 2. An unrelated author reply (even quoting the flag) does NOT clear an attributed review flag
+  //    or become a second flag itself; minimizing the flag (`pr-threads.mjs --resolve IC_...`) clears it.
   const quotedReply = {
     id: "IC_reply_1",
     fullDatabaseId: "7055946000",
@@ -956,11 +956,22 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
     updatedAt: "2026-11-21T02:32:00Z",
     isMinimized: false,
   };
-  const cleared = watch([{ ...baseState, issueComments: [grokComment, quotedReply] }]);
+  const stillBlockedByFlag = watch([{ ...baseState, issueComments: [grokComment, quotedReply] }]);
+  assert.equal(stillBlockedByFlag.code, 3, stillBlockedByFlag.out);
+  assert.equal(stillBlockedByFlag.lines[0], "BLOCKED: 1 unaddressed PR comment");
+
+  const resolvedFlag = runThreads([baseState], {
+    args: ["--repo", "fitchmultz/pi", "--resolve", "IC_grok_1"],
+  });
+  assert.equal(resolvedFlag.code, 0, resolvedFlag.err);
+  assert.match(resolvedFlag.out, /^resolved: IC_grok_1$/m);
+  assert.ok(resolvedFlag.calls[0].argv.some((arg) => arg.includes("minimizeComment")));
+
+  const cleared = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, quotedReply] }]);
   assert.equal(cleared.code, 0, cleared.out);
   assert.equal(cleared.lines[0], "READY");
 
-  // 3. A human reviewer comment (different author) blocks until PR author replies;
+  // 3. A human reviewer comment (different author) blocks until PR author replies (or minimizes it);
   //    minimized comments and GraphQL Bot deploy comments (without `[bot]` suffix) do not block.
   const humanComment = {
     id: "IC_human_1",
@@ -972,10 +983,17 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
     updatedAt: "2026-11-21T02:33:00Z",
     isMinimized: false,
   };
-  const blockedHuman = watch([{ ...baseState, issueComments: [grokComment, quotedReply, humanComment] }]);
+  const blockedHuman = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, humanComment] }]);
   assert.equal(blockedHuman.code, 3, blockedHuman.out);
   assert.equal(blockedHuman.lines[0], "BLOCKED: 1 unaddressed PR comment");
   assert.match(blockedHuman.out, /PR comment @teammate: Please also update the README/);
+
+  const clearedHuman = watch([{
+    ...baseState,
+    issueComments: [humanComment, { ...quotedReply, createdAt: "2026-11-21T02:34:00Z" }],
+  }]);
+  assert.equal(clearedHuman.code, 0, clearedHuman.out);
+  assert.equal(clearedHuman.lines[0], "READY");
 
   const deployBot = {
     id: "IC_deploy_1",

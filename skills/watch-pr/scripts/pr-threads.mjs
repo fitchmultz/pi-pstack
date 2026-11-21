@@ -52,6 +52,12 @@ const RESOLVE_MUTATION = `mutation($threadId:ID!){
   }
 }`;
 
+const MINIMIZE_MUTATION = `mutation($subjectId:ID!){
+  minimizeComment(input:{subjectId:$subjectId,classifier:RESOLVED}){
+    minimizedComment{isMinimized}
+  }
+}`;
+
 class UsageError extends Error {}
 
 function readBodyFile(path) {
@@ -139,12 +145,20 @@ export async function replyToThread(client, threadId, body) {
   return comment;
 }
 
-/** Marks one review thread as resolved via GraphQL. */
-export async function resolveThread(client, threadId) {
-  const result = await client.graphql(RESOLVE_MUTATION, { threadId });
+/** Marks one review thread (`PRRT_...`) resolved or minimizes a PR comment (`IC_...`) as RESOLVED. */
+export async function resolveThread(client, targetId) {
+  if (targetId.startsWith("IC_")) {
+    const result = await client.graphql(MINIMIZE_MUTATION, { subjectId: targetId });
+    const comment = result?.data?.minimizeComment?.minimizedComment;
+    if (!comment || !comment.isMinimized) {
+      throw new QueryError(`GitHub did not confirm minimizing comment ${targetId}`);
+    }
+    return comment;
+  }
+  const result = await client.graphql(RESOLVE_MUTATION, { threadId: targetId });
   const thread = result?.data?.resolveReviewThread?.thread;
   if (!thread || !thread.isResolved) {
-    throw new QueryError(`GitHub did not confirm resolution of thread ${threadId}`);
+    throw new QueryError(`GitHub did not confirm resolution of thread ${targetId}`);
   }
   return thread;
 }
