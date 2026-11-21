@@ -52,7 +52,7 @@ merge: MERGEABLE; GitHub merge state CLEAN; review decision none
 | --- | --- | --- |
 | 0 | `READY` or `MERGED` | Every rule passed on the named commit, or the pull request is merged. |
 | 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
-| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve inline threads (`pr-threads.mjs --resolve PRRT_...`), minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that quotes or links the comment. |
+| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve inline threads (`pr-threads.mjs --resolve PRRT_...`), minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
 | 4 | `BLOCKED: N checks failed` | The block links each failed check. |
 | 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 | 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |

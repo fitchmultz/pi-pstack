@@ -199,13 +199,6 @@ function isReplyComment(comment, prAuthor, textReviewerRules) {
 
 const normalizeMatchText = (text) => (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 
-function blockquoteLines(body) {
-  return (body ?? "")
-    .split(/\r?\n/)
-    .map((line) => /^\s*>\s?(.*)$/.exec(line)?.[1]?.trim() ?? null)
-    .filter(Boolean);
-}
-
 function replyLinksComment(reply, target) {
   const body = reply.body ?? "";
   if (target.url && body.includes(target.url)) return true;
@@ -216,27 +209,51 @@ function replyLinksComment(reply, target) {
   return false;
 }
 
-function quoteMatchesComment(quotes, target) {
-  if (quotes.length === 0) return false;
-  const targetText = normalizeMatchText(stripBlockquotes(target.body));
+function quoteCandidates(body) {
+  const lines = [];
+  const blocks = [];
+  let current = [];
+  for (const raw of (body ?? "").split(/\r?\n/)) {
+    const match = /^\s*>\s?(.*)$/.exec(raw);
+    if (match) {
+      const normalized = normalizeMatchText(match[1]);
+      if (normalized) {
+        lines.push(normalized);
+        current.push(normalized);
+      }
+    } else if (current.length) {
+      blocks.push(current.join(" "));
+      current = [];
+    }
+  }
+  if (current.length) blocks.push(current.join(" "));
+  return [...new Set([...blocks, ...lines])];
+}
+
+function candidateMatchesComment(candidate, targetText) {
   if (!targetText) return false;
   const minLength = Math.min(targetText.length, 12);
-  if (quotes.some((quote) => quote.length >= minLength && targetText.includes(quote))) return true;
-  const joined = quotes.join(" ");
-  return joined.length >= minLength && targetText.includes(joined);
+  return candidate.length >= minLength && targetText.includes(candidate);
 }
 
 /**
  * Returns true when a later PR-author reply explicitly links to `target`
- * (`#issuecomment-<id>` or its URL) or uniquely quotes substantive text from
- * `target` (an ambiguous quote matching multiple earlier actionable comments
- * clears none of them).
+ * (`#issuecomment-<id>` or its URL) or includes a quoted line/block that
+ * uniquely matches `target` among earlier actionable non-flag comments.
  */
 function replyReferencesComment(reply, target, earlierActionable) {
   if (replyLinksComment(reply, target)) return true;
-  const quotes = blockquoteLines(reply.body).map(normalizeMatchText).filter(Boolean);
-  if (!quoteMatchesComment(quotes, target)) return false;
-  return earlierActionable.every((other) => other === target || !quoteMatchesComment(quotes, other));
+  const candidates = quoteCandidates(reply.body);
+  if (candidates.length === 0) return false;
+  const targetText = normalizeMatchText(stripBlockquotes(target.body));
+  const otherTexts = earlierActionable
+    .filter((other) => other !== target)
+    .map((other) => normalizeMatchText(stripBlockquotes(other.body)));
+  return candidates.some(
+    (candidate) =>
+      candidateMatchesComment(candidate, targetText) &&
+      otherTexts.every((otherText) => !candidateMatchesComment(candidate, otherText)),
+  );
 }
 
 /**

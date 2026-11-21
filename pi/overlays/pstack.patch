@@ -6828,7 +6828,7 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..44b578e887445d27d64054e95dc2de9df870e348
+index 0000000000000000000000000000000000000000..df1c76d46f756869d64b5b190f8a6b2765559f32
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
 @@ -0,0 +1,136 @@
@@ -6886,7 +6886,7 @@ index 0000000000000000000000000000000000000000..44b578e887445d27d64054e95dc2de9d
 +| --- | --- | --- |
 +| 0 | `READY` or `MERGED` | Every rule passed on the named commit, or the pull request is merged. |
 +| 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
-+| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve inline threads (`pr-threads.mjs --resolve PRRT_...`), minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that quotes or links the comment. |
++| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve inline threads (`pr-threads.mjs --resolve PRRT_...`), minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
 +| 4 | `BLOCKED: N checks failed` | The block links each failed check. |
 +| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 +| 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
@@ -7926,10 +7926,10 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..3fc457cb9a498e4941ebb6011a033daecb5e1f03
+index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c152194bd
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,347 @@
+@@ -0,0 +1,364 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
@@ -8131,13 +8131,6 @@ index 0000000000000000000000000000000000000000..3fc457cb9a498e4941ebb6011a033dae
 +
 +const normalizeMatchText = (text) => (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 +
-+function blockquoteLines(body) {
-+  return (body ?? "")
-+    .split(/\r?\n/)
-+    .map((line) => /^\s*>\s?(.*)$/.exec(line)?.[1]?.trim() ?? null)
-+    .filter(Boolean);
-+}
-+
 +function replyLinksComment(reply, target) {
 +  const body = reply.body ?? "";
 +  if (target.url && body.includes(target.url)) return true;
@@ -8148,27 +8141,51 @@ index 0000000000000000000000000000000000000000..3fc457cb9a498e4941ebb6011a033dae
 +  return false;
 +}
 +
-+function quoteMatchesComment(quotes, target) {
-+  if (quotes.length === 0) return false;
-+  const targetText = normalizeMatchText(stripBlockquotes(target.body));
++function quoteCandidates(body) {
++  const lines = [];
++  const blocks = [];
++  let current = [];
++  for (const raw of (body ?? "").split(/\r?\n/)) {
++    const match = /^\s*>\s?(.*)$/.exec(raw);
++    if (match) {
++      const normalized = normalizeMatchText(match[1]);
++      if (normalized) {
++        lines.push(normalized);
++        current.push(normalized);
++      }
++    } else if (current.length) {
++      blocks.push(current.join(" "));
++      current = [];
++    }
++  }
++  if (current.length) blocks.push(current.join(" "));
++  return [...new Set([...blocks, ...lines])];
++}
++
++function candidateMatchesComment(candidate, targetText) {
 +  if (!targetText) return false;
 +  const minLength = Math.min(targetText.length, 12);
-+  if (quotes.some((quote) => quote.length >= minLength && targetText.includes(quote))) return true;
-+  const joined = quotes.join(" ");
-+  return joined.length >= minLength && targetText.includes(joined);
++  return candidate.length >= minLength && targetText.includes(candidate);
 +}
 +
 +/**
 + * Returns true when a later PR-author reply explicitly links to `target`
-+ * (`#issuecomment-<id>` or its URL) or uniquely quotes substantive text from
-+ * `target` (an ambiguous quote matching multiple earlier actionable comments
-+ * clears none of them).
++ * (`#issuecomment-<id>` or its URL) or includes a quoted line/block that
++ * uniquely matches `target` among earlier actionable non-flag comments.
 + */
 +function replyReferencesComment(reply, target, earlierActionable) {
 +  if (replyLinksComment(reply, target)) return true;
-+  const quotes = blockquoteLines(reply.body).map(normalizeMatchText).filter(Boolean);
-+  if (!quoteMatchesComment(quotes, target)) return false;
-+  return earlierActionable.every((other) => other === target || !quoteMatchesComment(quotes, other));
++  const candidates = quoteCandidates(reply.body);
++  if (candidates.length === 0) return false;
++  const targetText = normalizeMatchText(stripBlockquotes(target.body));
++  const otherTexts = earlierActionable
++    .filter((other) => other !== target)
++    .map((other) => normalizeMatchText(stripBlockquotes(other.body)));
++  return candidates.some(
++    (candidate) =>
++      candidateMatchesComment(candidate, targetText) &&
++      otherTexts.every((otherText) => !candidateMatchesComment(candidate, otherText)),
++  );
 +}
 +
 +/**

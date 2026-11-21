@@ -1094,6 +1094,63 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(ambiguousStillBlocked.code, 3, ambiguousStillBlocked.out);
   assert.equal(ambiguousStillBlocked.lines[0], "BLOCKED: 2 unaddressed PR comments");
 
+  // One reply quoting two distinct findings in separate blocks clears both.
+  const multiFindingReply = {
+    id: "IC_multi_reply",
+    fullDatabaseId: "7055946194",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> Please fix the race in the watcher sleep path before merging.\nFixed sleep race.\n\n> Please fix the flaky exact-hosts job; it timed out twice.\nStabilized exact-hosts.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946194",
+    createdAt: "2026-11-21T02:37:30Z",
+    updatedAt: "2026-11-21T02:37:30Z",
+    isMinimized: false,
+  };
+  const multiCleared = watch([{
+    ...baseState,
+    issueComments: [sharedA, sharedB, multiFindingReply],
+  }]);
+  assert.equal(multiCleared.code, 0, multiCleared.out);
+  assert.equal(multiCleared.lines[0], "READY");
+
+  // A full-comment quote containing a shared boilerplate header line still uniquely clears its target.
+  const boilerBot1 = {
+    id: "IC_boiler_1",
+    fullDatabaseId: "7055946195",
+    author: { __typename: "Bot", login: "scanner" },
+    body: "**Severity:** high\nFix path traversal in upload handler.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946195",
+    createdAt: "2026-11-21T02:38:00Z",
+    updatedAt: "2026-11-21T02:38:00Z",
+    isMinimized: false,
+  };
+  const boilerBot2 = {
+    id: "IC_boiler_2",
+    fullDatabaseId: "7055946196",
+    author: { __typename: "Bot", login: "scanner" },
+    body: "**Severity:** high\nValidate redirect host before following.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946196",
+    createdAt: "2026-11-21T02:38:10Z",
+    updatedAt: "2026-11-21T02:38:10Z",
+    isMinimized: false,
+  };
+  const fullQuoteBoiler1 = {
+    id: "IC_boiler_reply_1",
+    fullDatabaseId: "7055946197",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> **Severity:** high\n> Fix path traversal in upload handler.\nFixed upload path normalization.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946197",
+    createdAt: "2026-11-21T02:38:20Z",
+    updatedAt: "2026-11-21T02:38:20Z",
+    isMinimized: false,
+  };
+  const onlySecondRemains = watch([{
+    ...baseState,
+    issueComments: [boilerBot1, boilerBot2, fullQuoteBoiler1],
+  }]);
+  assert.equal(onlySecondRemains.code, 3, onlySecondRemains.out);
+  assert.equal(onlySecondRemains.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(onlySecondRemains.out, /Validate redirect host/);
+
   const deployBot = {
     id: "IC_deploy_1",
     fullDatabaseId: "7055946200",
