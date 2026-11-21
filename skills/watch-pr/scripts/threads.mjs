@@ -190,11 +190,41 @@ function isActionableIssueComment(comment, prAuthor, textReviewerRules) {
 }
 
 function isReplyComment(comment, prAuthor, textReviewerRules) {
-  if (comment.isMinimized || !comment.body.trim()) return false;
+  if (comment.isMinimized || !stripBlockquotes(comment.body)) return false;
   if (comment.isReviewFlag) return false;
   if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
   if (comment.isBot) return false;
   return !prAuthor || login(comment.author) === login(prAuthor);
+}
+
+const normalizeMatchText = (text) => (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
+
+function blockquoteLines(body) {
+  return (body ?? "")
+    .split(/\r?\n/)
+    .map((line) => /^\s*>\s?(.*)$/.exec(line)?.[1]?.trim() ?? null)
+    .filter(Boolean);
+}
+
+/**
+ * Returns true when a later PR-author reply explicitly links to `target`
+ * (`#issuecomment-<id>` or its URL) or quotes substantive text from `target`.
+ */
+function replyReferencesComment(reply, target) {
+  const body = reply.body ?? "";
+  if (target.url && body.includes(target.url)) return true;
+  if (target.databaseId) {
+    const escapedId = String(target.databaseId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`#issuecomment-${escapedId}(?!\\d)`, "i").test(body)) return true;
+  }
+  const targetText = normalizeMatchText(stripBlockquotes(target.body));
+  if (!targetText) return false;
+  const quotes = blockquoteLines(body).map(normalizeMatchText).filter(Boolean);
+  if (quotes.length === 0) return false;
+  const minLength = Math.min(targetText.length, 12);
+  if (quotes.some((quote) => quote.length >= minLength && targetText.includes(quote))) return true;
+  const joined = quotes.join(" ");
+  return joined.length >= minLength && targetText.includes(joined);
 }
 
 /**
@@ -204,7 +234,8 @@ function isReplyComment(comment, prAuthor, textReviewerRules) {
  *   so an unrelated reply comment cannot silently clear earlier flags.
  * - Human reviewer comments (from someone other than the PR author) and bot
  *   findings carrying a severity tag remain unaddressed until either minimized
- *   or followed by a later non-flag reply from the PR author.
+ *   or explicitly referenced (linked or quoted) by a later non-flag PR-author
+ *   reply. A general reply like "thanks, looking" does not clear them.
  */
 export function unaddressedIssueComments(comments, { prAuthor = null, textReviewerRules = [] } = {}) {
   if (!Array.isArray(comments) || comments.length === 0) return [];
@@ -225,7 +256,9 @@ export function unaddressedIssueComments(comments, { prAuthor = null, textReview
       unaddressed.push(comment);
       continue;
     }
-    const addressed = ordered.slice(i + 1).some((later) => isReplyComment(later, prAuthor, textReviewerRules));
+    const addressed = ordered
+      .slice(i + 1)
+      .some((later) => isReplyComment(later, prAuthor, textReviewerRules) && replyReferencesComment(later, comment));
     if (!addressed) unaddressed.push(comment);
   }
   return unaddressed;

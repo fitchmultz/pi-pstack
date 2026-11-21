@@ -22,20 +22,22 @@ import { EXIT } from "./verdict.mjs";
 
 const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
        pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --reply <threadId> --body-file <path>
-       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadId>
+       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadOrCommentId>
 
-Lists unresolved PR review threads or replies to / resolves a thread through the
-repository's configured GitHub CLI (watch-pr.json / WATCH_PR_GH).
+Lists unresolved PR review threads and unaddressed PR conversation comments, or
+replies to / resolves them through the repository's configured GitHub CLI
+(watch-pr.json / WATCH_PR_GH).
 
   <number|url>        pull request number or URL (required for --list; optional for --reply/--resolve
                       when --repo or the origin remote identifies the repository)
   --repo              OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
-  --list              list unresolved review threads (default when a PR is given with no mutation)
-  --all               with --list, include resolved threads as well
+  --list              list unresolved review threads and unaddressed PR comments (default with a PR)
+  --all               with --list, include resolved threads and all PR comments as well
   --json              with --list, print structured JSON
-  --reply THREAD_ID   post a reply to this review thread (requires --body-file)
+  --reply THREAD_ID   post a reply to this inline review thread (requires --body-file)
   --body-file PATH    UTF-8 file containing the reply body (use "-" to read stdin)
-  --resolve THREAD_ID mark this review thread as resolved
+  --resolve ID        resolve an inline review thread (PRRT_...) or minimize a PR comment
+                      (IC_...) as resolved
 
 Exit: 0 success, 7 GitHub query failed, 64 usage or configuration error.
 `;

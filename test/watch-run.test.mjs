@@ -11,6 +11,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const script = fileURLToPath(new URL("../skills/watch-pr/scripts/watch-run.mjs", import.meta.url));
+const fastClock = new URL("./fixtures/fast-clock.mjs", import.meta.url).href;
 const fixture = readFileSync(new URL("./fixtures/watch-run-gh.mjs", import.meta.url), "utf8");
 
 const HEAD = "abe04d463cbda8f7f34b2237de00fcea57cb4c45";
@@ -56,6 +57,7 @@ function watchRun(polls, {
   env = {},
   fail,
   cwd,
+  fastClock: useFastClock = true,
 } = {}) {
   const temp = mkdtempSync(join(tmpdir(), "watch-run-test-"));
   try {
@@ -64,13 +66,16 @@ function watchRun(polls, {
     }
     const scenario = join(temp, "scenario.json");
     const log = join(temp, "calls.ndjson");
+    const sleepLog = join(temp, "sleeps.txt");
     const configFile = join(temp, "watch-pr.json");
     writeFileSync(scenario, JSON.stringify({ polls, fail }));
     writeFileSync(log, "");
+    writeFileSync(sleepLog, "");
     if (config !== null) {
       writeFileSync(configFile, typeof config === "string" ? config : JSON.stringify(config));
     }
-    const result = spawnSync(process.execPath, [script, ...args], {
+    const nodeArgs = useFastClock ? ["--import", fastClock, script, ...args] : [script, ...args];
+    const result = spawnSync(process.execPath, nodeArgs, {
       cwd,
       encoding: "utf8",
       env: {
@@ -78,10 +83,12 @@ function watchRun(polls, {
         WATCH_PR_CONFIG: configFile,
         WATCH_RUN_SCENARIO: scenario,
         WATCH_RUN_FIXTURE_LOG: log,
+        ...(useFastClock ? { WATCH_PR_SLEEP_LOG: sleepLog } : {}),
         ...env,
       },
     });
     const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").filter(Boolean).map(Number);
     const lines = result.stdout ? result.stdout.trimEnd().split("\n") : [];
     return {
       code: result.status,
@@ -91,6 +98,7 @@ function watchRun(polls, {
       verdict: lines.filter((line) => !/^\d{4}-\d\d-\d\dT/.test(line)),
       gh: [...new Set(calls.map((call) => basename(call.program)))],
       calls,
+      sleeps,
     };
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -407,7 +415,7 @@ test("reuses GitHub rate-limit backoff for primary and secondary limits", () => 
   const recovered = watchRun([
     secondaryLimited,
     { run: makeRun(), jobs: [makeJob("Build", "completed", "success")] },
-  ], { args: [RUN_URL, "--timeout", "5", "--interval", "0.02"] });
+  ], { args: [RUN_URL, "--timeout", "5", "--interval", "30"], fastClock: false });
   assert.equal(recovered.code, 0, recovered.out + recovered.err);
   assert.equal(recovered.verdict[0], "PASSED");
   const runCalls = recovered.calls.filter(({ argv }) => /\/actions\/runs\/\d+$/.test(argv[1]));
@@ -482,4 +490,18 @@ test("handles non-200 query errors, transient recovery, timeouts, --once, and bo
   assert.ok(Buffer.byteLength(bounded.out) <= 2048, `expected <= 2048 bytes, got ${Buffer.byteLength(bounded.out)}`);
   assert.ok(bounded.verdict.some((line) => /^\s+\.\.\. \d+ more failed jobs$/.test(line)), bounded.out);
   assert.ok(bounded.verdict.some((line) => /^\s+\.\.\. \d+ more waiting jobs$/.test(line)), bounded.out);
+
+  // Positive intervals below 30s silently clamp to 30s without error; default is 60s.
+  const inProgress = { run: makeRun({ status: "in_progress", conclusion: null }), jobs: [makeJob("Build", "in_progress", null)] };
+  const finished = { run: makeRun(), jobs: [makeJob("Build", "completed", "success")] };
+  const clamped = watchRun([inProgress, finished], { args: [RUN_URL, "--interval", "5"] });
+  assert.equal(clamped.code, 0, clamped.out + clamped.err);
+  assert.equal(clamped.err, "");
+  assert.equal(clamped.sleeps.length, 1);
+  assert.ok(clamped.sleeps[0] >= 29_900 && clamped.sleeps[0] <= 30_000, `expected 30s clamped sleep, got ${clamped.sleeps[0]}ms`);
+
+  const defaultWait = watchRun([inProgress, finished], { args: [RUN_URL] });
+  assert.equal(defaultWait.code, 0, defaultWait.out + defaultWait.err);
+  assert.equal(defaultWait.sleeps.length, 1);
+  assert.ok(defaultWait.sleeps[0] >= 59_900 && defaultWait.sleeps[0] <= 60_000, `expected 60s default sleep, got ${defaultWait.sleeps[0]}ms`);
 });

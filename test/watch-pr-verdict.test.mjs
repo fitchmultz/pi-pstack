@@ -12,6 +12,7 @@ import { classifyWorkflow } from "../skills/watch-pr/scripts/triggers.mjs";
 
 const script = fileURLToPath(new URL("../skills/watch-pr/scripts/watch-pr.mjs", import.meta.url));
 const threadsScript = fileURLToPath(new URL("../skills/watch-pr/scripts/pr-threads.mjs", import.meta.url));
+const fastClock = new URL("./fixtures/fast-clock.mjs", import.meta.url).href;
 const fixture = readFileSync(new URL("./fixtures/watch-pr-verdict-gh.mjs", import.meta.url), "utf8");
 
 const HEAD = "abe04d463cbda8f7f34b2237de00fcea57cb4c45";
@@ -83,7 +84,7 @@ const ciRun = (event, conclusion = "success") => ({
 });
 
 /** Runs the watcher against a scenario. `gh` records which executable ran each read. */
-function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONFIG, env = {}, fail } = {}) {
+function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONFIG, env = {}, fail, fastClock: useFastClock = true } = {}) {
   const temp = mkdtempSync(join(tmpdir(), "watch-pr-verdict-"));
   try {
     for (const name of ["gh", "gh-personal", "gh-work", "gh-other"]) {
@@ -91,18 +92,24 @@ function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONF
     }
     const scenario = join(temp, "scenario.json");
     const log = join(temp, "calls.ndjson");
+    const sleepLog = join(temp, "sleeps.txt");
     const configFile = join(temp, "watch-pr.json");
     writeFileSync(scenario, JSON.stringify({ polls, fail }));
     writeFileSync(log, "");
+    writeFileSync(sleepLog, "");
     if (config !== null) writeFileSync(configFile, typeof config === "string" ? config : JSON.stringify(config));
-    const result = spawnSync(process.execPath, [script, "418", "--repo", repo, ...args], {
+    const nodeArgs = useFastClock ? ["--import", fastClock, script, "418", "--repo", repo, ...args] : [script, "418", "--repo", repo, ...args];
+    const result = spawnSync(process.execPath, nodeArgs, {
       encoding: "utf8",
       env: {
         PATH: `${temp}:${process.env.PATH}`, WATCH_PR_CONFIG: configFile,
-        WATCH_PR_SCENARIO: scenario, WATCH_PR_FIXTURE_LOG: log, ...env,
+        WATCH_PR_SCENARIO: scenario, WATCH_PR_FIXTURE_LOG: log,
+        ...(useFastClock ? { WATCH_PR_SLEEP_LOG: sleepLog } : {}),
+        ...env,
       },
     });
     const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").filter(Boolean).map(Number);
     return {
       code: result.status,
       out: result.stdout,
@@ -110,6 +117,7 @@ function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONF
       lines: result.stdout.trimEnd().split("\n"),
       gh: [...new Set(calls.map((call) => basename(call.program)))],
       calls,
+      sleeps,
     };
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -385,7 +393,7 @@ function primaryLimitOnLaterPage(state, reset) {
 test("a reset inside the watch timeout resumes before the next ordinary poll", () => {
   const done = { pullRequest: open(), checkRuns: reviewersPassed() };
   const reset = Math.floor(Date.now() / 1000) + 2;
-  const result = watch([primaryLimitOnLaterPage(done, reset), done], { args: ["--timeout", "4"] });
+  const result = watch([primaryLimitOnLaterPage(done, reset), done], { args: ["--timeout", "4"], fastClock: false });
   assert.equal(result.code, 0, result.out);
   assert.match(verdict(result)[0], /^READY/);
   const reads = result.calls.filter(({ argv }) => argv[1].includes("/check-runs?"));
@@ -444,7 +452,7 @@ test("GraphQL rate reports use their own reset or Retry-After, not a failed CI v
     endpoint: "graphql", status: 200, headers: { "Retry-After": "1" },
     stderr: `gh: ${message}`, body: { errors: [{ type: "RATE_LIMITED", message }] },
   } };
-  const resumed = watch([restricted, done], { args: ["--timeout", "4"] });
+  const resumed = watch([restricted, done], { args: ["--timeout", "4"], fastClock: false });
   assert.equal(resumed.code, 0, resumed.out);
   const reads = resumed.calls.filter(({ argv }) => argv.some((arg) => arg.includes("reviewThreads")));
   assert.equal(reads.length, 2);
@@ -971,8 +979,9 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(cleared.code, 0, cleared.out);
   assert.equal(cleared.lines[0], "READY");
 
-  // 3. A human reviewer comment (different author) blocks until PR author replies (or minimizes it);
-  //    minimized comments and GraphQL Bot deploy comments (without `[bot]` suffix) do not block.
+  // 3. Human reviewer comments and severity-tagged bot comments are NOT cleared by a generic
+  //    author comment (like "thanks, looking") or a reply referencing a different comment;
+  //    they clear only when minimized or explicitly linked/quoted by a later PR-author reply.
   const humanComment = {
     id: "IC_human_1",
     fullDatabaseId: "7055946100",
@@ -983,17 +992,69 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
     updatedAt: "2026-11-21T02:33:00Z",
     isMinimized: false,
   };
-  const blockedHuman = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, humanComment] }]);
-  assert.equal(blockedHuman.code, 3, blockedHuman.out);
-  assert.equal(blockedHuman.lines[0], "BLOCKED: 1 unaddressed PR comment");
-  assert.match(blockedHuman.out, /PR comment @teammate: Please also update the README/);
-
-  const clearedHuman = watch([{
+  const taggedBotFinding = {
+    id: "IC_bot_sev_1",
+    fullDatabaseId: "7055946150",
+    author: { __typename: "Bot", login: "security-scanner" },
+    body: "[high] Avoid shell interpolation in build script.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946150",
+    createdAt: "2026-11-21T02:33:30Z",
+    updatedAt: "2026-11-21T02:33:30Z",
+    isMinimized: false,
+  };
+  const genericAuthorReply = {
+    id: "IC_generic_1",
+    fullDatabaseId: "7055946160",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "Thanks, looking into these now.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946160",
+    createdAt: "2026-11-21T02:34:00Z",
+    updatedAt: "2026-11-21T02:34:00Z",
+    isMinimized: false,
+  };
+  const stillBlockedAfterGeneric = watch([{
     ...baseState,
-    issueComments: [humanComment, { ...quotedReply, createdAt: "2026-11-21T02:34:00Z" }],
+    issueComments: [{ ...grokComment, isMinimized: true }, humanComment, taggedBotFinding, genericAuthorReply],
   }]);
-  assert.equal(clearedHuman.code, 0, clearedHuman.out);
-  assert.equal(clearedHuman.lines[0], "READY");
+  assert.equal(stillBlockedAfterGeneric.code, 3, stillBlockedAfterGeneric.out);
+  assert.equal(stillBlockedAfterGeneric.lines[0], "BLOCKED: 2 unaddressed PR comments");
+
+  // Quoting only the human comment clears it while leaving the tagged bot finding blocking.
+  const quoteHumanReply = {
+    id: "IC_quote_human_1",
+    fullDatabaseId: "7055946170",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> Please also update the README before merging.\nUpdated README in the latest push.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946170",
+    createdAt: "2026-11-21T02:35:00Z",
+    updatedAt: "2026-11-21T02:35:00Z",
+    isMinimized: false,
+  };
+  const botStillBlocked = watch([{
+    ...baseState,
+    issueComments: [humanComment, taggedBotFinding, quoteHumanReply],
+  }]);
+  assert.equal(botStillBlocked.code, 3, botStillBlocked.out);
+  assert.equal(botStillBlocked.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(botStillBlocked.out, /PR comment @security-scanner \[high\]:/);
+
+  // Linking the bot finding by #issuecomment-<id> clears it too.
+  const linkBotReply = {
+    id: "IC_link_bot_1",
+    fullDatabaseId: "7055946180",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "Fixed #issuecomment-7055946150 by passing arguments as an array.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946180",
+    createdAt: "2026-11-21T02:36:00Z",
+    updatedAt: "2026-11-21T02:36:00Z",
+    isMinimized: false,
+  };
+  const clearedHumanAndBot = watch([{
+    ...baseState,
+    issueComments: [humanComment, taggedBotFinding, quoteHumanReply, linkBotReply],
+  }]);
+  assert.equal(clearedHumanAndBot.code, 0, clearedHumanAndBot.out);
+  assert.equal(clearedHumanAndBot.lines[0], "READY");
 
   const deployBot = {
     id: "IC_deploy_1",
@@ -1046,4 +1107,25 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(paginated.code, 3, paginated.out);
   assert.equal(paginated.lines[0], "BLOCKED: 1 unaddressed PR comment");
   assert.match(paginated.out, /Grok Bot \(PR Review\)/);
+});
+
+test("watch-pr defaults --interval to 60s and clamps positive intervals below 30s to 30s without error", () => {
+  const pending = { pullRequest: open(), checkRuns: [check(DURABLE, null), check(CURSOR, "success")] };
+  const ready = { pullRequest: open(), checkRuns: reviewersPassed() };
+
+  const clamped = watch([pending, ready], { args: ["--interval", "5"] });
+  assert.equal(clamped.code, 0, clamped.out + clamped.err);
+  assert.equal(clamped.err, "");
+  assert.equal(clamped.sleeps.length, 1);
+  assert.ok(clamped.sleeps[0] >= 29_900 && clamped.sleeps[0] <= 30_000, `expected 30s clamped sleep, got ${clamped.sleeps[0]}ms`);
+
+  const defaultInterval = watch([pending, ready], { args: [] });
+  assert.equal(defaultInterval.code, 0, defaultInterval.out + defaultInterval.err);
+  assert.equal(defaultInterval.sleeps.length, 1);
+  assert.ok(defaultInterval.sleeps[0] >= 59_900 && defaultInterval.sleeps[0] <= 60_000, `expected 60s default sleep, got ${defaultInterval.sleeps[0]}ms`);
+
+  const custom = watch([pending, ready], { args: ["--interval", "45"] });
+  assert.equal(custom.code, 0, custom.out + custom.err);
+  assert.equal(custom.sleeps.length, 1);
+  assert.ok(custom.sleeps[0] >= 44_900 && custom.sleeps[0] <= 45_000, `expected 45s custom sleep, got ${custom.sleeps[0]}ms`);
 });
