@@ -108,7 +108,8 @@ async function main(argv, env) {
   const client = createGhClient(executable, { env });
   const github = createGitHub(client);
   const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
-  const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
+  const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
+  const needsTexts = textReviewerRules.length > 0;
   const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
   const workflowFiles = new Map();
   const requiredChecks = new Map();
@@ -130,6 +131,7 @@ async function main(argv, env) {
       configPath: settingsPath,
       mergeWithoutApproval: settings.mergeWithoutApproval,
       reviewerChecks,
+      textReviewerRules,
       requiredChecksOnly,
       facts,
       checks: [],

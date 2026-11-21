@@ -901,3 +901,117 @@ test("pr-threads.mjs lists, replies to, and resolves threads using shared repo r
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--reply", "PRRT_open_1", "--body-file", "$BODY_FILE"], bodyFileContent: "   \n" }).code, 64);
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--list"] }).code, 64);
 });
+
+test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) block watch-pr until replied to", () => {
+  const baseState = {
+    pullRequest: open({ author: { login: "fitchmultz" } }),
+    checkRuns: [...ciJobs("success"), ...reviewersPassed()],
+    runs: [ciRun("pull_request")],
+    workflows: { "ci.yml": PI_WORKFLOWS["ci.yml"] },
+  };
+
+  // 1. Grok Bot review flag posted under the PR author's own login blocks READY with exit 3.
+  const grokComment = {
+    id: "IC_grok_1",
+    fullDatabaseId: "7055945936",
+    author: { login: "fitchmultz" },
+    body: `Review flag on head ${HEAD.slice(0, 8)} (branch feat/agy): use mise instead.\n\n— Attributed to Grok Bot (PR Review)\n`,
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055945936",
+    createdAt: "2026-11-21T02:29:47Z",
+    updatedAt: "2026-11-21T02:29:47Z",
+    isMinimized: false,
+  };
+  const blockedGrok = watch([{ ...baseState, issueComments: [grokComment] }]);
+  assert.equal(blockedGrok.code, 3, blockedGrok.out);
+  assert.equal(blockedGrok.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(blockedGrok.out, /unaddressed PR comments: 1/);
+  assert.match(blockedGrok.out, new RegExp(`PR comment @fitchmultz \\(Grok Bot \\(PR Review\\)\\) \\[${HEAD.slice(0, 7)} head\\]: Review flag on head`));
+
+  // pr-threads.mjs --list surfaces the unaddressed PR comment in text and JSON.
+  const listed = runThreads([{ ...baseState, issueComments: [grokComment] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list"],
+  });
+  assert.equal(listed.code, 0, listed.err);
+  assert.match(listed.out, /unaddressed PR comments: 1/);
+  assert.match(listed.out, /IC_grok_1\s+PR comment\s+@fitchmultz \(Grok Bot \(PR Review\)\)/);
+  assert.match(listed.out, /url: https:\/\/github\.com\/fitchmultz\/pi\/pull\/418#issuecomment-7055945936/);
+
+  const listedJson = runThreads([{ ...baseState, issueComments: [grokComment] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list", "--json"],
+  });
+  assert.equal(listedJson.code, 0, listedJson.err);
+  const jsonPayload = JSON.parse(listedJson.out);
+  assert.equal(jsonPayload.unaddressedCommentCount, 1);
+  assert.equal(jsonPayload.comments[0].attribution, "Grok Bot (PR Review)");
+
+  // 2. A subsequent non-flag reply from the PR author clears the Grok Bot comment.
+  const authorReply = {
+    id: "IC_reply_1",
+    fullDatabaseId: "7055946000",
+    author: { login: "fitchmultz" },
+    body: "Switched to mise `antigravity-cli = \"latest\"` in follow-up commit.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946000",
+    createdAt: "2026-11-21T02:32:00Z",
+    updatedAt: "2026-11-21T02:32:00Z",
+    isMinimized: false,
+  };
+  const cleared = watch([{ ...baseState, issueComments: [grokComment, authorReply] }]);
+  assert.equal(cleared.code, 0, cleared.out);
+  assert.equal(cleared.lines[0], "READY");
+
+  // 3. A human reviewer comment (different author) blocks until PR author replies;
+  //    minimized comments and informational deploy bots do not block.
+  const humanComment = {
+    id: "IC_human_1",
+    fullDatabaseId: "7055946100",
+    author: { login: "teammate" },
+    body: "Please also update the README before merging.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946100",
+    createdAt: "2026-11-21T02:33:00Z",
+    updatedAt: "2026-11-21T02:33:00Z",
+    isMinimized: false,
+  };
+  const blockedHuman = watch([{ ...baseState, issueComments: [grokComment, authorReply, humanComment] }]);
+  assert.equal(blockedHuman.code, 3, blockedHuman.out);
+  assert.equal(blockedHuman.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(blockedHuman.out, /PR comment @teammate: Please also update the README/);
+
+  const deployBot = {
+    id: "IC_deploy_1",
+    fullDatabaseId: "7055946200",
+    author: { login: "cloudflare-workers-and-pages[bot]" },
+    body: "Preview deployed to https://preview.example.com",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946200",
+    createdAt: "2026-11-21T02:34:00Z",
+    updatedAt: "2026-11-21T02:34:00Z",
+    isMinimized: false,
+  };
+  const ignored = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, deployBot] }]);
+  assert.equal(ignored.code, 0, ignored.out);
+  assert.equal(ignored.lines[0], "READY");
+
+  // 4. Configured text reviewer verdicts (Greptile) are handled by reviewerStates, not flagged as unaddressed comments.
+  const greptileState = {
+    pullRequest: open({ author: { login: "fitchmultz" }, reviewDecision: "REVIEW_REQUIRED" }),
+    checkRuns: [check("Review bot", "success")],
+    comments: [{
+      user: { login: "greptile-apps[bot]" },
+      updated_at: "2026-11-10T16:30:56Z",
+      body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
+    }],
+    issueComments: [{
+      id: "IC_greptile_1",
+      fullDatabaseId: "7055946300",
+      author: { login: "greptile-apps[bot]" },
+      body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
+      url: "https://github.com/acme/app/pull/418#issuecomment-7055946300",
+      createdAt: "2026-11-10T16:30:56Z",
+      updatedAt: "2026-11-10T16:30:56Z",
+      isMinimized: false,
+    }],
+    rules: [],
+  };
+  const greptileReady = watch([greptileState], { repo: "acme/app" });
+  assert.equal(greptileReady.code, 0, greptileReady.out);
+  assert.equal(greptileReady.lines[0], "READY");
+});

@@ -17,7 +17,7 @@ import {
   resolveRepo,
   settingsFor,
 } from "./repo-config.mjs";
-import { formatThreadList } from "./threads.mjs";
+import { formatThreadList, unaddressedIssueComments } from "./threads.mjs";
 import { EXIT } from "./verdict.mjs";
 
 const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
@@ -173,19 +173,28 @@ async function main(argv, env) {
     }
     if (options.list) {
       const facts = await github.pullRequest(options.pr);
+      const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
+      const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
+        prAuthor: facts.author ?? null,
+        textReviewerRules,
+      });
       const threads = options.all ? facts.allThreads : facts.threads;
+      const comments = options.all ? (facts.issueComments ?? []) : unaddressedComments;
       if (options.json) {
         process.stdout.write(`${JSON.stringify({
           pr: facts.url,
           head: facts.head,
           unresolvedCount: facts.threads.length,
+          unaddressedCommentCount: unaddressedComments.length,
           threads,
+          comments,
         }, null, 2)}\n`);
       } else {
         process.stdout.write(formatThreadList({
           url: facts.url,
           head: facts.head,
           threads,
+          comments,
           includeResolved: options.all,
         }));
       }

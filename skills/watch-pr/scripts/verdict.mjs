@@ -3,7 +3,7 @@
 
 import { basename } from "node:path";
 import { login } from "./gh-client.mjs";
-import { formatVerdictThread } from "./threads.mjs";
+import { formatVerdictComment, formatVerdictThread, unaddressedIssueComments } from "./threads.mjs";
 import { classifyWorkflow } from "./triggers.mjs";
 
 /**
@@ -181,6 +181,7 @@ export function assess({
   reviewers,
   mergeWithoutApproval,
   reviewerChecks = [],
+  textReviewerRules = [],
   requiredChecksOnly = false,
 }, { firstLook }) {
   if (facts.state === "MERGED") return { kind: "merged", exitCode: EXIT.ready };
@@ -188,7 +189,18 @@ export function assess({
   if (facts.mergeable === "CONFLICTING" || facts.mergeState === "DIRTY") {
     return blocked(EXIT.conflicts, `merge conflicts with ${facts.baseRef}`);
   }
+  const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
+    prAuthor: facts.author ?? null,
+    textReviewerRules,
+  });
+  if (facts.threads.length && unaddressedComments.length) {
+    return blocked(
+      EXIT.threads,
+      `${plural(facts.threads.length, "unresolved review thread")} and ${plural(unaddressedComments.length, "unaddressed PR comment")}`,
+    );
+  }
   if (facts.threads.length) return blocked(EXIT.threads, plural(facts.threads.length, "unresolved review thread"));
+  if (unaddressedComments.length) return blocked(EXIT.threads, plural(unaddressedComments.length, "unaddressed PR comment"));
 
   const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
   const buckets = partitionChecks(checks, {
@@ -345,6 +357,7 @@ export function render({
   reviewers,
   mergeWithoutApproval,
   reviewerChecks = [],
+  textReviewerRules = [],
   requiredChecksOnly = false,
 }, outcome) {
   const head = facts.head;
@@ -372,6 +385,10 @@ export function render({
   top.push(`checks on ${short(head)}: ${countParts.join(", ")}`);
   const pendingNames = buckets.pending.map((check) => check.name);
   const ignoredLabels = buckets.ignored.map((check) => `${check.name} (${check.detail})`);
+  const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
+    prAuthor: facts.author ?? null,
+    textReviewerRules,
+  });
   // Each part is a heading, then items that are shown while the block fits.
   const parts = [
     {
@@ -395,10 +412,15 @@ export function render({
       before: [`unresolved review threads: ${facts.threads.length}`],
       more: "threads",
     },
+    ...(unaddressedComments.length ? [{
+      items: unaddressedComments.map((comment) => formatVerdictComment(comment, THREAD_EXCERPT)),
+      before: [`unaddressed PR comments: ${unaddressedComments.length}`],
+      more: "PR comments",
+    }] : []),
   ];
   // Failed checks belong under the checks line, so they are printed first.
   return formatBoundedBlock(top, parts, {
-    order: [parts[1], parts[0], parts[2]],
+    order: [parts[1], parts[0], parts[2], ...(parts[3] ? [parts[3]] : [])],
     bottom: [mergeLine(facts, mergeWithoutApproval)],
   });
 }

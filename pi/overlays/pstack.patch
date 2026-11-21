@@ -2788,7 +2788,7 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..66564538b3c569cf25c8cb616c4d7228e85e1467
+index 0000000000000000000000000000000000000000..223fb822b82760c31f63708d334faed9f12941b9
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
 @@ -0,0 +1,133 @@
@@ -2846,7 +2846,7 @@ index 0000000000000000000000000000000000000000..66564538b3c569cf25c8cb616c4d7228
 +| --- | --- | --- |
 +| 0 | `READY` or `MERGED` | Every rule passed on the named commit, or the pull request is merged. |
 +| 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
-+| 3 | `BLOCKED: N unresolved review threads` | Fix or rebut each thread, then resolve it. |
++| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each thread or PR conversation comment, reply to it, and resolve inline threads. |
 +| 4 | `BLOCKED: N checks failed` | The block links each failed check. |
 +| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 +| 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
@@ -2867,7 +2867,7 @@ index 0000000000000000000000000000000000000000..66564538b3c569cf25c8cb616c4d7228
 +- **Optional checks.** With `--required-checks-only`, non-required checks settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored. If GitHub declares no required status checks for the base branch, `--required-checks-only` fails closed with `UNKNOWN` (exit 9).
 +- **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 +- **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
-+- **Threads and merge state.** Every unresolved review thread blocks. The watcher fetches up to 20 comments per thread in the same pull request GraphQL query (no extra API call) and includes each thread's short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
++- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks. The watcher also reads PR conversation comments in the same GraphQL query (no extra API call) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / `Review flag on head ...` comments, even when posted under the PR author's login), human reviewer comments from someone other than the PR author, and bot comments carrying a structured severity tag, until a later non-flag reply from the PR author follows them (or they are minimized). Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
 +
 +## Manage review threads (`pr-threads.mjs`)
 +
@@ -3205,23 +3205,29 @@ index 0000000000000000000000000000000000000000..ac0442559efe2d5e88d1d5616ee5ab8e
 +}
 diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..7ad26f68579f5ea49a23a90c3a10c81d2561a080
+index 0000000000000000000000000000000000000000..21a970137990b1875e7b1d026509a324b5e02dcc
 --- /dev/null
 +++ b/skills/watch-pr/scripts/github.mjs
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,227 @@
 +// Read-only GitHub queries for the watcher, built on the shared gh-client.
 +// Every REST read names the commit it is about, so one poll never mixes two heads.
 +
 +import { basename } from "node:path";
 +import { QueryError, createGhClient, login, readTogether, segment } from "./gh-client.mjs";
-+import { normalizeThread } from "./threads.mjs";
++import { normalizeIssueComment, normalizeThread } from "./threads.mjs";
 +
 +export { QueryError, login, readTogether };
 +
 +const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
 +  repository(owner:$owner,name:$repo){pullRequest(number:$number){
 +    url state isDraft mergedAt mergeable mergeStateStatus reviewDecision headRefOid baseRefName
++    author{login}
 +    mergeCommit{oid}
++    comments(last:100){
++      nodes{
++        id fullDatabaseId author{login} body url createdAt updatedAt isMinimized
++      }
++    }
 +    reviewThreads(first:100,after:$endCursor){
 +      pageInfo{hasNextPage endCursor}
 +      nodes{
@@ -3279,6 +3285,7 @@ index 0000000000000000000000000000000000000000..7ad26f68579f5ea49a23a90c3a10c81d
 +      const allThreads = nodes
 +        .flatMap((node) => node.reviewThreads.nodes)
 +        .map((thread) => normalizeThread(thread, head));
++      const issueComments = (last.comments?.nodes ?? []).map((comment) => normalizeIssueComment(comment, head));
 +      return {
 +        url: last.url,
 +        state: last.state,
@@ -3288,10 +3295,12 @@ index 0000000000000000000000000000000000000000..7ad26f68579f5ea49a23a90c3a10c81d
 +        mergeable: last.mergeable,
 +        mergeState: last.mergeStateStatus,
 +        reviewDecision: last.reviewDecision || null,
++        author: last.author?.login ?? null,
 +        head,
 +        baseRef: last.baseRefName,
 +        threads: allThreads.filter((thread) => !thread.isResolved),
 +        allThreads,
++        issueComments,
 +      };
 +    },
 +
@@ -3429,10 +3438,10 @@ index 0000000000000000000000000000000000000000..7ad26f68579f5ea49a23a90c3a10c81d
 +}
 diff --git a/skills/watch-pr/scripts/pr-threads.mjs b/skills/watch-pr/scripts/pr-threads.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..2e6be605b6b0fba655dfc85c08816c82098faaff
+index 0000000000000000000000000000000000000000..dffa87b090882bceac853d344b2e98189a3188a4
 --- /dev/null
 +++ b/skills/watch-pr/scripts/pr-threads.mjs
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,222 @@
 +#!/usr/bin/env node
 +// Lists, replies to, and resolves GitHub pull request review threads using the
 +// shared watch-pr repository config and gh-client routing.
@@ -3452,7 +3461,7 @@ index 0000000000000000000000000000000000000000..2e6be605b6b0fba655dfc85c08816c82
 +  resolveRepo,
 +  settingsFor,
 +} from "./repo-config.mjs";
-+import { formatThreadList } from "./threads.mjs";
++import { formatThreadList, unaddressedIssueComments } from "./threads.mjs";
 +import { EXIT } from "./verdict.mjs";
 +
 +const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
@@ -3608,19 +3617,28 @@ index 0000000000000000000000000000000000000000..2e6be605b6b0fba655dfc85c08816c82
 +    }
 +    if (options.list) {
 +      const facts = await github.pullRequest(options.pr);
++      const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
++      const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
++        prAuthor: facts.author ?? null,
++        textReviewerRules,
++      });
 +      const threads = options.all ? facts.allThreads : facts.threads;
++      const comments = options.all ? (facts.issueComments ?? []) : unaddressedComments;
 +      if (options.json) {
 +        process.stdout.write(`${JSON.stringify({
 +          pr: facts.url,
 +          head: facts.head,
 +          unresolvedCount: facts.threads.length,
++          unaddressedCommentCount: unaddressedComments.length,
 +          threads,
++          comments,
 +        }, null, 2)}\n`);
 +      } else {
 +        process.stdout.write(formatThreadList({
 +          url: facts.url,
 +          head: facts.head,
 +          threads,
++          comments,
 +          includeResolved: options.all,
 +        }));
 +      }
@@ -3827,10 +3845,10 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..d8a204314d546845901a8da035da8e3c0fc02a24
+index 0000000000000000000000000000000000000000..a550384373d6d97bda9c37832b37952e568e6940
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,158 @@
+@@ -0,0 +1,271 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
@@ -3961,13 +3979,113 @@ index 0000000000000000000000000000000000000000..d8a204314d546845901a8da035da8e3c
 +  return `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${thread.author ?? "unknown"}${meta}: ${cleanSnippet(thread.body, maxExcerpt)}`;
 +}
 +
-+/** Formats the detailed thread list for `pr-threads.mjs --list`. */
-+export function formatThreadList({ url, head, threads, includeResolved = false }) {
++const ATTRIBUTION_LINE = /(?:^|\n)\s*(?:—|–|--)\s*Attributed to\s+([^\n]+?)\s*$/m;
++const REVIEW_FLAG_HEAD = /\bReview flag\b(?:\s+on\s+head\s+([0-9a-f]{7,40}))?/i;
++
++/** Normalizes a GraphQL PR conversation (`IssueComment`) node. */
++export function normalizeIssueComment(node, headSha = null) {
++  const body = node.body ?? "";
++  const attribution = ATTRIBUTION_LINE.exec(body)?.[1]?.trim() ?? null;
++  const flagMatch = REVIEW_FLAG_HEAD.exec(body);
++  const commitOid = flagMatch?.[1]?.toLowerCase() ?? null;
++  const isReviewFlag = Boolean(attribution || flagMatch);
++  return {
++    id: node.id ?? null,
++    databaseId: node.fullDatabaseId ?? node.databaseId ?? null,
++    author: node.author?.login ?? null,
++    body,
++    url: node.url ?? null,
++    createdAt: node.createdAt ?? null,
++    updatedAt: node.updatedAt ?? node.createdAt ?? null,
++    isMinimized: Boolean(node.isMinimized),
++    attribution,
++    isReviewFlag,
++    commitOid,
++    shortCommit: commitOid ? commitOid.slice(0, 7) : null,
++    onHead: sameCommit(commitOid, headSha),
++    severity: parseSeverity(body),
++  };
++}
++
++const normalizeLogin = (name) => (name ?? "").toLowerCase();
++const isBotLogin = (name) => {
++  const lowered = normalizeLogin(name);
++  return lowered.endsWith("[bot]") || lowered === "cursor" || lowered === "pi-durable";
++};
++
++function isConfiguredTextReviewerComment(comment, textReviewerRules) {
++  const author = normalizeLogin(comment.author);
++  return textReviewerRules.some(
++    (rule) => normalizeLogin(rule.author) === author && rule.verdict.test(comment.body),
++  );
++}
++
++function isActionableIssueComment(comment, prAuthor, textReviewerRules) {
++  if (comment.isMinimized || !comment.body.trim()) return false;
++  if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
++  if (comment.isReviewFlag) return true;
++  if (!comment.author) return false;
++  if (isBotLogin(comment.author)) return comment.severity !== null;
++  return Boolean(prAuthor) && normalizeLogin(comment.author) !== normalizeLogin(prAuthor);
++}
++
++function isReplyComment(comment, prAuthor, textReviewerRules) {
++  if (comment.isMinimized || !comment.body.trim()) return false;
++  if (comment.isReviewFlag) return false;
++  if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
++  if (isBotLogin(comment.author)) return false;
++  return !prAuthor || normalizeLogin(comment.author) === normalizeLogin(prAuthor);
++}
++
++/**
++ * Returns PR conversation comments that still need attention: attributed review
++ * flags (such as Grok Bot), human reviewer comments from someone other than the
++ * PR author, or bot findings carrying a severity tag, when no later non-flag
++ * reply from the PR author follows them.
++ */
++export function unaddressedIssueComments(comments, { prAuthor = null, textReviewerRules = [] } = {}) {
++  if (!Array.isArray(comments) || comments.length === 0) return [];
++  const ordered = comments
++    .map((comment, index) => ({ comment, index }))
++    .sort((a, b) => {
++      const ta = a.comment.createdAt ?? "";
++      const tb = b.comment.createdAt ?? "";
++      return ta === tb ? a.index - b.index : ta < tb ? -1 : 1;
++    })
++    .map(({ comment }) => comment);
++
++  const unaddressed = [];
++  for (let i = 0; i < ordered.length; i++) {
++    const comment = ordered[i];
++    if (!isActionableIssueComment(comment, prAuthor, textReviewerRules)) continue;
++    const addressed = ordered.slice(i + 1).some((later) => isReplyComment(later, prAuthor, textReviewerRules));
++    if (!addressed) unaddressed.push(comment);
++  }
++  return unaddressed;
++}
++
++/** Formats one unaddressed PR conversation comment for `watch-pr`'s verdict block. */
++export function formatVerdictComment(comment, maxExcerpt = 200) {
++  const who = comment.attribution
++    ? `@${comment.author ?? "unknown"} (${comment.attribution})`
++    : `@${comment.author ?? "unknown"}`;
++  const tags = [];
++  if (comment.shortCommit) tags.push(`${comment.shortCommit} ${comment.onHead ? "head" : "older"}`);
++  if (comment.severity) tags.push(comment.severity);
++  const meta = tags.length ? ` [${tags.join(", ")}]` : "";
++  return `  PR comment ${who}${meta}: ${cleanSnippet(comment.body, maxExcerpt)}`;
++}
++
++/** Formats the detailed thread (and unaddressed PR comment) list for `pr-threads.mjs --list`. */
++export function formatThreadList({ url, head, threads, comments = [], includeResolved = false }) {
 +  const lines = [
 +    `pr: ${url}`,
 +    `head: ${head}`,
 +    `${includeResolved ? "threads" : "unresolved threads"}: ${threads.length}`,
 +  ];
++  if (comments.length) {
++    lines.push(`${includeResolved ? "PR comments" : "unaddressed PR comments"}: ${comments.length}`);
++  }
 +  for (const thread of threads) {
 +    const location = `${thread.path ?? "(no file)"}:${thread.line ?? "?"}`;
 +    const commitLabel = thread.shortCommit
@@ -3986,6 +4104,19 @@ index 0000000000000000000000000000000000000000..d8a204314d546845901a8da035da8e3c
 +    lines.push(parts.join("  "));
 +    if (thread.url) lines.push(`  url: ${thread.url}`);
 +    lines.push(`  snippet: ${cleanSnippet(thread.body, 240)}`);
++  }
++  for (const comment of comments) {
++    const parts = [
++      comment.id ?? "(no id)",
++      "PR comment",
++      comment.attribution ? `@${comment.author ?? "unknown"} (${comment.attribution})` : `@${comment.author ?? "unknown"}`,
++    ];
++    if (comment.shortCommit) parts.push(`${comment.shortCommit} (${comment.onHead ? "head" : "older"})`);
++    if (comment.severity) parts.push(`[${comment.severity}]`);
++    lines.push("");
++    lines.push(parts.join("  "));
++    if (comment.url) lines.push(`  url: ${comment.url}`);
++    lines.push(`  snippet: ${cleanSnippet(comment.body, 240)}`);
 +  }
 +  return `${lines.join("\n")}\n`;
 +}
@@ -4252,16 +4383,16 @@ index 0000000000000000000000000000000000000000..7ee236a8170f556b38b8f46425174fa4
 +}
 diff --git a/skills/watch-pr/scripts/verdict.mjs b/skills/watch-pr/scripts/verdict.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d8eba8cb8
+index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbdcc0f2cee
 --- /dev/null
 +++ b/skills/watch-pr/scripts/verdict.mjs
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,426 @@
 +// Turns one observation of a pull request into the merge-readiness verdict:
 +// what the watcher decides, and the short block it prints last.
 +
 +import { basename } from "node:path";
 +import { login } from "./gh-client.mjs";
-+import { formatVerdictThread } from "./threads.mjs";
++import { formatVerdictComment, formatVerdictThread, unaddressedIssueComments } from "./threads.mjs";
 +import { classifyWorkflow } from "./triggers.mjs";
 +
 +/**
@@ -4439,6 +4570,7 @@ index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d
 +  reviewers,
 +  mergeWithoutApproval,
 +  reviewerChecks = [],
++  textReviewerRules = [],
 +  requiredChecksOnly = false,
 +}, { firstLook }) {
 +  if (facts.state === "MERGED") return { kind: "merged", exitCode: EXIT.ready };
@@ -4446,7 +4578,18 @@ index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d
 +  if (facts.mergeable === "CONFLICTING" || facts.mergeState === "DIRTY") {
 +    return blocked(EXIT.conflicts, `merge conflicts with ${facts.baseRef}`);
 +  }
++  const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
++    prAuthor: facts.author ?? null,
++    textReviewerRules,
++  });
++  if (facts.threads.length && unaddressedComments.length) {
++    return blocked(
++      EXIT.threads,
++      `${plural(facts.threads.length, "unresolved review thread")} and ${plural(unaddressedComments.length, "unaddressed PR comment")}`,
++    );
++  }
 +  if (facts.threads.length) return blocked(EXIT.threads, plural(facts.threads.length, "unresolved review thread"));
++  if (unaddressedComments.length) return blocked(EXIT.threads, plural(unaddressedComments.length, "unaddressed PR comment"));
 +
 +  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
 +  const buckets = partitionChecks(checks, {
@@ -4603,6 +4746,7 @@ index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d
 +  reviewers,
 +  mergeWithoutApproval,
 +  reviewerChecks = [],
++  textReviewerRules = [],
 +  requiredChecksOnly = false,
 +}, outcome) {
 +  const head = facts.head;
@@ -4630,6 +4774,10 @@ index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d
 +  top.push(`checks on ${short(head)}: ${countParts.join(", ")}`);
 +  const pendingNames = buckets.pending.map((check) => check.name);
 +  const ignoredLabels = buckets.ignored.map((check) => `${check.name} (${check.detail})`);
++  const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
++    prAuthor: facts.author ?? null,
++    textReviewerRules,
++  });
 +  // Each part is a heading, then items that are shown while the block fits.
 +  const parts = [
 +    {
@@ -4653,19 +4801,24 @@ index 0000000000000000000000000000000000000000..017c1fbd16f7bb4fbad85cf402bfd05d
 +      before: [`unresolved review threads: ${facts.threads.length}`],
 +      more: "threads",
 +    },
++    ...(unaddressedComments.length ? [{
++      items: unaddressedComments.map((comment) => formatVerdictComment(comment, THREAD_EXCERPT)),
++      before: [`unaddressed PR comments: ${unaddressedComments.length}`],
++      more: "PR comments",
++    }] : []),
 +  ];
 +  // Failed checks belong under the checks line, so they are printed first.
 +  return formatBoundedBlock(top, parts, {
-+    order: [parts[1], parts[0], parts[2]],
++    order: [parts[1], parts[0], parts[2], ...(parts[3] ? [parts[3]] : [])],
 +    bottom: [mergeLine(facts, mergeWithoutApproval)],
 +  });
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..e3e81641c9525f1916068b383c65a04dc3e5f758
+index 0000000000000000000000000000000000000000..19ac7f7ec4f31aefe70e9986b567584802a35f5e
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,244 @@
 +#!/usr/bin/env node
 +// Waits until one pull request is ready to merge or blocked, then prints a
 +// short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
@@ -4776,7 +4929,8 @@ index 0000000000000000000000000000000000000000..e3e81641c9525f1916068b383c65a04d
 +  const client = createGhClient(executable, { env });
 +  const github = createGitHub(client);
 +  const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
-+  const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
++  const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
++  const needsTexts = textReviewerRules.length > 0;
 +  const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
 +  const workflowFiles = new Map();
 +  const requiredChecks = new Map();
@@ -4798,6 +4952,7 @@ index 0000000000000000000000000000000000000000..e3e81641c9525f1916068b383c65a04d
 +      configPath: settingsPath,
 +      mergeWithoutApproval: settings.mergeWithoutApproval,
 +      reviewerChecks,
++      textReviewerRules,
 +      requiredChecksOnly,
 +      facts,
 +      checks: [],

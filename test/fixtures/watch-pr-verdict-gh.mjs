@@ -48,6 +48,7 @@ if (argv[1] === "graphql") {
   if (query.includes("reviewThreads")) {
     print(pullRequest({
       ...state.pullRequest,
+      comments: { nodes: state.issueComments ?? [] },
       reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: state.threads ?? [] },
     }));
   } else if (query.includes("object(expression")) {

@@ -3,14 +3,20 @@
 
 import { basename } from "node:path";
 import { QueryError, createGhClient, login, readTogether, segment } from "./gh-client.mjs";
-import { normalizeThread } from "./threads.mjs";
+import { normalizeIssueComment, normalizeThread } from "./threads.mjs";
 
 export { QueryError, login, readTogether };
 
 const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
   repository(owner:$owner,name:$repo){pullRequest(number:$number){
     url state isDraft mergedAt mergeable mergeStateStatus reviewDecision headRefOid baseRefName
+    author{login}
     mergeCommit{oid}
+    comments(last:100){
+      nodes{
+        id fullDatabaseId author{login} body url createdAt updatedAt isMinimized
+      }
+    }
     reviewThreads(first:100,after:$endCursor){
       pageInfo{hasNextPage endCursor}
       nodes{
@@ -68,6 +74,7 @@ export function createGitHub(executableOrClient, options) {
       const allThreads = nodes
         .flatMap((node) => node.reviewThreads.nodes)
         .map((thread) => normalizeThread(thread, head));
+      const issueComments = (last.comments?.nodes ?? []).map((comment) => normalizeIssueComment(comment, head));
       return {
         url: last.url,
         state: last.state,
@@ -77,10 +84,12 @@ export function createGitHub(executableOrClient, options) {
         mergeable: last.mergeable,
         mergeState: last.mergeStateStatus,
         reviewDecision: last.reviewDecision || null,
+        author: last.author?.login ?? null,
         head,
         baseRef: last.baseRefName,
         threads: allThreads.filter((thread) => !thread.isResolved),
         allThreads,
+        issueComments,
       };
     },
 
