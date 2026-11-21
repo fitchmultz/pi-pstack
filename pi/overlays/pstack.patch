@@ -3205,10 +3205,10 @@ index 0000000000000000000000000000000000000000..ac0442559efe2d5e88d1d5616ee5ab8e
 +}
 diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..21a970137990b1875e7b1d026509a324b5e02dcc
+index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25e5bb69c3
 --- /dev/null
 +++ b/skills/watch-pr/scripts/github.mjs
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,243 @@
 +// Read-only GitHub queries for the watcher, built on the shared gh-client.
 +// Every REST read names the commit it is about, so one poll never mixes two heads.
 +
@@ -3221,11 +3221,12 @@ index 0000000000000000000000000000000000000000..21a970137990b1875e7b1d026509a324
 +const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
 +  repository(owner:$owner,name:$repo){pullRequest(number:$number){
 +    url state isDraft mergedAt mergeable mergeStateStatus reviewDecision headRefOid baseRefName
-+    author{login}
++    author{__typename login}
 +    mergeCommit{oid}
 +    comments(last:100){
++      pageInfo{hasPreviousPage}
 +      nodes{
-+        id fullDatabaseId author{login} body url createdAt updatedAt isMinimized
++        id fullDatabaseId author{__typename login} body url createdAt updatedAt isMinimized
 +      }
 +    }
 +    reviewThreads(first:100,after:$endCursor){
@@ -3237,6 +3238,16 @@ index 0000000000000000000000000000000000000000..21a970137990b1875e7b1d026509a324
 +            id fullDatabaseId commit{oid} originalCommit{oid} author{login} body url createdAt outdated
 +          }
 +        }
++      }
++    }
++  }}
++}`;
++const ISSUE_COMMENTS = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
++  repository(owner:$owner,name:$repo){pullRequest(number:$number){
++    comments(first:100,after:$endCursor){
++      pageInfo{hasNextPage endCursor}
++      nodes{
++        id fullDatabaseId author{__typename login} body url createdAt updatedAt isMinimized
 +      }
 +    }
 +  }}
@@ -3285,7 +3296,12 @@ index 0000000000000000000000000000000000000000..21a970137990b1875e7b1d026509a324
 +      const allThreads = nodes
 +        .flatMap((node) => node.reviewThreads.nodes)
 +        .map((thread) => normalizeThread(thread, head));
-+      const issueComments = (last.comments?.nodes ?? []).map((comment) => normalizeIssueComment(comment, head));
++      let rawIssueComments = last.comments?.nodes ?? [];
++      if (last.comments?.pageInfo?.hasPreviousPage) {
++        const commentPages = await client.graphql(ISSUE_COMMENTS, pr, { paginate: true });
++        rawIssueComments = commentPages.flatMap((page) => pullRequestNode(page, pr).comments?.nodes ?? []);
++      }
++      const issueComments = rawIssueComments.map((comment) => normalizeIssueComment(comment, head));
 +      return {
 +        url: last.url,
 +        state: last.state,
@@ -3845,12 +3861,14 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..a550384373d6d97bda9c37832b37952e568e6940
+index 0000000000000000000000000000000000000000..45e88c5dd9be3cad9da40230c6fff2c3795816b5
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,282 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
++
++import { login } from "./gh-client.mjs";
 +
 +export const SEVERITY_TAGS = Object.freeze([
 +  "blocks",
@@ -3979,20 +3997,35 @@ index 0000000000000000000000000000000000000000..a550384373d6d97bda9c37832b37952e
 +  return `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${thread.author ?? "unknown"}${meta}: ${cleanSnippet(thread.body, maxExcerpt)}`;
 +}
 +
-+const ATTRIBUTION_LINE = /(?:^|\n)\s*(?:—|–|--)\s*Attributed to\s+([^\n]+?)\s*$/m;
-+const REVIEW_FLAG_HEAD = /\bReview flag\b(?:\s+on\s+head\s+([0-9a-f]{7,40}))?/i;
++const ATTRIBUTION_LINE = /^\s*(?:—|–|--)\s*Attributed to\s+([^\n]+?)\s*$/m;
++const REVIEW_FLAG_LEADING = /^\s*Review flag\b(?:\s+on\s+head\s+([0-9a-f]{7,40}))?/i;
++
++/** Removes Markdown blockquote lines (`> ...`) so quoted text is not misread as a new flag. */
++function stripBlockquotes(body) {
++  return (body ?? "")
++    .split(/\r?\n/)
++    .filter((line) => !/^\s*>/.test(line))
++    .join("\n")
++    .trim();
++}
 +
 +/** Normalizes a GraphQL PR conversation (`IssueComment`) node. */
 +export function normalizeIssueComment(node, headSha = null) {
 +  const body = node.body ?? "";
-+  const attribution = ATTRIBUTION_LINE.exec(body)?.[1]?.trim() ?? null;
-+  const flagMatch = REVIEW_FLAG_HEAD.exec(body);
++  const unquoted = stripBlockquotes(body);
++  const attribution = ATTRIBUTION_LINE.exec(unquoted)?.[1]?.trim() ?? null;
++  const flagMatch = REVIEW_FLAG_LEADING.exec(unquoted);
 +  const commitOid = flagMatch?.[1]?.toLowerCase() ?? null;
 +  const isReviewFlag = Boolean(attribution || flagMatch);
++  const author = node.author?.login ?? null;
++  const authorType = node.author?.__typename ?? null;
++  const isBot = authorType === "Bot" || Boolean(author && /\[bot\]$/i.test(author));
 +  return {
 +    id: node.id ?? null,
 +    databaseId: node.fullDatabaseId ?? node.databaseId ?? null,
-+    author: node.author?.login ?? null,
++    author,
++    authorType,
++    isBot,
 +    body,
 +    url: node.url ?? null,
 +    createdAt: node.createdAt ?? null,
@@ -4003,20 +4036,14 @@ index 0000000000000000000000000000000000000000..a550384373d6d97bda9c37832b37952e
 +    commitOid,
 +    shortCommit: commitOid ? commitOid.slice(0, 7) : null,
 +    onHead: sameCommit(commitOid, headSha),
-+    severity: parseSeverity(body),
++    severity: parseSeverity(unquoted),
 +  };
 +}
 +
-+const normalizeLogin = (name) => (name ?? "").toLowerCase();
-+const isBotLogin = (name) => {
-+  const lowered = normalizeLogin(name);
-+  return lowered.endsWith("[bot]") || lowered === "cursor" || lowered === "pi-durable";
-+};
-+
 +function isConfiguredTextReviewerComment(comment, textReviewerRules) {
-+  const author = normalizeLogin(comment.author);
++  const author = login(comment.author);
 +  return textReviewerRules.some(
-+    (rule) => normalizeLogin(rule.author) === author && rule.verdict.test(comment.body),
++    (rule) => login(rule.author) === author && rule.verdict.test(comment.body),
 +  );
 +}
 +
@@ -4025,16 +4052,16 @@ index 0000000000000000000000000000000000000000..a550384373d6d97bda9c37832b37952e
 +  if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
 +  if (comment.isReviewFlag) return true;
 +  if (!comment.author) return false;
-+  if (isBotLogin(comment.author)) return comment.severity !== null;
-+  return Boolean(prAuthor) && normalizeLogin(comment.author) !== normalizeLogin(prAuthor);
++  if (comment.isBot) return comment.severity !== null;
++  return Boolean(prAuthor) && login(comment.author) !== login(prAuthor);
 +}
 +
 +function isReplyComment(comment, prAuthor, textReviewerRules) {
 +  if (comment.isMinimized || !comment.body.trim()) return false;
 +  if (comment.isReviewFlag) return false;
 +  if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
-+  if (isBotLogin(comment.author)) return false;
-+  return !prAuthor || normalizeLogin(comment.author) === normalizeLogin(prAuthor);
++  if (comment.isBot) return false;
++  return !prAuthor || login(comment.author) === login(prAuthor);
 +}
 +
 +/**

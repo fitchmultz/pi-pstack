@@ -1,6 +1,8 @@
 // Review thread normalization, severity tag parsing, and formatting shared by
 // `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 
+import { login } from "./gh-client.mjs";
+
 export const SEVERITY_TAGS = Object.freeze([
   "blocks",
   "fix-if-cheap",
@@ -128,20 +130,35 @@ export function formatVerdictThread(thread, maxExcerpt = 200) {
   return `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${thread.author ?? "unknown"}${meta}: ${cleanSnippet(thread.body, maxExcerpt)}`;
 }
 
-const ATTRIBUTION_LINE = /(?:^|\n)\s*(?:—|–|--)\s*Attributed to\s+([^\n]+?)\s*$/m;
-const REVIEW_FLAG_HEAD = /\bReview flag\b(?:\s+on\s+head\s+([0-9a-f]{7,40}))?/i;
+const ATTRIBUTION_LINE = /^\s*(?:—|–|--)\s*Attributed to\s+([^\n]+?)\s*$/m;
+const REVIEW_FLAG_LEADING = /^\s*Review flag\b(?:\s+on\s+head\s+([0-9a-f]{7,40}))?/i;
+
+/** Removes Markdown blockquote lines (`> ...`) so quoted text is not misread as a new flag. */
+function stripBlockquotes(body) {
+  return (body ?? "")
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*>/.test(line))
+    .join("\n")
+    .trim();
+}
 
 /** Normalizes a GraphQL PR conversation (`IssueComment`) node. */
 export function normalizeIssueComment(node, headSha = null) {
   const body = node.body ?? "";
-  const attribution = ATTRIBUTION_LINE.exec(body)?.[1]?.trim() ?? null;
-  const flagMatch = REVIEW_FLAG_HEAD.exec(body);
+  const unquoted = stripBlockquotes(body);
+  const attribution = ATTRIBUTION_LINE.exec(unquoted)?.[1]?.trim() ?? null;
+  const flagMatch = REVIEW_FLAG_LEADING.exec(unquoted);
   const commitOid = flagMatch?.[1]?.toLowerCase() ?? null;
   const isReviewFlag = Boolean(attribution || flagMatch);
+  const author = node.author?.login ?? null;
+  const authorType = node.author?.__typename ?? null;
+  const isBot = authorType === "Bot" || Boolean(author && /\[bot\]$/i.test(author));
   return {
     id: node.id ?? null,
     databaseId: node.fullDatabaseId ?? node.databaseId ?? null,
-    author: node.author?.login ?? null,
+    author,
+    authorType,
+    isBot,
     body,
     url: node.url ?? null,
     createdAt: node.createdAt ?? null,
@@ -152,20 +169,14 @@ export function normalizeIssueComment(node, headSha = null) {
     commitOid,
     shortCommit: commitOid ? commitOid.slice(0, 7) : null,
     onHead: sameCommit(commitOid, headSha),
-    severity: parseSeverity(body),
+    severity: parseSeverity(unquoted),
   };
 }
 
-const normalizeLogin = (name) => (name ?? "").toLowerCase();
-const isBotLogin = (name) => {
-  const lowered = normalizeLogin(name);
-  return lowered.endsWith("[bot]") || lowered === "cursor" || lowered === "pi-durable";
-};
-
 function isConfiguredTextReviewerComment(comment, textReviewerRules) {
-  const author = normalizeLogin(comment.author);
+  const author = login(comment.author);
   return textReviewerRules.some(
-    (rule) => normalizeLogin(rule.author) === author && rule.verdict.test(comment.body),
+    (rule) => login(rule.author) === author && rule.verdict.test(comment.body),
   );
 }
 
@@ -174,16 +185,16 @@ function isActionableIssueComment(comment, prAuthor, textReviewerRules) {
   if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
   if (comment.isReviewFlag) return true;
   if (!comment.author) return false;
-  if (isBotLogin(comment.author)) return comment.severity !== null;
-  return Boolean(prAuthor) && normalizeLogin(comment.author) !== normalizeLogin(prAuthor);
+  if (comment.isBot) return comment.severity !== null;
+  return Boolean(prAuthor) && login(comment.author) !== login(prAuthor);
 }
 
 function isReplyComment(comment, prAuthor, textReviewerRules) {
   if (comment.isMinimized || !comment.body.trim()) return false;
   if (comment.isReviewFlag) return false;
   if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
-  if (isBotLogin(comment.author)) return false;
-  return !prAuthor || normalizeLogin(comment.author) === normalizeLogin(prAuthor);
+  if (comment.isBot) return false;
+  return !prAuthor || login(comment.author) === login(prAuthor);
 }
 
 /**

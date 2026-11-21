@@ -10,11 +10,12 @@ export { QueryError, login, readTogether };
 const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
   repository(owner:$owner,name:$repo){pullRequest(number:$number){
     url state isDraft mergedAt mergeable mergeStateStatus reviewDecision headRefOid baseRefName
-    author{login}
+    author{__typename login}
     mergeCommit{oid}
     comments(last:100){
+      pageInfo{hasPreviousPage}
       nodes{
-        id fullDatabaseId author{login} body url createdAt updatedAt isMinimized
+        id fullDatabaseId author{__typename login} body url createdAt updatedAt isMinimized
       }
     }
     reviewThreads(first:100,after:$endCursor){
@@ -26,6 +27,16 @@ const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor
             id fullDatabaseId commit{oid} originalCommit{oid} author{login} body url createdAt outdated
           }
         }
+      }
+    }
+  }}
+}`;
+const ISSUE_COMMENTS = `query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){
+  repository(owner:$owner,name:$repo){pullRequest(number:$number){
+    comments(first:100,after:$endCursor){
+      pageInfo{hasNextPage endCursor}
+      nodes{
+        id fullDatabaseId author{__typename login} body url createdAt updatedAt isMinimized
       }
     }
   }}
@@ -74,7 +85,12 @@ export function createGitHub(executableOrClient, options) {
       const allThreads = nodes
         .flatMap((node) => node.reviewThreads.nodes)
         .map((thread) => normalizeThread(thread, head));
-      const issueComments = (last.comments?.nodes ?? []).map((comment) => normalizeIssueComment(comment, head));
+      let rawIssueComments = last.comments?.nodes ?? [];
+      if (last.comments?.pageInfo?.hasPreviousPage) {
+        const commentPages = await client.graphql(ISSUE_COMMENTS, pr, { paginate: true });
+        rawIssueComments = commentPages.flatMap((page) => pullRequestNode(page, pr).comments?.nodes ?? []);
+      }
+      const issueComments = rawIssueComments.map((comment) => normalizeIssueComment(comment, head));
       return {
         url: last.url,
         state: last.state,

@@ -48,8 +48,18 @@ if (argv[1] === "graphql") {
   if (query.includes("reviewThreads")) {
     print(pullRequest({
       ...state.pullRequest,
-      comments: { nodes: state.issueComments ?? [] },
+      comments: {
+        pageInfo: { hasPreviousPage: Boolean(state.issueCommentsHasPreviousPage) },
+        nodes: state.issueComments ?? [],
+      },
       reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: state.threads ?? [] },
+    }));
+  } else if (query.includes("comments(first:100")) {
+    print(pullRequest({
+      comments: {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: state.allIssueComments ?? state.issueComments ?? [],
+      },
     }));
   } else if (query.includes("object(expression")) {
     // GitHub lists tree entries in name order.

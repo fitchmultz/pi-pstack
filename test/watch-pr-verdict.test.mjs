@@ -944,34 +944,35 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(jsonPayload.unaddressedCommentCount, 1);
   assert.equal(jsonPayload.comments[0].attribution, "Grok Bot (PR Review)");
 
-  // 2. A subsequent non-flag reply from the PR author clears the Grok Bot comment.
-  const authorReply = {
+  // 2. A subsequent non-flag reply from the PR author clears the Grok Bot comment,
+  //    even when the reply quotes the flag or mentions "review flag" in prose.
+  const quotedReply = {
     id: "IC_reply_1",
     fullDatabaseId: "7055946000",
-    author: { login: "fitchmultz" },
-    body: "Switched to mise `antigravity-cli = \"latest\"` in follow-up commit.",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: `> Review flag on head ${HEAD.slice(0, 8)} (branch feat/agy): use mise instead.\n> — Attributed to Grok Bot (PR Review)\n\nAddressed the Grok Bot review flag: switched to mise \`antigravity-cli = "latest"\`.`,
     url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946000",
     createdAt: "2026-11-21T02:32:00Z",
     updatedAt: "2026-11-21T02:32:00Z",
     isMinimized: false,
   };
-  const cleared = watch([{ ...baseState, issueComments: [grokComment, authorReply] }]);
+  const cleared = watch([{ ...baseState, issueComments: [grokComment, quotedReply] }]);
   assert.equal(cleared.code, 0, cleared.out);
   assert.equal(cleared.lines[0], "READY");
 
   // 3. A human reviewer comment (different author) blocks until PR author replies;
-  //    minimized comments and informational deploy bots do not block.
+  //    minimized comments and GraphQL Bot deploy comments (without `[bot]` suffix) do not block.
   const humanComment = {
     id: "IC_human_1",
     fullDatabaseId: "7055946100",
-    author: { login: "teammate" },
+    author: { __typename: "User", login: "teammate" },
     body: "Please also update the README before merging.",
     url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946100",
     createdAt: "2026-11-21T02:33:00Z",
     updatedAt: "2026-11-21T02:33:00Z",
     isMinimized: false,
   };
-  const blockedHuman = watch([{ ...baseState, issueComments: [grokComment, authorReply, humanComment] }]);
+  const blockedHuman = watch([{ ...baseState, issueComments: [grokComment, quotedReply, humanComment] }]);
   assert.equal(blockedHuman.code, 3, blockedHuman.out);
   assert.equal(blockedHuman.lines[0], "BLOCKED: 1 unaddressed PR comment");
   assert.match(blockedHuman.out, /PR comment @teammate: Please also update the README/);
@@ -979,7 +980,7 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   const deployBot = {
     id: "IC_deploy_1",
     fullDatabaseId: "7055946200",
-    author: { login: "cloudflare-workers-and-pages[bot]" },
+    author: { __typename: "Bot", login: "cloudflare-workers-and-pages" },
     body: "Preview deployed to https://preview.example.com",
     url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946200",
     createdAt: "2026-11-21T02:34:00Z",
@@ -990,9 +991,10 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(ignored.code, 0, ignored.out);
   assert.equal(ignored.lines[0], "READY");
 
-  // 4. Configured text reviewer verdicts (Greptile) are handled by reviewerStates, not flagged as unaddressed comments.
+  // 4. Configured text reviewer verdicts in GraphQL (no `[bot]` suffix) are handled by reviewerStates,
+  //    not flagged as unaddressed comments.
   const greptileState = {
-    pullRequest: open({ author: { login: "fitchmultz" }, reviewDecision: "REVIEW_REQUIRED" }),
+    pullRequest: open({ author: { __typename: "User", login: "fitchmultz" }, reviewDecision: "REVIEW_REQUIRED" }),
     checkRuns: [check("Review bot", "success")],
     comments: [{
       user: { login: "greptile-apps[bot]" },
@@ -1002,7 +1004,7 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
     issueComments: [{
       id: "IC_greptile_1",
       fullDatabaseId: "7055946300",
-      author: { login: "greptile-apps[bot]" },
+      author: { __typename: "Bot", login: "greptile-apps" },
       body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
       url: "https://github.com/acme/app/pull/418#issuecomment-7055946300",
       createdAt: "2026-11-10T16:30:56Z",
@@ -1014,4 +1016,16 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   const greptileReady = watch([greptileState], { repo: "acme/app" });
   assert.equal(greptileReady.code, 0, greptileReady.out);
   assert.equal(greptileReady.lines[0], "READY");
+
+  // 5. When a PR has >100 conversation comments (`hasPreviousPage: true`), watch-pr paginates all comments
+  //    so an older unaddressed comment is still caught.
+  const paginated = watch([{
+    ...baseState,
+    issueCommentsHasPreviousPage: true,
+    issueComments: [deployBot],
+    allIssueComments: [grokComment, deployBot],
+  }]);
+  assert.equal(paginated.code, 3, paginated.out);
+  assert.equal(paginated.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(paginated.out, /Grok Bot \(PR Review\)/);
 });
