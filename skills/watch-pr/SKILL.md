@@ -28,7 +28,7 @@ Start `scripts/watch-pr.mjs` from this skill's directory with `background_comman
 - Without `background_command`, run the watcher with `bash` and a `--timeout` below the `bash` time limit.
 - Start one job for each pull request.
 
-After a rate-limited read, the watcher uses a future reset or `Retry-After` instead of the ordinary polling interval. If that time has already passed, the watcher uses the ordinary interval to avoid retrying in a tight loop. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. These waits use no ordinary query retries and do not extend `--timeout`. With `--once`, the watcher reports the rate limit without waiting.
+After a rate-limited read, the watcher uses a future reset or `Retry-After` instead of the ordinary polling interval. If that time has already passed, the watcher uses the ordinary interval to avoid retrying in a tight loop. Secondary limits without a deadline start with a wait of at least 60 seconds. Repeated secondary limits back off separately. These waits use no ordinary query retries and do not extend `--timeout`. With `--once`, the watcher reports the rate limit without waiting. Repeated single-page REST reads send `If-None-Match` with the previous response's ETag so unchanged GitHub responses return `304 Not Modified` without spending hourly REST quota.
 
 ## Read the verdict
 
