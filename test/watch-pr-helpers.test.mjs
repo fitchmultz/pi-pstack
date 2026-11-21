@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   QueryError,
+  createGhClient,
   createRateLimitBackoff,
   rateLimitOf,
   readTogether,
@@ -109,6 +110,139 @@ test("gh-client strips GH_TOKEN/GITHUB_TOKEN and computes primary/secondary rate
 
   const terminal = new QueryError("not found", { retryable: false });
   await assert.rejects(readTogether([Promise.reject(longer), Promise.reject(terminal)]), (error) => error === terminal);
+});
+
+test("gh-client revalidates single-page REST reads with If-None-Match ETags and skips unsafe multi-page caches", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "gh-client-etag-"));
+  try {
+    const queueFile = join(temp, "responses.json");
+    const logFile = join(temp, "calls.ndjson");
+    const fakeGh = join(temp, "gh-fake");
+    writeFileSync(fakeGh, `#!${process.execPath}
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+const argv = process.argv.slice(2);
+appendFileSync(${JSON.stringify(logFile)}, JSON.stringify(argv) + "\\n");
+const queue = JSON.parse(readFileSync(${JSON.stringify(queueFile)}, "utf8"));
+const next = queue.shift();
+writeFileSync(${JSON.stringify(queueFile)}, JSON.stringify(queue));
+if (!next) throw new Error("No queued fake-gh response for " + JSON.stringify(argv));
+for (const page of next.pages ?? []) {
+  process.stdout.write("HTTP/2.0 " + page.status + " " + (page.status === 200 ? "OK" : page.status === 304 ? "Not Modified" : "Error") + "\\r\\n");
+  for (const [k, v] of Object.entries(page.headers ?? {})) {
+    process.stdout.write(k + ": " + v + "\\r\\n");
+  }
+  process.stdout.write("\\r\\n");
+  if (page.body !== undefined) process.stdout.write(JSON.stringify(page.body) + "\\n");
+}
+if (next.stderr) process.stderr.write(next.stderr);
+process.exit(next.code ?? 0);
+`, { mode: 0o755 });
+
+    const queue = (responses) => {
+      writeFileSync(queueFile, JSON.stringify(responses));
+      writeFileSync(logFile, "");
+    };
+    const readCalls = () => readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    const headerArg = (argv) => {
+      const idx = argv.indexOf("-H");
+      return idx === -1 ? null : argv[idx + 1];
+    };
+
+    const client = createGhClient(fakeGh);
+
+    // 1. Paginated single-page REST object: 200 caches ETag, 304 with exit 1 or 0 reuses cached body,
+    //    refreshes rotated ETag from 304, isolates mutations, and 200 replaces cache.
+    const runsPath = "repos/workos/alto/commits/abc/check-runs?per_page=100";
+    queue([
+      { pages: [{ status: 200, headers: { Etag: 'W/"v1"' }, body: { total_count: 1, check_runs: [{ id: 1, status: "in_progress" }] } }] },
+      { code: 1, stderr: "unexpected end of JSON input\n", pages: [{ status: 304, headers: { Etag: '"v1-canonical"' } }] },
+      { code: 0, stderr: "unexpected end of JSON input\n", pages: [{ status: 304, headers: {} }] },
+      { pages: [{ status: 200, headers: { Etag: 'W/"v2"' }, body: { total_count: 1, check_runs: [{ id: 1, status: "completed" }] } }] },
+      { code: 1, stderr: "unexpected end of JSON input\n", pages: [{ status: 304, headers: { Etag: 'W/"v2"' } }] },
+    ]);
+
+    const first = await client.rest(runsPath);
+    assert.deepEqual(first, [{ total_count: 1, check_runs: [{ id: 1, status: "in_progress" }] }]);
+    first[0].check_runs.push({ id: 999, status: "mutated" });
+
+    const second = await client.rest(runsPath);
+    assert.deepEqual(second, [{ total_count: 1, check_runs: [{ id: 1, status: "in_progress" }] }]);
+
+    const third = await client.rest(runsPath);
+    assert.deepEqual(third, [{ total_count: 1, check_runs: [{ id: 1, status: "in_progress" }] }]);
+
+    const fourth = await client.rest(runsPath);
+    assert.deepEqual(fourth, [{ total_count: 1, check_runs: [{ id: 1, status: "completed" }] }]);
+
+    const fifth = await client.rest(runsPath);
+    assert.deepEqual(fifth, [{ total_count: 1, check_runs: [{ id: 1, status: "completed" }] }]);
+
+    assert.deepEqual(readCalls().map(headerArg), [
+      null,
+      'If-None-Match: W/"v1"',
+      'If-None-Match: "v1-canonical"',
+      'If-None-Match: "v1-canonical"',
+      'If-None-Match: W/"v2"',
+    ]);
+
+    // 2. Non-paginated single object (watch-run run endpoint) caches ETag, and a 403 rate limit
+    //    preserves the cached ETag while surfacing rateLimit metadata.
+    const runPath = "repos/workos/tars/actions/runs/42";
+    queue([
+      { pages: [{ status: 200, headers: { Etag: 'W/"run-1"' }, body: { id: 42, status: "in_progress" } }] },
+      {
+        code: 1,
+        stderr: "gh: API rate limit exceeded\n",
+        pages: [{
+          status: 403,
+          headers: { "X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1800000000" },
+          body: { message: "API rate limit exceeded" },
+        }],
+      },
+      { code: 1, stderr: "unexpected end of JSON input\n", pages: [{ status: 304, headers: { Etag: 'W/"run-1"' } }] },
+    ]);
+
+    assert.deepEqual(await client.rest(runPath, { paginate: false }), { id: 42, status: "in_progress" });
+    await assert.rejects(
+      () => client.rest(runPath, { paginate: false }),
+      (error) => error instanceof QueryError && error.rateLimit?.kind === "primary",
+    );
+    assert.deepEqual(await client.rest(runPath, { paginate: false }), { id: 42, status: "in_progress" });
+    assert.deepEqual(readCalls().map(headerArg), [
+      null,
+      'If-None-Match: W/"run-1"',
+      'If-None-Match: W/"run-1"',
+    ]);
+
+    // 3. Multi-page responses and full-capacity bare arrays evict/skip ETag caching so page-2 updates are never masked.
+    const commentsPath = "repos/workos/alto/issues/1/comments?per_page=2";
+    queue([
+      { pages: [{ status: 200, headers: { Etag: '"c1"' }, body: [{ id: 1 }] }] },
+      // Grows to full page capacity (2 === per_page=2): must evict ETag.
+      { pages: [{ status: 200, headers: { Etag: '"c2-full"' }, body: [{ id: 1 }, { id: 2 }] }] },
+      // Next call must NOT send If-None-Match; grows to 2 pages -> still uncached.
+      {
+        pages: [
+          { status: 200, headers: { Etag: '"c2-full"', Link: '<https://api.github.com/next>; rel="next"' }, body: [{ id: 1 }, { id: 2 }] },
+          { status: 200, headers: { Etag: '"c3"' }, body: [{ id: 3 }] },
+        ],
+      },
+      { pages: [{ status: 200, headers: { Etag: '"c1-again"' }, body: [{ id: 1 }] }] },
+    ]);
+
+    assert.deepEqual(await client.rest(commentsPath), [[{ id: 1 }]]);
+    assert.deepEqual(await client.rest(commentsPath), [[{ id: 1 }, { id: 2 }]]);
+    assert.deepEqual(await client.rest(commentsPath), [[{ id: 1 }, { id: 2 }], [{ id: 3 }]]);
+    assert.deepEqual(await client.rest(commentsPath), [[{ id: 1 }]]);
+    assert.deepEqual(readCalls().map(headerArg), [
+      null,
+      'If-None-Match: "c1"',
+      null,
+      null,
+    ]);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
 });
 
 test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matching ordinary prose", () => {

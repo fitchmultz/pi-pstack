@@ -10,6 +10,8 @@ export const MAX_QUERY_FAILURES = 5;
 /** Default and mandatory minimum polling interval (seconds) for GitHub API watchers. */
 export const DEFAULT_INTERVAL_SECONDS = 60;
 export const MIN_INTERVAL_SECONDS = 30;
+/** Bounded in-memory ETag cache size per client instance (protects long-running watchers). */
+const MAX_ETAG_CACHE_ENTRIES = 128;
 
 /** Clamps any positive polling interval below the mandatory minimum up to `MIN_INTERVAL_SECONDS`. */
 export const clampInterval = (seconds) => Math.max(MIN_INTERVAL_SECONDS, seconds);
@@ -187,14 +189,59 @@ export function createRateLimitBackoff({ interval, maxFailures = MAX_QUERY_FAILU
   };
 }
 
+/** Returns true when a REST response's `Link` header advertises a next page. */
+function hasNextPageLink(headers) {
+  return /<[^>]+>;\s*rel="next"/i.test(headers.get("link") ?? "");
+}
+
+/** GitHub REST `per_page` size for a request path (defaults to GitHub's 30). */
+function perPageOf(path) {
+  try {
+    const raw = new URL(path, "https://api.github.invalid/").searchParams.get("per_page");
+    if (raw && /^\d+$/.test(raw)) return Number(raw);
+  } catch {
+    // Fall back to GitHub's default page size when the path cannot be parsed.
+  }
+  return 30;
+}
+
+/**
+ * Returns true when a single-page REST response can safely be revalidated with
+ * `If-None-Match` on subsequent polls without risking missed later pages.
+ */
+function isCacheableRestResponse(path, paginate, pages) {
+  if (pages.length !== 1) return false;
+  const page = pages[0];
+  if (page.status !== 200 || page.body === undefined) return false;
+  const etag = page.headers.get("etag")?.trim();
+  if (!etag) return false;
+  if (!paginate) return true;
+  if (hasNextPageLink(page.headers)) return false;
+  // A bare JSON array at exact page capacity has no `total_count` in page 1, so
+  // an item appended onto page 2 could leave page 1's ETag unchanged.
+  if (Array.isArray(page.body) && page.body.length >= perPageOf(path)) return false;
+  return true;
+}
+
 /**
  * Low-level GitHub CLI runner sharing `GH_TOKEN`/`GITHUB_TOKEN` stripping,
- * response page parsing, and rate-limit error classification.
+ * response page parsing, in-memory ETag (`If-None-Match`) revalidation for
+ * single-page REST reads, and rate-limit error classification.
  *
  * @param {string} executable GitHub CLI name on PATH, or a path to it.
  * @param {{ env?: NodeJS.ProcessEnv }} [options]
  */
 export function createGhClient(executable, { env = process.env } = {}) {
+  const etagCache = new Map();
+
+  function rememberEtag(key, entry) {
+    etagCache.delete(key);
+    if (etagCache.size >= MAX_ETAG_CACHE_ENTRIES) {
+      etagCache.delete(etagCache.keys().next().value);
+    }
+    etagCache.set(key, entry);
+  }
+
   function run(args) {
     return new Promise((resolve, reject) => {
       const child = spawn(executable, args, {
@@ -211,9 +258,22 @@ export function createGhClient(executable, { env = process.env } = {}) {
     });
   }
 
-  async function json(args) {
-    const { code, stdout, stderr } = await run([...args, "--include", "--jq", "."]);
+  async function json(args, { cacheKey } = {}) {
+    const cached = cacheKey ? etagCache.get(cacheKey) : undefined;
+    const requestArgs = cached
+      ? [...args, "-H", `If-None-Match: ${cached.etag}`, "--include", "--jq", "."]
+      : [...args, "--include", "--jq", "."];
+    const { code, stdout, stderr } = await run(requestArgs);
     const pages = responsePages(stdout);
+    // `gh api --include --jq .` exits 0 or 1 with an empty body on HTTP 304.
+    if (cached && pages.length === 1 && pages[0].status === 304) {
+      const refreshedEtag = pages[0].headers.get("etag")?.trim();
+      rememberEtag(cacheKey, {
+        etag: refreshedEtag || cached.etag,
+        value: cached.value,
+      });
+      return structuredClone(cached.value);
+    }
     const response = pages.at(-1);
     const errors = response?.body?.errors;
     const graphqlErrors = args[1] === "graphql" && Array.isArray(errors) ? errors : [];
@@ -228,14 +288,26 @@ export function createGhClient(executable, { env = process.env } = {}) {
     if (!pages.length || pages.some((page) => page.body === undefined)) {
       throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);
     }
-    return args.includes("--paginate") ? pages.map((page) => page.body) : pages[0].body;
+    const paginate = args.includes("--paginate");
+    const value = paginate ? pages.map((page) => page.body) : pages[0].body;
+    if (cacheKey) {
+      if (isCacheableRestResponse(args[1], paginate, pages)) {
+        rememberEtag(cacheKey, {
+          etag: pages[0].headers.get("etag").trim(),
+          value: structuredClone(value),
+        });
+      } else {
+        etagCache.delete(cacheKey);
+      }
+    }
+    return value;
   }
 
   /** REST API call. With `paginate: true` (default), returns an array of page bodies. */
   function rest(path, { paginate = true } = {}) {
     const args = ["api", path];
     if (paginate) args.push("--paginate");
-    return json(args);
+    return json(args, { cacheKey: `${paginate ? "P" : "S"}:${path}` });
   }
 
   /** GraphQL query or mutation. With `paginate: true`, returns an array of page bodies. */
