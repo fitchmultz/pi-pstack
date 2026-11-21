@@ -17,25 +17,27 @@ import {
   resolveRepo,
   settingsFor,
 } from "./repo-config.mjs";
-import { formatThreadList } from "./threads.mjs";
+import { formatThreadList, unaddressedIssueComments } from "./threads.mjs";
 import { EXIT } from "./verdict.mjs";
 
 const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
        pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --reply <threadId> --body-file <path>
-       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadId>
+       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadOrCommentId>
 
-Lists unresolved PR review threads or replies to / resolves a thread through the
-repository's configured GitHub CLI (watch-pr.json / WATCH_PR_GH).
+Lists unresolved PR review threads and unaddressed PR conversation comments, or
+replies to / resolves them through the repository's configured GitHub CLI
+(watch-pr.json / WATCH_PR_GH).
 
   <number|url>        pull request number or URL (required for --list; optional for --reply/--resolve
                       when --repo or the origin remote identifies the repository)
   --repo              OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
-  --list              list unresolved review threads (default when a PR is given with no mutation)
-  --all               with --list, include resolved threads as well
+  --list              list unresolved review threads and unaddressed PR comments (default with a PR)
+  --all               with --list, include resolved threads and all PR comments as well
   --json              with --list, print structured JSON
-  --reply THREAD_ID   post a reply to this review thread (requires --body-file)
+  --reply THREAD_ID   post a reply to this inline review thread (requires --body-file)
   --body-file PATH    UTF-8 file containing the reply body (use "-" to read stdin)
-  --resolve THREAD_ID mark this review thread as resolved
+  --resolve ID        resolve an inline review thread (PRRT_...) or minimize a PR comment
+                      (IC_...) as resolved
 
 Exit: 0 success, 7 GitHub query failed, 64 usage or configuration error.
 `;
@@ -49,6 +51,12 @@ const REPLY_MUTATION = `mutation($threadId:ID!,$body:String!){
 const RESOLVE_MUTATION = `mutation($threadId:ID!){
   resolveReviewThread(input:{threadId:$threadId}){
     thread{id isResolved}
+  }
+}`;
+
+const MINIMIZE_MUTATION = `mutation($subjectId:ID!){
+  minimizeComment(input:{subjectId:$subjectId,classifier:RESOLVED}){
+    minimizedComment{isMinimized}
   }
 }`;
 
@@ -139,12 +147,20 @@ export async function replyToThread(client, threadId, body) {
   return comment;
 }
 
-/** Marks one review thread as resolved via GraphQL. */
-export async function resolveThread(client, threadId) {
-  const result = await client.graphql(RESOLVE_MUTATION, { threadId });
+/** Marks one review thread (`PRRT_...`) resolved or minimizes a PR comment (`IC_...`) as RESOLVED. */
+export async function resolveThread(client, targetId) {
+  if (targetId.startsWith("IC_")) {
+    const result = await client.graphql(MINIMIZE_MUTATION, { subjectId: targetId });
+    const comment = result?.data?.minimizeComment?.minimizedComment;
+    if (!comment || !comment.isMinimized) {
+      throw new QueryError(`GitHub did not confirm minimizing comment ${targetId}`);
+    }
+    return comment;
+  }
+  const result = await client.graphql(RESOLVE_MUTATION, { threadId: targetId });
   const thread = result?.data?.resolveReviewThread?.thread;
   if (!thread || !thread.isResolved) {
-    throw new QueryError(`GitHub did not confirm resolution of thread ${threadId}`);
+    throw new QueryError(`GitHub did not confirm resolution of thread ${targetId}`);
   }
   return thread;
 }
@@ -173,19 +189,28 @@ async function main(argv, env) {
     }
     if (options.list) {
       const facts = await github.pullRequest(options.pr);
+      const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
+      const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
+        prAuthor: facts.author ?? null,
+        textReviewerRules,
+      });
       const threads = options.all ? facts.allThreads : facts.threads;
+      const comments = options.all ? (facts.issueComments ?? []) : unaddressedComments;
       if (options.json) {
         process.stdout.write(`${JSON.stringify({
           pr: facts.url,
           head: facts.head,
           unresolvedCount: facts.threads.length,
+          unaddressedCommentCount: unaddressedComments.length,
           threads,
+          comments,
         }, null, 2)}\n`);
       } else {
         process.stdout.write(formatThreadList({
           url: facts.url,
           head: facts.head,
           threads,
+          comments,
           includeResolved: options.all,
         }));
       }

@@ -7,6 +7,12 @@ import { setTimeout as delay } from "node:timers/promises";
 
 /** Consecutive failed polls before a watcher gives up. */
 export const MAX_QUERY_FAILURES = 5;
+/** Default and mandatory minimum polling interval (seconds) for GitHub API watchers. */
+export const DEFAULT_INTERVAL_SECONDS = 60;
+export const MIN_INTERVAL_SECONDS = 30;
+
+/** Clamps any positive polling interval below the mandatory minimum up to `MIN_INTERVAL_SECONDS`. */
+export const clampInterval = (seconds) => Math.max(MIN_INTERVAL_SECONDS, seconds);
 
 /** A GitHub CLI request that failed. `retryable` is false when repeating it cannot help. */
 export class QueryError extends Error {

@@ -58,20 +58,9 @@ The bundled profiles inherit the session model instead of pinning a credentialed
 node /path/to/pi-pstack/skills/watch-pr/scripts/watch-pr.mjs https://github.com/OWNER/REPO/pull/123
 ```
 
-The last output is a verdict of at most 20 lines and 2048 bytes: `READY`, `MERGED`, `BLOCKED: <reason>` or `UNKNOWN: <reason>`, then the head commit, check counts (including any optional/ignored checks), required reviewers, unresolved review threads (with short commit SHA, `head`/`older` status, and parsed severity tag when present) and merge state. Pass `--required-checks-only` to let non-required pending or cancelled checks (such as manual-approval deploy jobs) settle without bypassing GitHub's declared required status checks, configured reviewers, or explicit failures. A commit whose expected checks have not started is never `READY`. Companion CLIs reuse the same shared repository routing (`repo-config.mjs` and `gh-client.mjs`): `skills/watch-pr/scripts/pr-threads.mjs` lists, replies to, and resolves review threads, and `skills/watch-pr/scripts/watch-run.mjs` watches a GitHub Actions workflow run with `--until-job` and `--stop-at-waiting` support for deployment-approval gates, bounded summaries (≤ 20 lines / 2048 bytes), and rate-limit backoff. [The skill](skills/watch-pr/SKILL.md) lists the exit codes and the decision rules.
+The last output is a verdict of at most 20 lines and 2048 bytes: `READY`, `MERGED`, `BLOCKED: <reason>` or `UNKNOWN: <reason>`, then the head commit, check counts (including any optional/ignored checks), required reviewers, unresolved inline review threads (with short commit SHA, `head`/`older` status, and parsed severity tag when present), unaddressed PR conversation comments (attributed review flags, human reviewer comments, and severity-tagged bot findings), and merge state. Pass `--required-checks-only` to let non-required pending or cancelled checks (such as manual-approval deploy jobs) settle without bypassing GitHub's declared required status checks, configured reviewers, or explicit failures. A commit whose expected checks have not started is never `READY`. For stacked PRs, start one `watch-pr.mjs` watcher per PR so every PR uses the same rules. Companion CLIs reuse the same shared repository routing (`repo-config.mjs` and `gh-client.mjs`): `skills/watch-pr/scripts/pr-threads.mjs` lists unresolved inline threads and unaddressed PR comments, replies to inline threads (`PRRT_...`), and resolves threads or minimizes PR comments (`IC_...`) as resolved; `skills/watch-pr/scripts/watch-run.mjs` watches a GitHub Actions workflow run with `--until-job` and `--stop-at-waiting` support for deployment-approval gates, bounded summaries (≤ 20 lines / 2048 bytes), and rate-limit backoff. [The skill](skills/watch-pr/SKILL.md) lists the exit codes and the decision rules.
 
 `watch-pr.json` in the Pi agent directory selects the GitHub CLI and the required reviewers for each owner or repository. Start from [the example](skills/watch-pr/config.example.json). Without the file, the watcher runs `gh` and requires no reviewer.
-
-## GitHub CLI selection for the stack watcher
-
-The upstream `skills/poteto-mode/scripts/watch-pr/watch-pr` helper watches stacks and merge queues. It does not read `watch-pr.json`, and it uses `gh` by default. On hosts with account-routing wrappers, explicitly select the appropriate executable for the repository:
-
-```bash
-WATCH_PR_GH=gh-personal /path/to/pi-pstack/skills/poteto-mode/scripts/watch-pr/watch-pr --owner OWNER --repo REPO --pr 123 --status-only
-# Use WATCH_PR_GH=gh-work for a work-account repository.
-```
-
-`WATCH_PR_GH` is one executable name on `PATH` or an executable path (quote paths containing spaces), not a shell command or a place for extra arguments. Unset or empty means `gh`. The selection applies to every watcher GitHub read, including context/stack discovery, checks, GraphQL rollups, and paginated review threads; git commands are unchanged. Select the wrapper authorized for the repository rather than bypassing its router or changing credentials. Omit `--status-only` for normal polling; review/merge gates and retry behavior are unchanged.
 
 ## Synced workflow changes in 0.15.29
 

@@ -12,6 +12,7 @@ import { classifyWorkflow } from "../skills/watch-pr/scripts/triggers.mjs";
 
 const script = fileURLToPath(new URL("../skills/watch-pr/scripts/watch-pr.mjs", import.meta.url));
 const threadsScript = fileURLToPath(new URL("../skills/watch-pr/scripts/pr-threads.mjs", import.meta.url));
+const fastClock = new URL("./fixtures/fast-clock.mjs", import.meta.url).href;
 const fixture = readFileSync(new URL("./fixtures/watch-pr-verdict-gh.mjs", import.meta.url), "utf8");
 
 const HEAD = "abe04d463cbda8f7f34b2237de00fcea57cb4c45";
@@ -83,7 +84,7 @@ const ciRun = (event, conclusion = "success") => ({
 });
 
 /** Runs the watcher against a scenario. `gh` records which executable ran each read. */
-function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONFIG, env = {}, fail } = {}) {
+function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONFIG, env = {}, fail, fastClock: useFastClock = true } = {}) {
   const temp = mkdtempSync(join(tmpdir(), "watch-pr-verdict-"));
   try {
     for (const name of ["gh", "gh-personal", "gh-work", "gh-other"]) {
@@ -91,18 +92,24 @@ function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONF
     }
     const scenario = join(temp, "scenario.json");
     const log = join(temp, "calls.ndjson");
+    const sleepLog = join(temp, "sleeps.txt");
     const configFile = join(temp, "watch-pr.json");
     writeFileSync(scenario, JSON.stringify({ polls, fail }));
     writeFileSync(log, "");
+    writeFileSync(sleepLog, "");
     if (config !== null) writeFileSync(configFile, typeof config === "string" ? config : JSON.stringify(config));
-    const result = spawnSync(process.execPath, [script, "418", "--repo", repo, ...args], {
+    const nodeArgs = useFastClock ? ["--import", fastClock, script, "418", "--repo", repo, ...args] : [script, "418", "--repo", repo, ...args];
+    const result = spawnSync(process.execPath, nodeArgs, {
       encoding: "utf8",
       env: {
         PATH: `${temp}:${process.env.PATH}`, WATCH_PR_CONFIG: configFile,
-        WATCH_PR_SCENARIO: scenario, WATCH_PR_FIXTURE_LOG: log, ...env,
+        WATCH_PR_SCENARIO: scenario, WATCH_PR_FIXTURE_LOG: log,
+        ...(useFastClock ? { WATCH_PR_SLEEP_LOG: sleepLog } : {}),
+        ...env,
       },
     });
     const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
+    const sleeps = readFileSync(sleepLog, "utf8").trim().split("\n").filter(Boolean).map(Number);
     return {
       code: result.status,
       out: result.stdout,
@@ -110,6 +117,7 @@ function watch(polls, { args = ["--once"], repo = "fitchmultz/pi", config = CONF
       lines: result.stdout.trimEnd().split("\n"),
       gh: [...new Set(calls.map((call) => basename(call.program)))],
       calls,
+      sleeps,
     };
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -385,7 +393,7 @@ function primaryLimitOnLaterPage(state, reset) {
 test("a reset inside the watch timeout resumes before the next ordinary poll", () => {
   const done = { pullRequest: open(), checkRuns: reviewersPassed() };
   const reset = Math.floor(Date.now() / 1000) + 2;
-  const result = watch([primaryLimitOnLaterPage(done, reset), done], { args: ["--timeout", "4"] });
+  const result = watch([primaryLimitOnLaterPage(done, reset), done], { args: ["--timeout", "4"], fastClock: false });
   assert.equal(result.code, 0, result.out);
   assert.match(verdict(result)[0], /^READY/);
   const reads = result.calls.filter(({ argv }) => argv[1].includes("/check-runs?"));
@@ -444,7 +452,7 @@ test("GraphQL rate reports use their own reset or Retry-After, not a failed CI v
     endpoint: "graphql", status: 200, headers: { "Retry-After": "1" },
     stderr: `gh: ${message}`, body: { errors: [{ type: "RATE_LIMITED", message }] },
   } };
-  const resumed = watch([restricted, done], { args: ["--timeout", "4"] });
+  const resumed = watch([restricted, done], { args: ["--timeout", "4"], fastClock: false });
   assert.equal(resumed.code, 0, resumed.out);
   const reads = resumed.calls.filter(({ argv }) => argv.some((arg) => arg.includes("reviewThreads")));
   assert.equal(reads.length, 2);
@@ -900,4 +908,319 @@ test("pr-threads.mjs lists, replies to, and resolves threads using shared repo r
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--body-file", "$BODY_FILE"], bodyFileContent: "hi" }).code, 64);
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--reply", "PRRT_open_1", "--body-file", "$BODY_FILE"], bodyFileContent: "   \n" }).code, 64);
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--list"] }).code, 64);
+});
+
+test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) block watch-pr until replied to", () => {
+  const baseState = {
+    pullRequest: open({ author: { login: "fitchmultz" } }),
+    checkRuns: [...ciJobs("success"), ...reviewersPassed()],
+    runs: [ciRun("pull_request")],
+    workflows: { "ci.yml": PI_WORKFLOWS["ci.yml"] },
+  };
+
+  // 1. Grok Bot review flag posted under the PR author's own login blocks READY with exit 3.
+  const grokComment = {
+    id: "IC_grok_1",
+    fullDatabaseId: "7055945936",
+    author: { login: "fitchmultz" },
+    body: `Review flag on head ${HEAD.slice(0, 8)} (branch feat/agy): use mise instead.\n\n— Attributed to Grok Bot (PR Review)\n`,
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055945936",
+    createdAt: "2026-11-21T02:29:47Z",
+    updatedAt: "2026-11-21T02:29:47Z",
+    isMinimized: false,
+  };
+  const blockedGrok = watch([{ ...baseState, issueComments: [grokComment] }]);
+  assert.equal(blockedGrok.code, 3, blockedGrok.out);
+  assert.equal(blockedGrok.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(blockedGrok.out, /unaddressed PR comments: 1/);
+  assert.match(blockedGrok.out, new RegExp(`PR comment @fitchmultz \\(Grok Bot \\(PR Review\\)\\) \\[${HEAD.slice(0, 7)} head\\]: Review flag on head`));
+
+  // pr-threads.mjs --list surfaces the unaddressed PR comment in text and JSON.
+  const listed = runThreads([{ ...baseState, issueComments: [grokComment] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list"],
+  });
+  assert.equal(listed.code, 0, listed.err);
+  assert.match(listed.out, /unaddressed PR comments: 1/);
+  assert.match(listed.out, /IC_grok_1\s+PR comment\s+@fitchmultz \(Grok Bot \(PR Review\)\)/);
+  assert.match(listed.out, /url: https:\/\/github\.com\/fitchmultz\/pi\/pull\/418#issuecomment-7055945936/);
+
+  const listedJson = runThreads([{ ...baseState, issueComments: [grokComment] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list", "--json"],
+  });
+  assert.equal(listedJson.code, 0, listedJson.err);
+  const jsonPayload = JSON.parse(listedJson.out);
+  assert.equal(jsonPayload.unaddressedCommentCount, 1);
+  assert.equal(jsonPayload.comments[0].attribution, "Grok Bot (PR Review)");
+
+  // 2. An unrelated author reply (even quoting the flag) does NOT clear an attributed review flag
+  //    or become a second flag itself; minimizing the flag (`pr-threads.mjs --resolve IC_...`) clears it.
+  const quotedReply = {
+    id: "IC_reply_1",
+    fullDatabaseId: "7055946000",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: `> Review flag on head ${HEAD.slice(0, 8)} (branch feat/agy): use mise instead.\n> — Attributed to Grok Bot (PR Review)\n\nAddressed the Grok Bot review flag: switched to mise \`antigravity-cli = "latest"\`.`,
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946000",
+    createdAt: "2026-11-21T02:32:00Z",
+    updatedAt: "2026-11-21T02:32:00Z",
+    isMinimized: false,
+  };
+  const stillBlockedByFlag = watch([{ ...baseState, issueComments: [grokComment, quotedReply] }]);
+  assert.equal(stillBlockedByFlag.code, 3, stillBlockedByFlag.out);
+  assert.equal(stillBlockedByFlag.lines[0], "BLOCKED: 1 unaddressed PR comment");
+
+  const resolvedFlag = runThreads([baseState], {
+    args: ["--repo", "fitchmultz/pi", "--resolve", "IC_grok_1"],
+  });
+  assert.equal(resolvedFlag.code, 0, resolvedFlag.err);
+  assert.match(resolvedFlag.out, /^resolved: IC_grok_1$/m);
+  assert.ok(resolvedFlag.calls[0].argv.some((arg) => arg.includes("minimizeComment")));
+
+  const cleared = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, quotedReply] }]);
+  assert.equal(cleared.code, 0, cleared.out);
+  assert.equal(cleared.lines[0], "READY");
+
+  // 3. Human reviewer comments and severity-tagged bot comments are NOT cleared by a generic
+  //    author comment (like "thanks, looking") or a reply referencing a different comment;
+  //    they clear only when minimized or explicitly linked/quoted by a later PR-author reply.
+  const humanComment = {
+    id: "IC_human_1",
+    fullDatabaseId: "7055946100",
+    author: { __typename: "User", login: "teammate" },
+    body: "Please also update the README before merging.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946100",
+    createdAt: "2026-11-21T02:33:00Z",
+    updatedAt: "2026-11-21T02:33:00Z",
+    isMinimized: false,
+  };
+  const taggedBotFinding = {
+    id: "IC_bot_sev_1",
+    fullDatabaseId: "7055946150",
+    author: { __typename: "Bot", login: "security-scanner" },
+    body: "[high] Avoid shell interpolation in build script.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946150",
+    createdAt: "2026-11-21T02:33:30Z",
+    updatedAt: "2026-11-21T02:33:30Z",
+    isMinimized: false,
+  };
+  const genericAuthorReply = {
+    id: "IC_generic_1",
+    fullDatabaseId: "7055946160",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "Thanks, looking into these now.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946160",
+    createdAt: "2026-11-21T02:34:00Z",
+    updatedAt: "2026-11-21T02:34:00Z",
+    isMinimized: false,
+  };
+  const stillBlockedAfterGeneric = watch([{
+    ...baseState,
+    issueComments: [{ ...grokComment, isMinimized: true }, humanComment, taggedBotFinding, genericAuthorReply],
+  }]);
+  assert.equal(stillBlockedAfterGeneric.code, 3, stillBlockedAfterGeneric.out);
+  assert.equal(stillBlockedAfterGeneric.lines[0], "BLOCKED: 2 unaddressed PR comments");
+
+  // Quoting only the human comment clears it while leaving the tagged bot finding blocking.
+  const quoteHumanReply = {
+    id: "IC_quote_human_1",
+    fullDatabaseId: "7055946170",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> Please also update the README before merging.\nUpdated README in the latest push.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946170",
+    createdAt: "2026-11-21T02:35:00Z",
+    updatedAt: "2026-11-21T02:35:00Z",
+    isMinimized: false,
+  };
+  const botStillBlocked = watch([{
+    ...baseState,
+    issueComments: [humanComment, taggedBotFinding, quoteHumanReply],
+  }]);
+  assert.equal(botStillBlocked.code, 3, botStillBlocked.out);
+  assert.equal(botStillBlocked.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(botStillBlocked.out, /PR comment @security-scanner \[high\]:/);
+
+  // Linking the bot finding by #issuecomment-<id> clears it too.
+  const linkBotReply = {
+    id: "IC_link_bot_1",
+    fullDatabaseId: "7055946180",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "Fixed #issuecomment-7055946150 by passing arguments as an array.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946180",
+    createdAt: "2026-11-21T02:36:00Z",
+    updatedAt: "2026-11-21T02:36:00Z",
+    isMinimized: false,
+  };
+  const clearedHumanAndBot = watch([{
+    ...baseState,
+    issueComments: [humanComment, taggedBotFinding, quoteHumanReply, linkBotReply],
+  }]);
+  assert.equal(clearedHumanAndBot.code, 0, clearedHumanAndBot.out);
+  assert.equal(clearedHumanAndBot.lines[0], "READY");
+
+  // An ambiguous quote matching a shared substring of two earlier comments clears neither.
+  const sharedA = {
+    id: "IC_shared_a",
+    fullDatabaseId: "7055946191",
+    author: { __typename: "User", login: "bob" },
+    body: "Please fix the race in the watcher sleep path before merging.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946191",
+    createdAt: "2026-11-21T02:37:00Z",
+    updatedAt: "2026-11-21T02:37:00Z",
+    isMinimized: false,
+  };
+  const sharedB = {
+    id: "IC_shared_b",
+    fullDatabaseId: "7055946192",
+    author: { __typename: "User", login: "carol" },
+    body: "Please fix the flaky exact-hosts job; it timed out twice.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946192",
+    createdAt: "2026-11-21T02:37:10Z",
+    updatedAt: "2026-11-21T02:37:10Z",
+    isMinimized: false,
+  };
+  const ambiguousQuoteReply = {
+    id: "IC_ambiguous_reply",
+    fullDatabaseId: "7055946193",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> Please fix the\nPatched the watcher sleep path.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946193",
+    createdAt: "2026-11-21T02:37:20Z",
+    updatedAt: "2026-11-21T02:37:20Z",
+    isMinimized: false,
+  };
+  const ambiguousStillBlocked = watch([{
+    ...baseState,
+    issueComments: [sharedA, sharedB, ambiguousQuoteReply],
+  }]);
+  assert.equal(ambiguousStillBlocked.code, 3, ambiguousStillBlocked.out);
+  assert.equal(ambiguousStillBlocked.lines[0], "BLOCKED: 2 unaddressed PR comments");
+
+  // One reply quoting two distinct findings in separate blocks clears both.
+  const multiFindingReply = {
+    id: "IC_multi_reply",
+    fullDatabaseId: "7055946194",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> Please fix the race in the watcher sleep path before merging.\nFixed sleep race.\n\n> Please fix the flaky exact-hosts job; it timed out twice.\nStabilized exact-hosts.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946194",
+    createdAt: "2026-11-21T02:37:30Z",
+    updatedAt: "2026-11-21T02:37:30Z",
+    isMinimized: false,
+  };
+  const multiCleared = watch([{
+    ...baseState,
+    issueComments: [sharedA, sharedB, multiFindingReply],
+  }]);
+  assert.equal(multiCleared.code, 0, multiCleared.out);
+  assert.equal(multiCleared.lines[0], "READY");
+
+  // A full-comment quote containing a shared boilerplate header line still uniquely clears its target.
+  const boilerBot1 = {
+    id: "IC_boiler_1",
+    fullDatabaseId: "7055946195",
+    author: { __typename: "Bot", login: "scanner" },
+    body: "**Severity:** high\nFix path traversal in upload handler.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946195",
+    createdAt: "2026-11-21T02:38:00Z",
+    updatedAt: "2026-11-21T02:38:00Z",
+    isMinimized: false,
+  };
+  const boilerBot2 = {
+    id: "IC_boiler_2",
+    fullDatabaseId: "7055946196",
+    author: { __typename: "Bot", login: "scanner" },
+    body: "**Severity:** high\nValidate redirect host before following.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946196",
+    createdAt: "2026-11-21T02:38:10Z",
+    updatedAt: "2026-11-21T02:38:10Z",
+    isMinimized: false,
+  };
+  const fullQuoteBoiler1 = {
+    id: "IC_boiler_reply_1",
+    fullDatabaseId: "7055946197",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> **Severity:** high\n> Fix path traversal in upload handler.\nFixed upload path normalization.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946197",
+    createdAt: "2026-11-21T02:38:20Z",
+    updatedAt: "2026-11-21T02:38:20Z",
+    isMinimized: false,
+  };
+  const onlySecondRemains = watch([{
+    ...baseState,
+    issueComments: [boilerBot1, boilerBot2, fullQuoteBoiler1],
+  }]);
+  assert.equal(onlySecondRemains.code, 3, onlySecondRemains.out);
+  assert.equal(onlySecondRemains.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(onlySecondRemains.out, /Validate redirect host/);
+
+  const deployBot = {
+    id: "IC_deploy_1",
+    fullDatabaseId: "7055946200",
+    author: { __typename: "Bot", login: "cloudflare-workers-and-pages" },
+    body: "Preview deployed to https://preview.example.com",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946200",
+    createdAt: "2026-11-21T02:34:00Z",
+    updatedAt: "2026-11-21T02:34:00Z",
+    isMinimized: false,
+  };
+  const ignored = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, deployBot] }]);
+  assert.equal(ignored.code, 0, ignored.out);
+  assert.equal(ignored.lines[0], "READY");
+
+  // 4. Configured text reviewer verdicts in GraphQL (no `[bot]` suffix) are handled by reviewerStates,
+  //    not flagged as unaddressed comments.
+  const greptileState = {
+    pullRequest: open({ author: { __typename: "User", login: "fitchmultz" }, reviewDecision: "REVIEW_REQUIRED" }),
+    checkRuns: [check("Review bot", "success")],
+    comments: [{
+      user: { login: "greptile-apps[bot]" },
+      updated_at: "2026-11-10T16:30:56Z",
+      body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
+    }],
+    issueComments: [{
+      id: "IC_greptile_1",
+      fullDatabaseId: "7055946300",
+      author: { __typename: "Bot", login: "greptile-apps" },
+      body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
+      url: "https://github.com/acme/app/pull/418#issuecomment-7055946300",
+      createdAt: "2026-11-10T16:30:56Z",
+      updatedAt: "2026-11-10T16:30:56Z",
+      isMinimized: false,
+    }],
+    rules: [],
+  };
+  const greptileReady = watch([greptileState], { repo: "acme/app" });
+  assert.equal(greptileReady.code, 0, greptileReady.out);
+  assert.equal(greptileReady.lines[0], "READY");
+
+  // 5. When a PR has >100 conversation comments (`hasPreviousPage: true`), watch-pr paginates all comments
+  //    so an older unaddressed comment is still caught.
+  const paginated = watch([{
+    ...baseState,
+    issueCommentsHasPreviousPage: true,
+    issueComments: [deployBot],
+    allIssueComments: [grokComment, deployBot],
+  }]);
+  assert.equal(paginated.code, 3, paginated.out);
+  assert.equal(paginated.lines[0], "BLOCKED: 1 unaddressed PR comment");
+  assert.match(paginated.out, /Grok Bot \(PR Review\)/);
+});
+
+test("watch-pr defaults --interval to 60s and clamps positive intervals below 30s to 30s without error", () => {
+  const pending = { pullRequest: open(), checkRuns: [check(DURABLE, null), check(CURSOR, "success")] };
+  const ready = { pullRequest: open(), checkRuns: reviewersPassed() };
+
+  const clamped = watch([pending, ready], { args: ["--interval", "5"] });
+  assert.equal(clamped.code, 0, clamped.out + clamped.err);
+  assert.equal(clamped.err, "");
+  assert.equal(clamped.sleeps.length, 1);
+  assert.ok(clamped.sleeps[0] >= 29_900 && clamped.sleeps[0] <= 30_000, `expected 30s clamped sleep, got ${clamped.sleeps[0]}ms`);
+
+  const defaultInterval = watch([pending, ready], { args: [] });
+  assert.equal(defaultInterval.code, 0, defaultInterval.out + defaultInterval.err);
+  assert.equal(defaultInterval.sleeps.length, 1);
+  assert.ok(defaultInterval.sleeps[0] >= 59_900 && defaultInterval.sleeps[0] <= 60_000, `expected 60s default sleep, got ${defaultInterval.sleeps[0]}ms`);
+
+  const custom = watch([pending, ready], { args: ["--interval", "45"] });
+  assert.equal(custom.code, 0, custom.out + custom.err);
+  assert.equal(custom.sleeps.length, 1);
+  assert.ok(custom.sleeps[0] >= 44_900 && custom.sleeps[0] <= 45_000, `expected 45s custom sleep, got ${custom.sleeps[0]}ms`);
 });

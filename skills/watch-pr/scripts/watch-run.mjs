@@ -7,8 +7,10 @@ import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import {
+  DEFAULT_INTERVAL_SECONDS,
   MAX_QUERY_FAILURES,
   QueryError,
+  clampInterval,
   createGhClient,
   createRateLimitBackoff,
   waitUntilElapsed,
@@ -46,7 +48,7 @@ Waits for a GitHub Actions workflow run to finish or settle, then prints a conci
 
   <run-id|url>       workflow run ID or URL (also --run ID|URL)
   --repo             OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
-  --interval         seconds between ordinary polls; default 60
+  --interval         seconds between ordinary polls; default 60, minimum 30 (lower values clamp to 30)
   --timeout          give up after this many seconds; default 3600, 0 waits without limit
   --until-job        repeatable job name (or "Workflow / Job") to wait for; settles with exit 0
                      once all named jobs succeed, even if downstream jobs are still waiting/running
@@ -91,7 +93,7 @@ async function parse(argv) {
         repo: { type: "string" },
         owner: { type: "string" },
         run: { type: "string" },
-        interval: { type: "string", default: "60" },
+        interval: { type: "string", default: String(DEFAULT_INTERVAL_SECONDS) },
         timeout: { type: "string", default: "3600" },
         "until-job": { type: "string", multiple: true, default: [] },
         "stop-at-waiting": { type: "boolean", default: false },
@@ -117,7 +119,7 @@ async function parse(argv) {
   }))];
   return {
     target: resolved.target,
-    interval: seconds("interval", values.interval, { zero: false }),
+    interval: clampInterval(seconds("interval", values.interval, { zero: false })),
     timeout: seconds("timeout", values.timeout, { zero: true }),
     untilJobs,
     stopAtWaiting: values["stop-at-waiting"],

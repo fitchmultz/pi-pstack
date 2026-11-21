@@ -21,7 +21,7 @@ Start `scripts/watch-pr.mjs` from this skill's directory with `background_comman
 
 - Name the pull request by URL, or by number with `--repo OWNER/NAME`. A number without `--repo` refers to the `origin` remote of the current directory.
 - `--timeout SECONDS` ends the watch after that time. The default is 3600. `0` waits without limit.
-- `--interval SECONDS` is the time between ordinary polls. The default is 60.
+- `--interval SECONDS` is the time between ordinary polls. The default is 60 and the minimum is 30 (lower positive values are clamped to 30 without error to protect GitHub API rate limits).
 - `--once` prints the verdict for the current state and exits. Run it with `bash` to look without waiting.
 - `--sha SHA`, full or short, evaluates nothing until GitHub reports that commit as the head. Pass `--sha $(git rev-parse HEAD)` right after `git push`: GitHub can answer the first read with the previous head, and without `--sha` the watcher would judge that older commit's checks and threads. The wait shares the watch's `--timeout` and `--interval`; `--once` reports it without waiting.
 - `--required-checks-only` treats non-required, non-reviewer checks as optional when `pending` (including `waiting`, `queued`, `in_progress`) or `cancelled`, so manual-approval or non-blocking jobs do not block readiness once required checks and reviewers are green. Explicit failures (`failure`, `timed_out`, `action_required`, etc.) still block with exit 4. Required status checks from branch protection/rulesets and configured reviewer checks are never ignored. Fail-closed: if branch protection and rulesets declare no required status checks for the base branch, the watcher reports `UNKNOWN` (exit 9).
@@ -52,7 +52,7 @@ merge: MERGEABLE; GitHub merge state CLEAN; review decision none
 | --- | --- | --- |
 | 0 | `READY` or `MERGED` | Every rule passed on the named commit, or the pull request is merged. |
 | 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
-| 3 | `BLOCKED: N unresolved review threads` | Fix or rebut each thread, then resolve it. |
+| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve inline threads (`pr-threads.mjs --resolve PRRT_...`), minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
 | 4 | `BLOCKED: N checks failed` | The block links each failed check. |
 | 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 | 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
@@ -73,18 +73,21 @@ merge: MERGEABLE; GitHub merge state CLEAN; review decision none
 - **Optional checks.** With `--required-checks-only`, non-required checks settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored. If GitHub declares no required status checks for the base branch, `--required-checks-only` fails closed with `UNKNOWN` (exit 9).
 - **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 - **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
-- **Threads and merge state.** Every unresolved review thread blocks. The watcher fetches up to 20 comments per thread in the same pull request GraphQL query (no extra API call) and includes each thread's short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
+- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks. The watcher also reads PR conversation comments in the same GraphQL query (paginating automatically when a PR has >100 comments) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / leading `Review flag` comments, even when posted under the PR author's login) until minimized as resolved (e.g. `pr-threads.mjs --resolve IC_...`), plus human reviewer comments from someone other than the PR author and bot comments carrying a structured severity tag until minimized or explicitly referenced (linked via `#issuecomment-<id>` / URL or quoted with `> ...`) by a later non-flag PR-author reply. Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots (GraphQL `Bot` accounts without a severity tag) do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
 
-## Manage review threads (`pr-threads.mjs`)
+## Manage review threads and PR comments (`pr-threads.mjs`)
 
-Use `scripts/pr-threads.mjs` to inspect unresolved review threads with their GraphQL thread IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply or resolve threads safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
+Use `scripts/pr-threads.mjs` to inspect unresolved inline review threads (`PRRT_...`) and unaddressed PR conversation comments (`IC_...`) with their GraphQL IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply to inline threads or resolve threads / minimize PR comments safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
 
 ```bash
-# List unresolved threads (or add --json for structured output, --all for resolved too)
+# List unresolved threads and unaddressed PR comments (add --json for JSON, --all for resolved too)
 node SKILL_DIRECTORY/scripts/pr-threads.mjs https://github.com/OWNER/REPO/pull/123 --list
 
-# Reply from a file (or "-" for stdin) without shell interpolation, then resolve
+# Reply to an inline thread from a file (or "-" for stdin) without shell interpolation, then resolve
 node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --reply PRRT_... --body-file reply.md --resolve PRRT_...
+
+# Minimize an addressed PR conversation comment (e.g. an attributed review flag) as resolved
+node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --resolve IC_...
 ```
 
 Exit codes for `pr-threads.mjs`: `0` success, `7` GitHub query failed, `64` usage or configuration error.
@@ -98,7 +101,7 @@ Use `scripts/watch-run.mjs` with `background_command` to wait on one GitHub Acti
 ```
 
 - Name the run by URL (`https://github.com/OWNER/REPO/actions/runs/<id>`) or by numeric ID with `--repo OWNER/NAME` (defaults to the `origin` remote of the current directory).
-- `--interval SECONDS` sets the ordinary polling interval. The default is 60.
+- `--interval SECONDS` sets the ordinary polling interval. The default is 60 and the minimum is 30 (lower positive values are clamped to 30 without error).
 - `--timeout SECONDS` ends the watch after that time. The default is 3600; `0` waits without limit.
 - `--until-job NAME` (repeatable) matches a job name (or `"Workflow / Job"`) and settles with exit `0` (`SETTLED` or `PASSED`) once all named jobs succeed, even while downstream manual-approval or other jobs remain `waiting` or `in_progress`. If any named job fails, is cancelled, times out, or is skipped, the watcher exits `4` immediately.
 - `--stop-at-waiting` settles with exit `0` (`SETTLED`) once all active non-waiting jobs have succeeded and the only remaining incomplete job(s) are in `waiting` status (GitHub Actions deployment environment approval gate). If any job fails or is cancelled, it fails closed immediately with exit `4`.
@@ -130,4 +133,4 @@ The watcher rejects a file with an unknown key. `watch-pr.mjs`, `pr-threads.mjs`
 
 ## Other watchers
 
-`gh pr checks --watch` and `gh run watch` remain correct when the question is only "did these checks finish" without repository routing, rate-limit backoff, or manual deployment gates. The stack and merge-queue watcher is `../poteto-mode/scripts/watch-pr/watch-pr`.
+For stacked PRs, start one `scripts/watch-pr.mjs` background job per PR so every PR in the stack uses the same `watch-pr.json` routing, required reviewers, checks, inline threads, and PR conversation comment checks. `gh pr checks --watch` and `gh run watch` remain useful only when the question is "did these checks finish" without repository routing, reviewer gates, comment tracking, rate-limit backoff, or manual deployment gates.

@@ -48,7 +48,18 @@ if (argv[1] === "graphql") {
   if (query.includes("reviewThreads")) {
     print(pullRequest({
       ...state.pullRequest,
+      comments: {
+        pageInfo: { hasPreviousPage: Boolean(state.issueCommentsHasPreviousPage) },
+        nodes: state.issueComments ?? [],
+      },
       reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: state.threads ?? [] },
+    }));
+  } else if (query.includes("comments(first:100")) {
+    print(pullRequest({
+      comments: {
+        pageInfo: { hasNextPage: false, endCursor: null },
+        nodes: state.allIssueComments ?? state.issueComments ?? [],
+      },
     }));
   } else if (query.includes("object(expression")) {
     // GitHub lists tree entries in name order.
@@ -80,6 +91,14 @@ if (argv[1] === "graphql") {
       data: {
         resolveReviewThread: {
           thread: { id: threadId, isResolved: state.resolveConfirmed ?? true },
+        },
+      },
+    });
+  } else if (query.includes("minimizeComment")) {
+    print({
+      data: {
+        minimizeComment: {
+          minimizedComment: { isMinimized: state.resolveConfirmed ?? true },
         },
       },
     });

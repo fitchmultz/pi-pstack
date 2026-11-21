@@ -2,11 +2,12 @@
 // Waits until one pull request is ready to merge or blocked, then prints a
 // short verdict as the last output. See ../SKILL.md for the verdict and exit codes.
 
-import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import {
+  DEFAULT_INTERVAL_SECONDS,
   MAX_QUERY_FAILURES,
   QueryError,
+  clampInterval,
   createGhClient,
   createRateLimitBackoff,
   readTogether,
@@ -30,15 +31,15 @@ Waits until the pull request is ready to merge or blocked. The last output is th
   <number|url>            pull request number or URL (also --pr NUMBER)
   --repo                  OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
   --timeout               give up after this many seconds; default 3600, 0 waits without limit
-  --interval              seconds between ordinary polls; default 60
+  --interval              seconds between ordinary polls; default 60, minimum 30 (lower values clamp to 30)
   --sha                   evaluate only once the pull request head is this commit, full or short
   --required-checks-only  treat non-required checks as optional when pending or cancelled
                           (requires branch protection or rulesets to declare required checks)
   --once                  print the verdict for the current state and exit
 
-Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads, 4 failed checks,
-5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft, closed,
-changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
+Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads or unaddressed PR comments,
+4 failed checks, 5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft,
+closed, changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
 reviewer did not sign off, 9 unknown, 64 usage.
 `;
 
@@ -63,7 +64,7 @@ async function parse(argv) {
         owner: { type: "string" },
         pr: { type: "string" },
         timeout: { type: "string", default: "3600" },
-        interval: { type: "string", default: "60" },
+        interval: { type: "string", default: String(DEFAULT_INTERVAL_SECONDS) },
         sha: { type: "string" },
         "required-checks-only": { type: "boolean", default: false },
         once: { type: "boolean", default: false },
@@ -88,7 +89,7 @@ async function parse(argv) {
   return {
     pr: resolved.pr,
     timeout: seconds("timeout", values.timeout, { zero: true }),
-    interval: seconds("interval", values.interval, { zero: false }),
+    interval: clampInterval(seconds("interval", values.interval, { zero: false })),
     sha,
     requiredChecksOnly: values["required-checks-only"],
     once: values.once,
@@ -108,7 +109,8 @@ async function main(argv, env) {
   const client = createGhClient(executable, { env });
   const github = createGitHub(client);
   const reviewerChecks = settings.reviewers.map((rule) => rule.check).filter(Boolean);
-  const needsTexts = settings.reviewers.some((rule) => rule.check === undefined);
+  const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
+  const needsTexts = textReviewerRules.length > 0;
   const empty = { workflows: [], required: [], missingWorkflows: [], missingRequired: [], undetermined: [], unreadable: [] };
   const workflowFiles = new Map();
   const requiredChecks = new Map();
@@ -130,6 +132,7 @@ async function main(argv, env) {
       configPath: settingsPath,
       mergeWithoutApproval: settings.mergeWithoutApproval,
       reviewerChecks,
+      textReviewerRules,
       requiredChecksOnly,
       facts,
       checks: [],
@@ -158,7 +161,7 @@ async function main(argv, env) {
   const elapsed = () => performance.now() / 1000 - started;
   const remaining = () => timeout > 0 ? Math.max(0, timeout - elapsed()) : Infinity;
   const timedOut = () => remaining() === 0;
-  const sleep = () => delay(1000 * Math.min(interval, remaining()));
+  const sleep = () => waitUntilElapsed(elapsed() + interval, { elapsed, remaining });
   const log = (text) => process.stdout.write(`${new Date().toISOString()} ${text}\n`);
   function queryBlocked(exitCode, reason) {
     process.stdout.write([
