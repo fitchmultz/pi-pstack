@@ -1056,6 +1056,44 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
   assert.equal(clearedHumanAndBot.code, 0, clearedHumanAndBot.out);
   assert.equal(clearedHumanAndBot.lines[0], "READY");
 
+  // An ambiguous quote matching a shared substring of two earlier comments clears neither.
+  const sharedA = {
+    id: "IC_shared_a",
+    fullDatabaseId: "7055946191",
+    author: { __typename: "User", login: "bob" },
+    body: "Please fix the race in the watcher sleep path before merging.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946191",
+    createdAt: "2026-11-21T02:37:00Z",
+    updatedAt: "2026-11-21T02:37:00Z",
+    isMinimized: false,
+  };
+  const sharedB = {
+    id: "IC_shared_b",
+    fullDatabaseId: "7055946192",
+    author: { __typename: "User", login: "carol" },
+    body: "Please fix the flaky exact-hosts job; it timed out twice.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946192",
+    createdAt: "2026-11-21T02:37:10Z",
+    updatedAt: "2026-11-21T02:37:10Z",
+    isMinimized: false,
+  };
+  const ambiguousQuoteReply = {
+    id: "IC_ambiguous_reply",
+    fullDatabaseId: "7055946193",
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "> Please fix the\nPatched the watcher sleep path.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946193",
+    createdAt: "2026-11-21T02:37:20Z",
+    updatedAt: "2026-11-21T02:37:20Z",
+    isMinimized: false,
+  };
+  const ambiguousStillBlocked = watch([{
+    ...baseState,
+    issueComments: [sharedA, sharedB, ambiguousQuoteReply],
+  }]);
+  assert.equal(ambiguousStillBlocked.code, 3, ambiguousStillBlocked.out);
+  assert.equal(ambiguousStillBlocked.lines[0], "BLOCKED: 2 unaddressed PR comments");
+
   const deployBot = {
     id: "IC_deploy_1",
     fullDatabaseId: "7055946200",

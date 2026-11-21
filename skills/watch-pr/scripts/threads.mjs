@@ -206,25 +206,37 @@ function blockquoteLines(body) {
     .filter(Boolean);
 }
 
-/**
- * Returns true when a later PR-author reply explicitly links to `target`
- * (`#issuecomment-<id>` or its URL) or quotes substantive text from `target`.
- */
-function replyReferencesComment(reply, target) {
+function replyLinksComment(reply, target) {
   const body = reply.body ?? "";
   if (target.url && body.includes(target.url)) return true;
   if (target.databaseId) {
     const escapedId = String(target.databaseId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     if (new RegExp(`#issuecomment-${escapedId}(?!\\d)`, "i").test(body)) return true;
   }
+  return false;
+}
+
+function quoteMatchesComment(quotes, target) {
+  if (quotes.length === 0) return false;
   const targetText = normalizeMatchText(stripBlockquotes(target.body));
   if (!targetText) return false;
-  const quotes = blockquoteLines(body).map(normalizeMatchText).filter(Boolean);
-  if (quotes.length === 0) return false;
   const minLength = Math.min(targetText.length, 12);
   if (quotes.some((quote) => quote.length >= minLength && targetText.includes(quote))) return true;
   const joined = quotes.join(" ");
   return joined.length >= minLength && targetText.includes(joined);
+}
+
+/**
+ * Returns true when a later PR-author reply explicitly links to `target`
+ * (`#issuecomment-<id>` or its URL) or uniquely quotes substantive text from
+ * `target` (an ambiguous quote matching multiple earlier actionable comments
+ * clears none of them).
+ */
+function replyReferencesComment(reply, target, earlierActionable) {
+  if (replyLinksComment(reply, target)) return true;
+  const quotes = blockquoteLines(reply.body).map(normalizeMatchText).filter(Boolean);
+  if (!quoteMatchesComment(quotes, target)) return false;
+  return earlierActionable.every((other) => other === target || !quoteMatchesComment(quotes, other));
 }
 
 /**
@@ -234,8 +246,8 @@ function replyReferencesComment(reply, target) {
  *   so an unrelated reply comment cannot silently clear earlier flags.
  * - Human reviewer comments (from someone other than the PR author) and bot
  *   findings carrying a severity tag remain unaddressed until either minimized
- *   or explicitly referenced (linked or quoted) by a later non-flag PR-author
- *   reply. A general reply like "thanks, looking" does not clear them.
+ *   or explicitly referenced (linked or uniquely quoted) by a later non-flag
+ *   PR-author reply. A general reply like "thanks, looking" does not clear them.
  */
 export function unaddressedIssueComments(comments, { prAuthor = null, textReviewerRules = [] } = {}) {
   if (!Array.isArray(comments) || comments.length === 0) return [];
@@ -248,17 +260,30 @@ export function unaddressedIssueComments(comments, { prAuthor = null, textReview
     })
     .map(({ comment }) => comment);
 
+  const actionableIndices = new Set();
+  for (let i = 0; i < ordered.length; i++) {
+    if (isActionableIssueComment(ordered[i], prAuthor, textReviewerRules)) actionableIndices.add(i);
+  }
+
   const unaddressed = [];
   for (let i = 0; i < ordered.length; i++) {
+    if (!actionableIndices.has(i)) continue;
     const comment = ordered[i];
-    if (!isActionableIssueComment(comment, prAuthor, textReviewerRules)) continue;
     if (comment.isReviewFlag) {
       unaddressed.push(comment);
       continue;
     }
     const addressed = ordered
       .slice(i + 1)
-      .some((later) => isReplyComment(later, prAuthor, textReviewerRules) && replyReferencesComment(later, comment));
+      .some((later, offset) => {
+        if (!isReplyComment(later, prAuthor, textReviewerRules)) return false;
+        const laterIndex = i + 1 + offset;
+        const earlierActionable = [];
+        for (let j = 0; j < laterIndex; j++) {
+          if (actionableIndices.has(j) && !ordered[j].isReviewFlag) earlierActionable.push(ordered[j]);
+        }
+        return replyReferencesComment(later, comment, earlierActionable);
+      });
     if (!addressed) unaddressed.push(comment);
   }
   return unaddressed;
