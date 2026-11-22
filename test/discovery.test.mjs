@@ -322,7 +322,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             event.message?.includes("forces the system prompt")), JSON.stringify(events.slice(before)));
         });
     });
-    await t.test("mode picker and status follow the active branch; opinions use the requested model and reasoning", async () => {
+    await t.test("mode picker and status follow the active branch; opinions use the requested model and thinking", async () => {
       const runtimeProbe = join(temp, "pstack-runtime-probe.mjs");
       writeFileSync(runtimeProbe, `
         import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
@@ -337,7 +337,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
             }, { id: "opinion-check" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Opinion received."),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
-              model: "pstack-runtime-judge/native", background: false, reasoning: "max", question: "Review the supplied text."
+              model: "pstack-runtime-judge/native", background: false, thinking: "max", question: "Review the supplied text."
             }, { id: "opinion-reasoning-check" })], { stopReason: "toolUse" }),
             fauxAssistantMessage("Reasoned opinion received."),
             fauxAssistantMessage([fauxToolCall("pstack_opinion", {
@@ -422,7 +422,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
         assert.match(reasoned.result.content[0].text, /Reasoning: max/);
         const suffixed = await run("Check the suffixed model selection.", "opinion-suffix-check");
         assert.equal(suffixed.isError, true, JSON.stringify(suffixed));
-        assert.match(suffixed.result.content[0].text, /Pass reasoning separately/);
+        assert.match(suffixed.result.content[0].text, /Pass thinking separately/);
 
         assert.match(await command("/pstack-mode off"), /mode is off/);
         assert.equal(events.findLast((event) => event.method === "setStatus" && event.statusKey === "pstack-mode")?.statusText, undefined);
@@ -557,7 +557,7 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
           pi.registerCommand("opinion-prepare", { handler: async (kind, ctx) => {
             main.appendResponses([
               fauxAssistantMessage([fauxToolCall("pstack_opinion", {
-                model: "pstack-async-judge/native", reasoning: "max",
+                model: "pstack-async-judge/native", thinking: "max",
                 question: "Review this.", context: "Supplied material."
               }, { id: "async-" + kind })], { stopReason: "toolUse" }),
               fauxAssistantMessage("Main continued while the opinion was pending."),
