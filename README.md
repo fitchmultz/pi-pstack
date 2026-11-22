@@ -38,7 +38,7 @@ Optional providers include `pi-subagents` for delegation, `pi-ask-question` for 
 
 Use Pi's visible tools and advertised discovery to find capabilities. The package exposes `pstack_opinion` to ask a configured `provider/model` for a text-only opinion on supplied material. It is a deferred tool: load it with Pi's `tool_search` before the first call. pstack activates `tool_search` when a session starts or moves to another tree branch, unless that branch recorded turning it off. When neither `tool_search` nor `codemode` is active, the tool cannot be called. pstack checks as each run starts, after every extension's session start handling, and warns once. An opinion has no tools or independent access to the repository and is not a substitute for delegated work or verification.
 
-`pstack_opinion` accepts an optional `reasoning` field for that request, without changing global settings. For example, pass `model: "provider/model-id"` and `reasoning: "max"` as separate fields, not `model: "provider/model-id:max"`.
+`pstack_opinion` accepts an optional `thinking` field for that request, without changing global settings. For example, pass `model: "provider/model-id"` and `thinking: "max"` as separate fields, not `model: "provider/model-id:max"`.
 
 In persistent sessions on the Pi fork, `pstack_opinion` returns a background receipt immediately. Continue independent work while Pi waits for the model. Pi delivers the answer or error automatically and records its usage once. A receipt is not a completed opinion.
 

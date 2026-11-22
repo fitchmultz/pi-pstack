@@ -232,9 +232,9 @@ export default function piPstackExtension(pi) {
       "Use pstack_opinion with background:false when a script must await the answer. Nested callers must own background execution themselves. Official Pi and one-shot print/JSON sessions default to foreground.",
     ],
     parameters: Type.Object({
-      model: Type.String({ description: "Exact configured provider/model ID. Pass reasoning in the separate reasoning field." }),
-      reasoning: Type.Optional(StringEnum(["minimal", "low", "medium", "high", "xhigh", "max"], {
-        description: "Reasoning level for this request. Pi handles model support.",
+      model: Type.String({ description: "Exact configured provider/model ID. Pass thinking in the separate thinking field." }),
+      thinking: Type.Optional(StringEnum(["minimal", "low", "medium", "high", "xhigh", "max"], {
+        description: "Thinking level for this request. Pi handles model support.",
       })),
       question: Type.String({ description: "Question for the model." }),
       context: Type.Optional(Type.String({ description: "Explicit material the model should consider." })),
@@ -247,13 +247,13 @@ export default function piPstackExtension(pi) {
       const separator = params.model.indexOf("/");
       if (separator <= 0 || separator === params.model.length - 1) throw new Error("Use a configured provider/model ID.");
       const model = ctx.modelRegistry.find(params.model.slice(0, separator), params.model.slice(separator + 1));
-      if (!model) throw new Error(`Pi has no configured model ${params.model}. Use an exact provider/model ID. Pass reasoning separately, for example reasoning: "max". Choose an available model without changing global settings.`);
+      if (!model) throw new Error(`Pi has no configured model ${params.model}. Use an exact provider/model ID. Pass thinking separately, for example thinking: "max". Choose an available model without changing global settings.`);
       const input = params.context ? `${params.question}\n\nMaterial:\n${params.context}` : params.question;
       const run = async (runSignal) => {
         const response = await ctx.modelRegistry.streamSimple(model, {
           systemPrompt: "Give a text-only opinion on the supplied material. You have no tools and cannot independently inspect files, run checks, or verify an application. Distinguish observations from uncertainty.",
           messages: [{ role: "user", content: input, timestamp: Date.now() }],
-        }, { signal: runSignal, reasoning: params.reasoning }).result();
+        }, { signal: runSignal, reasoning: params.thinking }).result();
         const text = response.content.filter((part) => part.type === "text").map((part) => part.text).join("\n");
         const details = { model: params.model, stopReason: response.stopReason, kind: "text-only opinion" };
         if (response.stopReason === "error" || response.stopReason === "aborted" || response.stopReason === "toolUse") {
