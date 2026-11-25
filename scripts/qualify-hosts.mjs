@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Qualifies packed pstack on official Pi, Mitch's fitchmultz/pi fork, and his configured
-// fitchmultz/pi-subagents. PR CI and the upstream sync gate both run it; change pins only here.
+// fitchmultz/pi-subagents. Keep the official version in sync with both CI workflow installs.
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -15,8 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 
-const officialVersion = "1.6.0";
-const forkCommit = "77e4bf8cea9190faa06abc89db8b79b8ff2e03ef";
+const officialVersion = "1.6.1";
+const forkCommit = "5c5202a664e7492ab01908cf4c37cd05b3f7c694";
 const provider = "git:github.com/fitchmultz/pi-subagents@6c1bf456a0acf01c94335e70f2290cca24c52f92";
 // The profile-based provider's existing regression also runs on these hosts.
 const profileProvider = "pi-subagents@0.86.0";
