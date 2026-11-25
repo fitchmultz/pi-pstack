@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 // These are exactly the paths the existing automation stages after validation.
-const shippedPaths = ["skills", "agents", "LICENSE", "plugin.json", "upstream.json", "package.json", "vendor", "pi"];
+const shippedPaths = ["skills", "agents", "LICENSE", "plugin.json", "upstream.json", "package.json", "package-lock.json", "vendor", "pi"];
 
 function put(path, content) {
   mkdirSync(dirname(path), { recursive: true });
@@ -204,6 +204,9 @@ test("staged sync preserves generated files until review and protects previously
     }
     assert.match(readFileSync(join(target, "skills/tdd/SKILL.md"), "utf8"), /Upstream guidance added/);
     assert.equal(JSON.parse(readFileSync(join(target, "package.json"))).version, "0.15.37");
+    const lock = JSON.parse(readFileSync(join(target, "package-lock.json")));
+    assert.equal(lock.version, "0.15.37");
+    assert.equal(lock.packages[""].version, "0.15.37");
     const afterAddition = generatedSnapshot(target);
     assertSuccess(sync(target, source));
     assert.deepEqual(generatedSnapshot(target), afterAddition, "An unchanged upstream tree is idempotent");

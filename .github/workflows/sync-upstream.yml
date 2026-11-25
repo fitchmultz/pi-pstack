@@ -49,7 +49,7 @@ jobs:
         if: steps.check.outputs.changed == 'true'
         with:
           path: ${{ runner.temp }}/pi-pstack-hosts
-          key: pi-pstack-hosts-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('scripts/qualify-hosts.mjs') }}
+          key: pi-pstack-hosts-${{ runner.os }}-${{ runner.arch }}-${{ steps.node.outputs.node-version }}-${{ hashFiles('scripts/qualify-hosts.mjs', 'package.json') }}
       - name: Install verification prerequisites
         if: steps.check.outputs.changed == 'true'
         env:
@@ -60,7 +60,7 @@ jobs:
           else
             sudo apt-get update && sudo apt-get install --yes ripgrep tmux
           fi
-          npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.6.1
+          npm ci --ignore-scripts
       - name: Stage and validate candidate without write credentials
         id: verify
         if: steps.check.outputs.changed == 'true'
@@ -75,7 +75,7 @@ jobs:
           npm run check:compat
           node scripts/qualify-hosts.mjs
           git reset
-          git add --all --force -- skills agents LICENSE plugin.json vendor/pstack pi/overlays upstream.json package.json
+          git add --all --force -- skills agents LICENSE plugin.json vendor/pstack pi/overlays upstream.json package.json package-lock.json
           git diff --cached --binary --full-index > "$RUNNER_TEMP/pstack-candidate.patch"
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.check.outputs.changed == 'true' && steps.verify.outcome == 'success' && steps.hosts-cache.outputs.cache-hit != 'true'
@@ -121,7 +121,7 @@ jobs:
           git apply --index --binary "$RUNNER_TEMP/pstack-candidate/pstack-candidate.patch"
           while IFS= read -r -d '' path; do
             case "$path" in
-              skills/*|agents/*|vendor/pstack/*|pi/overlays/*|LICENSE|plugin.json|upstream.json|package.json) ;;
+              skills/*|agents/*|vendor/pstack/*|pi/overlays/*|LICENSE|plugin.json|upstream.json|package.json|package-lock.json) ;;
               *) echo "Candidate changes an unexpected path: $path" >&2; exit 1 ;;
             esac
           done < <(git diff --cached --name-only -z)

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Qualifies packed pstack on official Pi, Mitch's fitchmultz/pi fork, and his configured
-// fitchmultz/pi-subagents. Keep the official version in sync with both CI workflow installs.
+// fitchmultz/pi-subagents. Change the official Pi pin in package.json and refresh
+// the npm lockfile. Change the fork and provider pins only here.
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -15,14 +16,15 @@ import {
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 
-const officialVersion = "1.6.1";
+const root = join(import.meta.dirname, "..");
+const { devDependencies } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+const officialVersion = devDependencies["@earendil-works/pi-coding-agent"];
 const forkCommit = "5c5202a664e7492ab01908cf4c37cd05b3f7c694";
 const provider = "git:github.com/fitchmultz/pi-subagents@6c1bf456a0acf01c94335e70f2290cca24c52f92";
 // The profile-based provider's existing regression also runs on these hosts.
 const profileProvider = "pi-subagents@0.86.0";
 const OWNER_MARKER = ".pi-pstack-hosts-owner";
 
-const root = join(import.meta.dirname, "..");
 const configuredCacheDir = process.env.PI_PSTACK_HOSTS_CACHE_DIR?.trim();
 const piPackage = (prefix) => join(prefix, "node_modules/@earendil-works/pi-coding-agent");
 
