@@ -37,7 +37,7 @@ Waits until the pull request is ready to merge or blocked. The last output is th
                           (requires branch protection or rulesets to declare required checks)
   --once                  print the verdict for the current state and exit
 
-Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads or unaddressed PR comments,
+Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved or re-surfaced review threads or unaddressed PR comments,
 4 failed checks, 5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft,
 closed, changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
 reviewer did not sign off, 9 unknown, 64 usage.

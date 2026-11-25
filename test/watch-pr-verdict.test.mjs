@@ -531,8 +531,8 @@ test("the verdict block fits a background_command completion notice", () => {
   assert.equal(result.lines.at(-1), "merge: MERGEABLE; GitHub merge state CLEAN; review decision none");
   assert.ok(result.lines.includes("checks on abe04d4: 2 passed, 40 failed, 0 pending, 0 skipped"));
   assert.ok(result.lines.includes("  failed: test (0) (failure) https://example.test/test%20(0)"));
-  const firstThread = result.lines.find((line) => line.startsWith("  packages/coding-agent/src/file-0.ts:1 @cursor: "));
-  assert.equal(firstThread.split("@cursor: ")[1], `P1 ${long}`.slice(0, 199) + "\u2026");
+  const firstThread = result.lines.find((line) => line.startsWith("  packages/coding-agent/src/file-0.ts:1 @cursor [p1]: "));
+  assert.equal(firstThread.split("@cursor [p1]: ")[1], `P1 ${long}`.slice(0, 199) + "\u2026");
   const shown = (prefix) => result.lines.filter((line) => line.startsWith(prefix)).length;
   assert.ok(result.lines.includes(`  ... ${40 - shown("  failed: ")} more failed checks`));
   assert.ok(result.lines.includes(`  ... ${30 - shown("  packages/")} more threads`));
@@ -790,7 +790,9 @@ test("unresolved review threads show commit SHA (head vs older) and parsed sever
   const threadQueries = result.calls.filter(({ argv }) => argv.some((arg) => arg.includes("reviewThreads")));
   assert.equal(threadQueries.length, 1);
   const queryArg = threadQueries[0].argv.find((arg) => arg.startsWith("query="));
-  assert.match(queryArg, /comments\(first:20\)/);
+  assert.match(queryArg, /rootComment:comments\(first:1\)/);
+  assert.match(queryArg, /comments\(last:20\)/);
+  assert.match(queryArg, /totalCount/);
   assert.match(queryArg, /originalCommit\{oid\}/);
   assert.match(queryArg, /isOutdated/);
 });
@@ -902,6 +904,16 @@ test("pr-threads.mjs lists, replies to, and resolves threads using shared repo r
   });
   assert.equal(unconfirmed.code, 7);
   assert.match(unconfirmed.err, /did not confirm resolution/);
+
+  // --unresolve reopens a resolved inline review thread and rejects IC_ issue comments.
+  const unresolved = runThreads([pollState], {
+    args: ["--repo", "acme/app", "--unresolve", "PRRT_resolved_1"],
+  });
+  assert.equal(unresolved.code, 0, unresolved.err);
+  assert.match(unresolved.out, /^unresolved: PRRT_resolved_1$/m);
+  assert.ok(unresolved.calls[0].argv.some((arg) => arg.includes("unresolveReviewThread")));
+  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--unresolve", "IC_123"] }).code, 64);
+  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--resolve", "PRRT_1", "--unresolve", "PRRT_1"] }).code, 64);
 
   // Usage validation exits 64 without calling GitHub.
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--reply", "PRRT_open_1"] }).code, 64);
@@ -1223,4 +1235,224 @@ test("watch-pr defaults --interval to 60s and clamps positive intervals below 30
   assert.equal(custom.code, 0, custom.out + custom.err);
   assert.equal(custom.sleeps.length, 1);
   assert.ok(custom.sleeps[0] >= 44_900 && custom.sleeps[0] <= 45_000, `expected 45s custom sleep, got ${custom.sleeps[0]}ms`);
+});
+
+test("resolved review threads with newer non-author severity or human replies surface and clear on PR-author reply", () => {
+  const baseState = {
+    pullRequest: open({ author: { __typename: "User", login: "fitchmultz" } }),
+    checkRuns: [...ciJobs("success"), ...reviewersPassed()],
+    runs: [ciRun("pull_request")],
+    workflows: { "ci.yml": PI_WORKFLOWS["ci.yml"] },
+  };
+  const rootGreptile = {
+    id: "PRRC_root_1",
+    fullDatabaseId: "3001",
+    commit: { oid: OLD },
+    originalCommit: { oid: OLD },
+    author: { __typename: "Bot", login: "greptile-apps" },
+    body: '<img alt="P1" src="https://img.shields.io/badge/P1-red" /> Stale root finding on older commit.',
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3001",
+    createdAt: "2026-11-20T01:00:00Z",
+    outdated: true,
+  };
+  const authorEarlyResolveReply = {
+    id: "PRRC_author_1",
+    fullDatabaseId: "3002",
+    commit: { oid: OLD },
+    originalCommit: { oid: OLD },
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "Fixed in 11a9aa0.",
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3002",
+    createdAt: "2026-11-20T01:05:00Z",
+    outdated: true,
+  };
+  const tarsBlocksReply = {
+    id: "PRRC_tars_1",
+    fullDatabaseId: "3003",
+    commit: { oid: HEAD },
+    originalCommit: { oid: HEAD },
+    author: { __typename: "Bot", login: "tars-reviewer" },
+    body: "**blocks · high**\nStill missing authorization check on workspace lookup.",
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3003",
+    createdAt: "2026-11-20T01:15:00Z",
+    outdated: false,
+  };
+  const greptileP1Reply = {
+    id: "PRRC_greptile_2",
+    fullDatabaseId: "3004",
+    commit: { oid: HEAD },
+    originalCommit: { oid: HEAD },
+    author: { __typename: "Bot", login: "greptile-apps" },
+    body: '<img alt="P1" src="https://img.shields.io/badge/P1-red" /> Same bug remains on line 88.',
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3004",
+    createdAt: "2026-11-20T01:16:00Z",
+    outdated: false,
+  };
+  const makeResolved = (id, path, line, comments, { rootComment = comments[0], totalCount = comments.length } = {}) => ({
+    id,
+    isResolved: true,
+    isOutdated: false,
+    path,
+    line,
+    originalLine: line,
+    rootComment: { nodes: [rootComment] },
+    comments: { totalCount, nodes: comments },
+  });
+
+  // 1. Resolved thread with newer TARS `blocks · high` reply surfaces in watch-pr and pr-threads --list.
+  const tarsThread = makeResolved("PRRT_tars_resurfaced", "app/auth.ts", 88, [
+    rootGreptile,
+    authorEarlyResolveReply,
+    tarsBlocksReply,
+  ]);
+  const blockedTars = watch([{ ...baseState, threads: [tarsThread] }]);
+  assert.equal(blockedTars.code, 3, blockedTars.out);
+  assert.equal(blockedTars.lines[0], "BLOCKED: 1 resolved review thread with a new reply");
+  assert.ok(blockedTars.lines.includes("unresolved review threads: 0 (+1 resolved with new reply)"), blockedTars.out);
+  assert.ok(
+    blockedTars.lines.includes(
+      `  app/auth.ts:88 @tars-reviewer [resolved, new reply] [${HEAD.slice(0, 7)} head, 2026-11-20T01:15:00Z, blocks]: **blocks · high** Still missing authorization check on workspace lookup.`,
+    ),
+    blockedTars.out,
+  );
+  assert.doesNotMatch(blockedTars.out, /Stale root finding/);
+
+  const listedTars = runThreads([{ ...baseState, threads: [tarsThread] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list"],
+  });
+  assert.equal(listedTars.code, 0, listedTars.err);
+  assert.match(listedTars.out, /^unresolved threads: 0 \(\+1 resolved with new reply\)$/m);
+  assert.match(
+    listedTars.out,
+    /PRRT_tars_resurfaced\s+app\/auth\.ts:88\s+@tars-reviewer\s+abe04d4 \(head\)\s+2026-11-20T01:15:00Z\s+\[blocks\]\s+\[resolved, new reply\]\s+\(3 comments\)/,
+  );
+  assert.match(listedTars.out, /url: https:\/\/github\.com\/fitchmultz\/pi\/pull\/418#discussion_r3003/);
+  assert.match(listedTars.out, /snippet: \*\*blocks · high\*\* Still missing authorization check/);
+  assert.doesNotMatch(listedTars.out, /Stale root finding/);
+
+  const listedTarsJson = runThreads([{ ...baseState, threads: [tarsThread] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list", "--json"],
+  });
+  assert.equal(listedTarsJson.code, 0, listedTarsJson.err);
+  const tarsJson = JSON.parse(listedTarsJson.out);
+  assert.equal(tarsJson.unresolvedCount, 0);
+  assert.equal(tarsJson.resurfacedCount, 1);
+  assert.equal(tarsJson.threads.length, 1);
+  assert.equal(tarsJson.threads[0].hasNewReply, true);
+  assert.equal(tarsJson.threads[0].latestComment.id, "PRRC_tars_1");
+
+  // Greptile P1 badge reply on a resolved thread also surfaces.
+  const greptileThread = makeResolved("PRRT_greptile_resurfaced", "app/auth.ts", 88, [
+    rootGreptile,
+    authorEarlyResolveReply,
+    greptileP1Reply,
+  ]);
+  const blockedGreptile = watch([{ ...baseState, threads: [greptileThread] }]);
+  assert.equal(blockedGreptile.code, 3, blockedGreptile.out);
+  assert.match(
+    blockedGreptile.out,
+    /app\/auth\.ts:88 @greptile-apps \[resolved, new reply\] \[abe04d4 head, 2026-11-20T01:16:00Z, p1\]: Same bug remains on line 88\./,
+  );
+
+  // 2. A later PR-author reply on the resolved thread clears the re-surfaced status automatically.
+  const authorClearedReply = {
+    id: "PRRC_author_2",
+    fullDatabaseId: "3005",
+    commit: { oid: HEAD },
+    originalCommit: { oid: HEAD },
+    author: { __typename: "User", login: "fitchmultz" },
+    body: "Added the workspace authorization check in abe04d4.",
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3005",
+    createdAt: "2026-11-20T01:20:00Z",
+    outdated: false,
+  };
+  const clearedThread = makeResolved("PRRT_tars_resurfaced", "app/auth.ts", 88, [
+    rootGreptile,
+    authorEarlyResolveReply,
+    tarsBlocksReply,
+    authorClearedReply,
+  ]);
+  const clearedWatch = watch([{ ...baseState, threads: [clearedThread] }]);
+  assert.equal(clearedWatch.code, 0, clearedWatch.out);
+  assert.equal(clearedWatch.lines[0], "READY");
+
+  const clearedList = runThreads([{ ...baseState, threads: [clearedThread] }], {
+    args: ["418", "--repo", "fitchmultz/pi", "--list"],
+  });
+  assert.equal(clearedList.code, 0, clearedList.err);
+  assert.match(clearedList.out, /^unresolved threads: 0$/m);
+  assert.doesNotMatch(clearedList.out, /PRRT_tars_resurfaced/);
+
+  // 3. Polite bot confirmation without a severity tag (even quoting the old severity) does NOT block.
+  const politeBotReply = {
+    id: "PRRC_bot_ok",
+    fullDatabaseId: "3006",
+    commit: { oid: HEAD },
+    originalCommit: { oid: HEAD },
+    author: { __typename: "Bot", login: "greptile-apps" },
+    body: "> **blocks · high** Still missing authorization check.\n\nLooks good now — verified fixed!",
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3006",
+    createdAt: "2026-11-20T01:25:00Z",
+    outdated: false,
+  };
+  const politeThread = makeResolved("PRRT_bot_ok", "app/auth.ts", 88, [
+    rootGreptile,
+    authorEarlyResolveReply,
+    politeBotReply,
+  ]);
+  const politeWatch = watch([{ ...baseState, threads: [politeThread] }]);
+  assert.equal(politeWatch.code, 0, politeWatch.out);
+  assert.equal(politeWatch.lines[0], "READY");
+
+  // 4. Newer human reviewer reply on a resolved thread surfaces even without a severity tag.
+  const humanReply = {
+    id: "PRRC_human_1",
+    fullDatabaseId: "3007",
+    commit: { oid: HEAD },
+    originalCommit: { oid: HEAD },
+    author: { __typename: "User", login: "teammate" },
+    body: "Hold on — what if workspaceId is undefined for personal accounts?",
+    url: "https://github.com/fitchmultz/pi/pull/418#discussion_r3007",
+    createdAt: "2026-11-20T01:30:00Z",
+    outdated: false,
+  };
+  const humanThread = makeResolved("PRRT_human_resurfaced", "app/auth.ts", 88, [
+    rootGreptile,
+    authorEarlyResolveReply,
+    humanReply,
+  ]);
+  const blockedHuman = watch([{ ...baseState, threads: [humanThread] }]);
+  assert.equal(blockedHuman.code, 3, blockedHuman.out);
+  assert.equal(blockedHuman.lines[0], "BLOCKED: 1 resolved review thread with a new reply");
+  assert.ok(
+    blockedHuman.lines.includes(
+      `  app/auth.ts:88 @teammate [resolved, new reply] [${HEAD.slice(0, 7)} head, 2026-11-20T01:30:00Z]: Hold on — what if workspaceId is undefined for personal accounts?`,
+    ),
+    blockedHuman.out,
+  );
+});
+
+test("EXIT.reviewerRejected surfaces the failing or skipped reviewer check run URL", () => {
+  const greptilePass = {
+    user: { login: "greptile-apps[bot]" },
+    updated_at: "2026-11-10T16:30:56Z",
+    body: `Confidence Score: 5/5 (https://github.com/acme/app/commit/${HEAD})`,
+  };
+  const neutralReviewerCheck = {
+    ...check("Review bot", "neutral"),
+    details_url: "https://github.com/acme/app/runs/987654321",
+  };
+  const rejected = watch([{
+    pullRequest: open(),
+    checkRuns: [check("build", "success"), neutralReviewerCheck],
+    comments: [greptilePass],
+  }], { repo: "acme/app" });
+  assert.equal(rejected.code, 8, rejected.out);
+  assert.equal(rejected.lines[0], `BLOCKED: Review bot did not sign off: neutral on ${HEAD.slice(0, 7)}, not a sign-off`);
+  assert.ok(
+    rejected.lines.includes(
+      `  Review bot: neutral on ${HEAD.slice(0, 7)}, not a sign-off https://github.com/acme/app/runs/987654321`,
+    ),
+    rejected.out,
+  );
 });

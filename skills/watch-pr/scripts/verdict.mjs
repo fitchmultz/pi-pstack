@@ -3,7 +3,7 @@
 
 import { basename } from "node:path";
 import { login } from "./gh-client.mjs";
-import { formatVerdictComment, formatVerdictThread, unaddressedIssueComments } from "./threads.mjs";
+import { actionableThreads, formatVerdictComment, formatVerdictThread, unaddressedIssueComments } from "./threads.mjs";
 import { classifyWorkflow } from "./triggers.mjs";
 
 /**
@@ -123,7 +123,7 @@ function missingText({ missingWorkflows, missingRequired }, { requiredChecksOnly
  * `passed` is a sign-off on this commit. `pending` can still change without a
  * new push. `rejected` cannot. `unknown` means the rule could not be evaluated.
  *
- * @returns {{ name: string, state: "passed" | "pending" | "rejected" | "unknown", text: string }[]}
+ * @returns {{ name: string, state: "passed" | "pending" | "rejected" | "unknown", text: string, link?: string | null }[]}
  */
 export function reviewerStates(rules, { head, checks, texts }) {
   return rules.map((rule) => {
@@ -132,10 +132,10 @@ export function reviewerStates(rules, { head, checks, texts }) {
       const on = `on ${short(head)}`;
       if (matching.length === 0) return { name: rule.name, state: "pending", text: `not started ${on}` };
       const failed = matching.find((check) => check.state === "failed");
-      if (failed) return { name: rule.name, state: "rejected", text: `${failed.detail} ${on}` };
+      if (failed) return { name: rule.name, state: "rejected", text: `${failed.detail} ${on}`, link: failed.link || null };
       if (matching.some((check) => check.state === "pending")) return { name: rule.name, state: "pending", text: `running ${on}` };
       const skipped = matching.find((check) => check.state === "skipped");
-      if (skipped) return { name: rule.name, state: "rejected", text: `${skipped.detail} ${on}, not a sign-off` };
+      if (skipped) return { name: rule.name, state: "rejected", text: `${skipped.detail} ${on}, not a sign-off`, link: skipped.link || null };
       return { name: rule.name, state: "passed", text: `passed ${on}` };
     }
     for (const text of texts) {
@@ -149,7 +149,7 @@ export function reviewerStates(rules, { head, checks, texts }) {
       }
       return verdict === rule.pass
         ? { name: rule.name, state: "passed", text: `${verdict} on ${short(head)}` }
-        : { name: rule.name, state: "rejected", text: `${verdict} on ${short(head)} (needs ${rule.pass})` };
+        : { name: rule.name, state: "rejected", text: `${verdict} on ${short(head)} (needs ${rule.pass})`, link: text.link || null };
     }
     return { name: rule.name, state: "pending", text: "no review found" };
   });
@@ -189,18 +189,34 @@ export function assess({
   if (facts.mergeable === "CONFLICTING" || facts.mergeState === "DIRTY") {
     return blocked(EXIT.conflicts, `merge conflicts with ${facts.baseRef}`);
   }
+  const threadState = actionableThreads(
+    facts.allThreads ?? [...(facts.threads ?? []), ...(facts.resurfacedThreads ?? [])],
+    { prAuthor: facts.author ?? null },
+  );
   const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
     prAuthor: facts.author ?? null,
     textReviewerRules,
   });
-  if (facts.threads.length && unaddressedComments.length) {
-    return blocked(
-      EXIT.threads,
-      `${plural(facts.threads.length, "unresolved review thread")} and ${plural(unaddressedComments.length, "unaddressed PR comment")}`,
-    );
+  if (threadState.all.length || unaddressedComments.length) {
+    const reasons = [];
+    if (threadState.unresolved.length) {
+      reasons.push(plural(threadState.unresolved.length, "unresolved review thread"));
+    }
+    if (threadState.resurfaced.length) {
+      reasons.push(
+        threadState.resurfaced.length === 1
+          ? "1 resolved review thread with a new reply"
+          : `${threadState.resurfaced.length} resolved review threads with new replies`,
+      );
+    }
+    if (unaddressedComments.length) {
+      reasons.push(plural(unaddressedComments.length, "unaddressed PR comment"));
+    }
+    const reason = reasons.length === 1
+      ? reasons[0]
+      : `${reasons.slice(0, -1).join(", ")} and ${reasons.at(-1)}`;
+    return blocked(EXIT.threads, reason);
   }
-  if (facts.threads.length) return blocked(EXIT.threads, plural(facts.threads.length, "unresolved review thread"));
-  if (unaddressedComments.length) return blocked(EXIT.threads, plural(unaddressedComments.length, "unaddressed PR comment"));
 
   const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
   const buckets = partitionChecks(checks, {
@@ -389,10 +405,20 @@ export function render({
     prAuthor: facts.author ?? null,
     textReviewerRules,
   });
+  const threadState = actionableThreads(
+    facts.allThreads ?? [...(facts.threads ?? []), ...(facts.resurfacedThreads ?? [])],
+    { prAuthor: facts.author ?? null },
+  );
+  const threadHeading = threadState.resurfaced.length
+    ? `unresolved review threads: ${threadState.unresolved.length} (+${threadState.resurfaced.length} resolved with new ${threadState.resurfaced.length === 1 ? "reply" : "replies"})`
+    : `unresolved review threads: ${threadState.unresolved.length}`;
   // Each part is a heading, then items that are shown while the block fits.
   const parts = [
     {
-      items: reviewers.map((reviewer) => clip(`  ${reviewer.name}: ${reviewer.text}`, 200)),
+      items: reviewers.map((reviewer) => {
+        const base = clip(`  ${reviewer.name}: ${reviewer.text}`, 200);
+        return reviewer.state === "rejected" && reviewer.link ? `${base} ${reviewer.link}` : base;
+      }),
       before: [
         ...(pendingNames.length ? [clip(`  pending: ${some(pendingNames)}`, 300)] : []),
         ...(ignoredLabels.length ? [clip(`  optional (ignored): ${some(ignoredLabels)}`, 300)] : []),
@@ -408,8 +434,8 @@ export function render({
       more: "failed checks",
     },
     {
-      items: facts.threads.map((thread) => formatVerdictThread(thread, THREAD_EXCERPT)),
-      before: [`unresolved review threads: ${facts.threads.length}`],
+      items: threadState.all.map((thread) => formatVerdictThread(thread, THREAD_EXCERPT)),
+      before: [threadHeading],
       more: "threads",
     },
     ...(unaddressedComments.length ? [{
