@@ -71,6 +71,7 @@ The last output is a verdict of at most 20 lines and 2048 bytes: `READY`, `MERGE
 ## Maintenance
 
 ```bash
+npm ci --ignore-scripts        # Install the pinned development dependencies
 npm run sync                   # Fetch upstream and stage a three-way merge
 npm run sync -- --continue     # Publish the reviewed candidate locally
 npm run check:compat            # Check offline rendering, discovery, and pack
@@ -91,16 +92,18 @@ Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a
 
 ### Exact hosts and the configured provider
 
-CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on the candidate before opening a PR, so a failure opens its sync-failure issue instead. The script pins these sources in one place:
+CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on the candidate before opening a PR, so a failure opens its sync-failure issue instead. Both runs qualify these sources:
 
-- official Pi **1.6.1** from npm;
+- the exact official Pi version declared in `devDependencies` in `package.json`;
 - `fitchmultz/pi` commit `5c5202a66`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
 - `@fitchmultz/pi-subagents` commit `6c1bf456` (version 0.52.61), installed by Pi's own `pi install git:…`, which runs the provider's pinned `prepare` build;
 - the profile-based `pi-subagents` npm package **0.86.0**, in a separate install prefix that contains no second Pi because its Pi peers are optional.
 
 It then runs `npm run smoke` on each host with `PI_FITCH_SUBAGENTS_INDEX` and `PI_SUBAGENTS_INDEX` set, so both provider subtests run there. The `@fitchmultz/pi-subagents` subtest loads that package through Pi settings and checks that `delegate` and `agent_runs` are active and come from that package, and that `/skill:how` reaches Pi's model check both with and without those tools. Pi's built-in faux model then drives one offline delegation from the parent to a real child process and back. To run it locally, set `PI_FITCH_SUBAGENTS_INDEX=/absolute/path/to/pi-subagents/dist/index.js` along with `PI_HOST_INDEX`; without that variable, this subtest is also skipped.
 
-Limits: the faux model proves delegation wiring, not live-model behavior, and no model credentials or paid inference calls are used. Set `PI_PSTACK_HOSTS_CACHE_DIR` to a dedicated empty or previously populated `qualify-hosts` directory (as CI does via `actions/cache`) to reuse staged host and provider installs when the pins are unchanged; the script replaces owned cache contents on pin updates and refuses unowned non-empty directories. Building the hosts needs network access, Node 24.22.3 or later in the 24.x line with npm, and the fork installer's prerequisites, including tmux and Git 2.40 or later (the fork's source archive uses `git archive --mtime`). The fork build fetches its model catalog when it runs, so that catalog can differ from an installed release of the same commit; the offline smoke does not exercise live-model or catalog behavior. Set qualification pins in `scripts/qualify-hosts.mjs`. Also update the official Pi npm install in `.github/workflows/ci.yml` and `.github/workflows/sync-upstream.yml`.
+Limits: the faux model proves delegation wiring, not live-model behavior, and no model credentials or paid inference calls are used. Set `PI_PSTACK_HOSTS_CACHE_DIR` to a dedicated empty or previously populated `qualify-hosts` directory (as CI does via `actions/cache`) to reuse staged host and provider installs when the pins are unchanged; the script replaces owned cache contents on pin updates and refuses unowned non-empty directories. Building the hosts needs network access, Node 24.22.3 or later in the 24.x line with npm, and the fork installer's prerequisites, including tmux and Git 2.40 or later (the fork's source archive uses `git archive --mtime`). The fork build fetches its model catalog when it runs, so that catalog can differ from an installed release of the same commit; the offline smoke does not exercise live-model or catalog behavior.
+
+To change the official Pi pin, update `devDependencies` in `package.json` and regenerate `package-lock.json` with npm. Change the fork and provider pins only in `scripts/qualify-hosts.mjs`.
 
 ## License
 

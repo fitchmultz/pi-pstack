@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { hash } from "node:crypto";
 import {
   chmodSync,
@@ -559,11 +559,12 @@ function continueSync() {
   mkdirSync(join(candidate, "pi/overlays"), { recursive: true });
   writeFileSync(join(candidate, OVERLAY), patch);
   writeFileSync(join(candidate, "upstream.json"), `${JSON.stringify(metadata.incoming, null, 2)}\n`);
-  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
-  pkg.version = metadata.incoming.version;
-  writeFileSync(join(candidate, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+  const manifests = ["package.json", "package-lock.json"].filter((path) => existsSync(join(ROOT, path)));
+  for (const path of manifests) cpSync(join(ROOT, path), join(candidate, path));
+  execFileSync("npm", ["version", metadata.incoming.version, "--allow-same-version", "--no-git-tag-version", "--ignore-scripts"],
+    { cwd: candidate });
   checkTree(candidate);
-  publish(candidate, [...OUTPUTS, VENDOR, OVERLAY, "package.json", "upstream.json"]);
+  publish(candidate, [...OUTPUTS, VENDOR, OVERLAY, ...manifests, "upstream.json"]);
   rmSync(STAGE, { recursive: true, force: true });
   console.log(`Published the reviewed pstack candidate at ${metadata.incoming.pstackCommitSha} (tree ${metadata.incoming.pstackTreeSha}, v${metadata.incoming.version}).`);
 }
