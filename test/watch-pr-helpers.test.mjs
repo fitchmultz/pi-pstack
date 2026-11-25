@@ -20,10 +20,13 @@ import {
 } from "../skills/watch-pr/scripts/repo-config.mjs";
 import {
   SEVERITY_TAGS,
+  actionableThreads,
+  formatVerdictThread,
+  hasResurfacedReply,
   normalizeThread,
   parseSeverity,
 } from "../skills/watch-pr/scripts/threads.mjs";
-import { partitionChecks } from "../skills/watch-pr/scripts/verdict.mjs";
+import { partitionChecks, reviewerStates } from "../skills/watch-pr/scripts/verdict.mjs";
 
 const exampleConfig = fileURLToPath(new URL("../skills/watch-pr/config.example.json", import.meta.url));
 
@@ -249,6 +252,8 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
   const samples = [
     ["[blocks] Missing authorization guard", "blocks"],
     ["**blocks** — Missing authorization guard", "blocks"],
+    ["**blocks · high**\nStill missing tenant check", "blocks"],
+    ["blocks · high — Still missing tenant check", "blocks"],
     ["`fix-if-cheap`: simplify map lookup", "fix-if-cheap"],
     ["### [next-action] Track follow-up in issue", "next-action"],
     ["**Severity:** Critical\nDetails here", "critical"],
@@ -259,6 +264,12 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
     ["<sub><b>[fix-if-cheap]</b></sub> Optional cleanup", "fix-if-cheap"],
     ["<b>High</b> - unchecked cast", "high"],
     ["<strong>Critical</strong> — missing guard", "critical"],
+    ['<a href="https://greptile.com"><img alt="P0" src="https://img.shields.io/badge/P0-red" /></a> Auth bypass', "p0"],
+    ['<img src="https://img.shields.io/badge/P1-orange" alt="P1" /> Missing null check', "p1"],
+    ["**P1** Missing null check on session", "p1"],
+    ["<b>P1</b> Résumé: this finding is long.", "p1"],
+    ["![P2](https://img.shields.io/badge/P2-yellow) Consider caching lookup", "p2"],
+    ["P3: minor naming suggestion", "p3"],
   ];
   for (const [body, expected] of samples) {
     assert.equal(parseSeverity(body), expected, body);
@@ -270,7 +281,8 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
     "This blocks the event loop under load.",
     "High throughput paths should avoid allocation.",
     "Use the existing indexed predicate.",
-    "<b>P1</b> Résumé: this finding is long.",
+    "We prioritize P1 incidents separately from P2 tasks.",
+    '<img alt="Greptile logo" src="https://greptile.com/logo.png" /> Looks good now, fixed!',
   ]) {
     assert.equal(parseSeverity(prose), null, prose);
   }
@@ -329,6 +341,123 @@ test("threads.mjs parses TARS, Greptile, and Cursor severity tags without matchi
   assert.equal(normalized.severity, "blocks");
   assert.equal(normalized.commentCount, 2);
   assert.equal(normalized.line, 19);
+});
+
+test("normalizeThread merges rootComment + comments(last:20) without dropping root metadata on >20-comment threads", () => {
+  const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const old = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  const root = {
+    id: "PRRC_1",
+    fullDatabaseId: "1001",
+    commit: { oid: head },
+    originalCommit: { oid: old },
+    author: { __typename: "Bot", login: "greptile-apps" },
+    body: '<img alt="P1" src="https://example.test/p1.svg" /> Initial P1 finding.',
+    url: "https://github.com/o/r/pull/1#discussion_r1001",
+    createdAt: "2026-11-20T00:00:00Z",
+    outdated: true,
+  };
+  // Simulate 25 total comments: rootComment has #1, comments(last:20) has #6..#25.
+  const tail = Array.from({ length: 20 }, (_, i) => {
+    const idx = i + 6;
+    const isLast = idx === 25;
+    return {
+      id: `PRRC_${idx}`,
+      fullDatabaseId: String(1000 + idx),
+      commit: { oid: head },
+      originalCommit: { oid: head },
+      author: isLast
+        ? { __typename: "Bot", login: "tars-reviewer" }
+        : { __typename: "User", login: "fitchmultz" },
+      body: isLast ? "**blocks · high** Still missing tenant check after refactor." : `Follow-up ${idx}`,
+      url: `https://github.com/o/r/pull/1#discussion_r${1000 + idx}`,
+      createdAt: `2026-11-20T00:${String(idx).padStart(2, "0")}:00Z`,
+      outdated: false,
+    };
+  });
+  const longThread = normalizeThread({
+    id: "PRRT_long",
+    isResolved: true,
+    isOutdated: false,
+    path: "src/auth.ts",
+    line: 88,
+    rootComment: { nodes: [root] },
+    comments: { totalCount: 25, nodes: tail },
+  }, head, { prAuthor: "fitchmultz" });
+
+  // Root metadata is preserved even though root fell out of comments(last:20).
+  assert.equal(longThread.author, "greptile-apps");
+  assert.equal(longThread.databaseId, "1001");
+  assert.equal(longThread.originalCommit, old);
+  assert.equal(longThread.url, "https://github.com/o/r/pull/1#discussion_r1001");
+  assert.equal(longThread.commentCount, 25);
+  assert.equal(longThread.comments.length, 21);
+  assert.equal(longThread.latestComment.id, "PRRC_25");
+  assert.equal(longThread.latestComment.author, "tars-reviewer");
+  assert.equal(longThread.latestComment.severity, "blocks");
+  assert.equal(longThread.hasNewReply, true);
+  assert.equal(hasResurfacedReply(longThread, "fitchmultz"), true);
+
+  // Verdict formatting shows the latest reply instead of the stale root comment.
+  const line = formatVerdictThread(longThread);
+  assert.match(line, /^  src\/auth\.ts:88 @tars-reviewer \[resolved, new reply\] \[aaaaaaa head, 2026-11-20T00:25:00Z, blocks\]: \*\*blocks · high\*\* Still missing tenant check/);
+
+  // Short thread deduplicates rootComment when it overlaps with comments(last:20).
+  const shortThread = normalizeThread({
+    id: "PRRT_short",
+    isResolved: true,
+    path: "src/auth.ts",
+    line: 88,
+    rootComment: { nodes: [root] },
+    comments: {
+      totalCount: 2,
+      nodes: [
+        root,
+        {
+          id: "PRRC_2",
+          fullDatabaseId: "1002",
+          commit: { oid: head },
+          originalCommit: { oid: head },
+          author: { __typename: "User", login: "fitchmultz" },
+          body: "Fixed in latest commit.",
+          url: "https://github.com/o/r/pull/1#discussion_r1002",
+          createdAt: "2026-11-20T00:05:00Z",
+          outdated: false,
+        },
+      ],
+    },
+  }, head, { prAuthor: "fitchmultz" });
+  assert.equal(shortThread.comments.length, 2);
+  assert.equal(shortThread.commentCount, 2);
+  assert.equal(shortThread.hasNewReply, false);
+  assert.deepEqual(actionableThreads([longThread, shortThread], { prAuthor: "fitchmultz" }).resurfaced.map((t) => t.id), ["PRRT_long"]);
+});
+
+test("reviewerStates preserves check run links on failed and skipped reviewer checks", () => {
+  const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const rules = [{ name: "TARS review", check: "TARS review" }];
+  const failed = reviewerStates(rules, {
+    head,
+    checks: [{ name: "TARS review", state: "failed", detail: "failure", link: "https://github.com/workos/alto/runs/111" }],
+    texts: [],
+  });
+  assert.deepEqual(failed, [{
+    name: "TARS review",
+    state: "rejected",
+    text: "failure on aaaaaaa",
+    link: "https://github.com/workos/alto/runs/111",
+  }]);
+  const skipped = reviewerStates(rules, {
+    head,
+    checks: [{ name: "TARS review", state: "skipped", detail: "neutral", link: "https://github.com/workos/alto/runs/222" }],
+    texts: [],
+  });
+  assert.deepEqual(skipped, [{
+    name: "TARS review",
+    state: "rejected",
+    text: "neutral on aaaaaaa, not a sign-off",
+    link: "https://github.com/workos/alto/runs/222",
+  }]);
 });
 
 test("partitionChecks protects required and reviewer checks under --required-checks-only and fails closed otherwise", () => {

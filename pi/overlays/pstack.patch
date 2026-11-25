@@ -6828,10 +6828,10 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..c73a7c38477b7cc5d7dbe92d5ded55385cb4d21f
+index 0000000000000000000000000000000000000000..a2c2e5ab6897fecc0efb2f0071b59b1863a659ac
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,139 @@
 +---
 +name: watch-pr
 +description: "Wait for a GitHub PR's checks, reviews, or merge readiness with one background watcher, not a hand-written loop."
@@ -6886,12 +6886,12 @@ index 0000000000000000000000000000000000000000..c73a7c38477b7cc5d7dbe92d5ded5538
 +| --- | --- | --- |
 +| 0 | `READY` or `MERGED` | Every rule passed on the named commit, or the pull request is merged. |
 +| 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
-+| 3 | `BLOCKED: N unresolved review threads` or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve inline threads (`pr-threads.mjs --resolve PRRT_...`), minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
++| 3 | `BLOCKED: N unresolved review threads`, `BLOCKED: N resolved review threads with new replies`, or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve open inline threads (`pr-threads.mjs --resolve PRRT_...`); for a resolved thread re-surfaced by a newer reply (`[resolved, new reply]`), post a PR-author reply (`pr-threads.mjs --reply PRRT_... --body-file ...`) to clear it automatically (or reopen it with `--unresolve PRRT_...`). Minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
 +| 4 | `BLOCKED: N checks failed` | The block links each failed check. |
 +| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 +| 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
 +| 7 | `BLOCKED: GitHub query failed ...` | The watcher could not read GitHub. The block names the GitHub CLI it ran. |
-+| 8 | `BLOCKED: NAME did not sign off ...` | A required reviewer reported on this commit and did not pass. |
++| 8 | `BLOCKED: NAME did not sign off ...` | A required reviewer reported on this commit and did not pass. When a check-based reviewer fails or finishes skipped/neutral, its `reviewers:` line includes the check run link so you can inspect the Check Run summary even when no inline thread is open. |
 +| 9 | `UNKNOWN: ...` | The watcher cannot prove readiness. |
 +| 64 | none | Wrong arguments or an invalid configuration file. The message is on stderr. |
 +
@@ -6907,18 +6907,21 @@ index 0000000000000000000000000000000000000000..c73a7c38477b7cc5d7dbe92d5ded5538
 +- **Optional checks.** With `--required-checks-only`, non-required checks settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored. If GitHub declares no required status checks for the base branch, `--required-checks-only` fails closed with `UNKNOWN` (exit 9).
 +- **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 +- **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
-+- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks. The watcher also reads PR conversation comments in the same GraphQL query (paginating automatically when a PR has >100 comments) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / leading `Review flag` comments, even when posted under the PR author's login) until minimized as resolved (e.g. `pr-threads.mjs --resolve IC_...`), plus human reviewer comments from someone other than the PR author and bot comments carrying a structured severity tag until minimized or explicitly referenced (linked via `#issuecomment-<id>` / URL or quoted with `> ...`) by a later non-flag PR-author reply. Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots (GraphQL `Bot` accounts without a severity tag) do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
++- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks, and so does any **resolved** inline thread whose newest reply is from a non-author human reviewer or from a bot carrying a structured severity tag (such as `blocks · high` or a Greptile `P0`–`P3` badge), marked `[resolved, new reply]` with the latest reply's author, commit/timestamp context, severity, and snippet instead of the stale root comment. Polite bot confirmations without a severity tag do not re-surface resolved threads, and a later PR-author reply on that thread makes the newest comment the PR author's and clears the re-surfaced status automatically. The GraphQL query fetches both the root comment and the newest 20 replies (`rootComment` + `comments(last: 20)`) so long threads (>20 comments) preserve root metadata and always inspect the latest reply. The watcher also reads PR conversation comments in the same GraphQL query (paginating automatically when a PR has >100 comments) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / leading `Review flag` comments, even when posted under the PR author's login) until minimized as resolved (e.g. `pr-threads.mjs --resolve IC_...`), plus human reviewer comments from someone other than the PR author and bot comments carrying a structured severity tag until minimized or explicitly referenced (linked via `#issuecomment-<id>` / URL or quoted with `> ...`) by a later non-flag PR-author reply. Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots (GraphQL `Bot` accounts without a severity tag) do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`, `p0`–`p3`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
 +
 +## Manage review threads and PR comments (`pr-threads.mjs`)
 +
-+Use `scripts/pr-threads.mjs` to inspect unresolved inline review threads (`PRRT_...`) and unaddressed PR conversation comments (`IC_...`) with their GraphQL IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply to inline threads or resolve threads / minimize PR comments safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
++Use `scripts/pr-threads.mjs` to inspect unresolved inline review threads (`PRRT_...`), resolved threads with newer non-author replies (`[resolved, new reply]`), and unaddressed PR conversation comments (`IC_...`) with their GraphQL IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply to inline threads or resolve/unresolve threads and minimize PR comments safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
 +
 +```bash
-+# List unresolved threads and unaddressed PR comments (add --json for JSON, --all for resolved too)
++# List unresolved threads, resolved threads with new replies, and unaddressed PR comments (add --json for JSON, --all for all resolved threads too)
 +node SKILL_DIRECTORY/scripts/pr-threads.mjs https://github.com/OWNER/REPO/pull/123 --list
 +
 +# Reply to an inline thread from a file (or "-" for stdin) without shell interpolation, then resolve
 +node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --reply PRRT_... --body-file reply.md --resolve PRRT_...
++
++# Reopen a resolved inline thread if you want GitHub to track it as unresolved again
++node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --unresolve PRRT_...
 +
 +# Minimize an addressed PR conversation comment (e.g. an attributed review flag) as resolved
 +node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --resolve IC_...
@@ -7326,10 +7329,10 @@ index 0000000000000000000000000000000000000000..f98869b2be6d87ad7d6b1ddf5d6e7faa
 +}
 diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25e5bb69c3
+index 0000000000000000000000000000000000000000..f28075451ceb688e24b67ff559ac7d3a410dd41a
 --- /dev/null
 +++ b/skills/watch-pr/scripts/github.mjs
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,251 @@
 +// Read-only GitHub queries for the watcher, built on the shared gh-client.
 +// Every REST read names the commit it is about, so one poll never mixes two heads.
 +
@@ -7354,9 +7357,15 @@ index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25
 +      pageInfo{hasNextPage endCursor}
 +      nodes{
 +        id isResolved isOutdated path line originalLine
-+        comments(first:20){
++        rootComment:comments(first:1){
 +          nodes{
-+            id fullDatabaseId commit{oid} originalCommit{oid} author{login} body url createdAt outdated
++            id fullDatabaseId commit{oid} originalCommit{oid} author{__typename login} body url createdAt outdated
++          }
++        }
++        comments(last:20){
++          totalCount
++          nodes{
++            id fullDatabaseId commit{oid} originalCommit{oid} author{__typename login} body url createdAt outdated
 +          }
 +        }
 +      }
@@ -7414,9 +7423,10 @@ index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25
 +      const nodes = pages.map((page) => pullRequestNode(page, pr));
 +      const last = nodes.at(-1);
 +      const head = last.headRefOid;
++      const prAuthor = last.author?.login ?? null;
 +      const allThreads = nodes
 +        .flatMap((node) => node.reviewThreads.nodes)
-+        .map((thread) => normalizeThread(thread, head));
++        .map((thread) => normalizeThread(thread, head, { prAuthor }));
 +      let rawIssueComments = last.comments?.nodes ?? [];
 +      if (last.comments?.pageInfo?.hasPreviousPage) {
 +        const commentPages = await client.graphql(ISSUE_COMMENTS, pr, { paginate: true });
@@ -7432,10 +7442,11 @@ index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25
 +        mergeable: last.mergeable,
 +        mergeState: last.mergeStateStatus,
 +        reviewDecision: last.reviewDecision || null,
-+        author: last.author?.login ?? null,
++        author: prAuthor,
 +        head,
 +        baseRef: last.baseRefName,
 +        threads: allThreads.filter((thread) => !thread.isResolved),
++        resurfacedThreads: allThreads.filter((thread) => thread.hasNewReply),
 +        allThreads,
 +        issueComments,
 +      };
@@ -7566,19 +7577,19 @@ index 0000000000000000000000000000000000000000..ff4cede5f94ecccbd1721d40523c6e25
 +      ]);
 +      return [
 +        ...commentPages.flat().map((comment) => (
-+          { author: login(comment.user?.login), body: comment.body ?? "", at: comment.updated_at, commit: null })),
++          { author: login(comment.user?.login), body: comment.body ?? "", at: comment.updated_at, commit: null, link: comment.html_url || null })),
 +        ...reviewPages.flat().map((review) => (
-+          { author: login(review.user?.login), body: review.body ?? "", at: review.submitted_at, commit: review.commit_id })),
++          { author: login(review.user?.login), body: review.body ?? "", at: review.submitted_at, commit: review.commit_id, link: review.html_url || null })),
 +      ].sort((a, b) => (a.at < b.at ? 1 : -1));
 +    },
 +  };
 +}
 diff --git a/skills/watch-pr/scripts/pr-threads.mjs b/skills/watch-pr/scripts/pr-threads.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb18714696ebd69a8
+index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437391165e4
 --- /dev/null
 +++ b/skills/watch-pr/scripts/pr-threads.mjs
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,275 @@
 +#!/usr/bin/env node
 +// Lists, replies to, and resolves GitHub pull request review threads using the
 +// shared watch-pr repository config and gh-client routing.
@@ -7598,12 +7609,13 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +  resolveRepo,
 +  settingsFor,
 +} from "./repo-config.mjs";
-+import { formatThreadList, unaddressedIssueComments } from "./threads.mjs";
++import { actionableThreads, formatThreadList, unaddressedIssueComments } from "./threads.mjs";
 +import { EXIT } from "./verdict.mjs";
 +
 +const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
 +       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --reply <threadId> --body-file <path>
 +       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadOrCommentId>
++       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --unresolve <threadId>
 +
 +Lists unresolved PR review threads and unaddressed PR conversation comments, or
 +replies to / resolves them through the repository's configured GitHub CLI
@@ -7612,13 +7624,15 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +  <number|url>        pull request number or URL (required for --list; optional for --reply/--resolve
 +                      when --repo or the origin remote identifies the repository)
 +  --repo              OWNER/NAME; default: the origin remote (also --owner OWNER --repo NAME)
-+  --list              list unresolved review threads and unaddressed PR comments (default with a PR)
++  --list              list unresolved review threads, resolved threads with new replies, and
++                      unaddressed PR comments (default with a PR)
 +  --all               with --list, include resolved threads and all PR comments as well
 +  --json              with --list, print structured JSON
 +  --reply THREAD_ID   post a reply to this inline review thread (requires --body-file)
 +  --body-file PATH    UTF-8 file containing the reply body (use "-" to read stdin)
 +  --resolve ID        resolve an inline review thread (PRRT_...) or minimize a PR comment
 +                      (IC_...) as resolved
++  --unresolve ID      reopen a resolved inline review thread (PRRT_...)
 +
 +Exit: 0 success, 7 GitHub query failed, 64 usage or configuration error.
 +`;
@@ -7631,6 +7645,12 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +
 +const RESOLVE_MUTATION = `mutation($threadId:ID!){
 +  resolveReviewThread(input:{threadId:$threadId}){
++    thread{id isResolved}
++  }
++}`;
++
++const UNRESOLVE_MUTATION = `mutation($threadId:ID!){
++  unresolveReviewThread(input:{threadId:$threadId}){
 +    thread{id isResolved}
 +  }
 +}`;
@@ -7670,6 +7690,7 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +        reply: { type: "string" },
 +        "body-file": { type: "string" },
 +        resolve: { type: "string" },
++        unresolve: { type: "string" },
 +        help: { type: "boolean", short: "h", default: false },
 +      },
 +    });
@@ -7684,15 +7705,23 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +
 +  const replyId = values.reply?.trim();
 +  const resolveId = values.resolve?.trim();
++  const unresolveId = values.unresolve?.trim();
 +  if (values.reply !== undefined && !replyId) throw new UsageError("--reply requires a non-empty thread ID");
 +  if (values.resolve !== undefined && !resolveId) throw new UsageError("--resolve requires a non-empty thread ID");
++  if (values.unresolve !== undefined && !unresolveId) throw new UsageError("--unresolve requires a non-empty thread ID");
++  if (unresolveId?.startsWith("IC_")) {
++    throw new UsageError("--unresolve only supports inline review threads (PRRT_...)");
++  }
++  if (resolveId && unresolveId && resolveId === unresolveId) {
++    throw new UsageError("cannot both --resolve and --unresolve the same thread");
++  }
 +  if (replyId && !values["body-file"]) throw new UsageError("--reply requires --body-file <path>");
 +  if (!replyId && values["body-file"] !== undefined) throw new UsageError("--body-file can only be used with --reply");
 +
-+  const hasMutation = Boolean(replyId || resolveId);
++  const hasMutation = Boolean(replyId || resolveId || unresolveId);
 +  const doList = values.list || (!hasMutation && target !== undefined);
 +  if (!doList && !hasMutation) {
-+    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, or --resolve <threadId>");
++    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, --resolve <threadId>, or --unresolve <threadId>");
 +  }
 +  if (doList && target === undefined) throw new UsageError("--list requires a pull request number or URL");
 +
@@ -7717,6 +7746,7 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +    replyId: replyId ?? null,
 +    bodyFile: values["body-file"] ?? null,
 +    resolveId: resolveId ?? null,
++    unresolveId: unresolveId ?? null,
 +  };
 +}
 +
@@ -7746,6 +7776,16 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +  return thread;
 +}
 +
++/** Marks one resolved review thread (`PRRT_...`) unresolved via GraphQL. */
++export async function unresolveThread(client, threadId) {
++  const result = await client.graphql(UNRESOLVE_MUTATION, { threadId });
++  const thread = result?.data?.unresolveReviewThread?.thread;
++  if (!thread || thread.isResolved !== false) {
++    throw new QueryError(`GitHub did not confirm unresolving thread ${threadId}`);
++  }
++  return thread;
++}
++
 +async function main(argv, env) {
 +  const options = await parse(argv);
 +  if (options === null) {
@@ -7768,20 +7808,26 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +      await resolveThread(client, options.resolveId);
 +      process.stdout.write(`resolved: ${options.resolveId}\n`);
 +    }
++    if (options.unresolveId) {
++      await unresolveThread(client, options.unresolveId);
++      process.stdout.write(`unresolved: ${options.unresolveId}\n`);
++    }
 +    if (options.list) {
 +      const facts = await github.pullRequest(options.pr);
 +      const textReviewerRules = settings.reviewers.filter((rule) => rule.check === undefined);
++      const threadState = actionableThreads(facts.allThreads, { prAuthor: facts.author ?? null });
 +      const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
 +        prAuthor: facts.author ?? null,
 +        textReviewerRules,
 +      });
-+      const threads = options.all ? facts.allThreads : facts.threads;
++      const threads = options.all ? facts.allThreads : threadState.all;
 +      const comments = options.all ? (facts.issueComments ?? []) : unaddressedComments;
 +      if (options.json) {
 +        process.stdout.write(`${JSON.stringify({
 +          pr: facts.url,
 +          head: facts.head,
-+          unresolvedCount: facts.threads.length,
++          unresolvedCount: threadState.unresolved.length,
++          resurfacedCount: threadState.resurfaced.length,
 +          unaddressedCommentCount: unaddressedComments.length,
 +          threads,
 +          comments,
@@ -7793,6 +7839,8 @@ index 0000000000000000000000000000000000000000..dcbb461431337331dfba48efb1871469
 +          threads,
 +          comments,
 +          includeResolved: options.all,
++          unresolvedCount: threadState.unresolved.length,
++          resurfacedCount: threadState.resurfaced.length,
 +        }));
 +      }
 +    }
@@ -7998,10 +8046,10 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c152194bd
+index 0000000000000000000000000000000000000000..241639867b278e0ab7526199309091e20aa4fbb1
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,364 @@
+@@ -0,0 +1,500 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
@@ -8016,6 +8064,10 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 +  "medium",
 +  "low",
 +  "nit",
++  "p0",
++  "p1",
++  "p2",
++  "p3",
 +]);
 +
 +const TAG_ALT = SEVERITY_TAGS.join("|");
@@ -8024,12 +8076,16 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 +  "i",
 +);
 +const BRACKET_TAG = new RegExp(`\\[(${TAG_ALT})\\]`, "i");
++const IMG_ALT_TAG = new RegExp(
++  `<img\\b[^>]{0,1000}\\balt\\s*=\\s*(?:"\\s*(${TAG_ALT})(?![a-z0-9-])(?:\\s*[:—–\\-|·•][^"]{0,120})?\\s*"|'\\s*(${TAG_ALT})(?![a-z0-9-])(?:\\s*[:—–\\-|·•][^']{0,120})?\\s*')`,
++  "i",
++);
 +const LINE_START_MARKUP = new RegExp(
-+  `^[^\\w\\n]{0,24}(?:\\*\\*|__|\`)\\s*(${TAG_ALT})(?![a-z0-9-])\\s*(?:[:—–\\-|]|(?:\\*\\*|__|\`)(?:\\s*[:—–\\-|]|\\s|$))`,
++  `^[^\\w\\n]{0,24}(?:\\*\\*|__|\`)\\s*(${TAG_ALT})(?![a-z0-9-])\\s*(?:[:—–\\-|·•]|(?:\\*\\*|__|\`)(?:\\s*[:—–\\-|·•]|\\s|$))`,
 +  "im",
 +);
 +const LINE_START_COLON = new RegExp(
-+  `^[^\\w\\n]{0,24}(${TAG_ALT})\\s*:`,
++  `^[^\\w\\n]{0,24}(${TAG_ALT})\\s*(?::|[·•]\\s*(?:${TAG_ALT})(?![a-z0-9-]))`,
 +  "im",
 +);
 +const COMPOUND_TAG = /(?:`|\*\*|__)(fix-if-cheap|next-action)(?:`|\*\*|__)/i;
@@ -8055,11 +8111,17 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 + */
 +export function parseSeverity(body) {
 +  if (!body) return null;
-+  const plain = body
-+    .replace(/<!--[\s\S]*?-->/g, "")
++  const withoutComments = body.replace(/<!--[\s\S]*?-->/g, "");
++  const plain = withoutComments
 +    .replace(/<\/?(?:b|strong)\b[^>]*>/gi, "**")
 +    .replace(/<[^>]*>/g, "");
-+  for (const pattern of [EXPLICIT_LABEL, BRACKET_TAG, LINE_START_MARKUP, LINE_START_COLON, COMPOUND_TAG]) {
++  for (const pattern of [EXPLICIT_LABEL, BRACKET_TAG]) {
++    const match = pattern.exec(plain);
++    if (match?.[1]) return match[1].toLowerCase();
++  }
++  const badge = IMG_ALT_TAG.exec(withoutComments);
++  if (badge?.[1] || badge?.[2]) return (badge[1] || badge[2]).toLowerCase();
++  for (const pattern of [LINE_START_MARKUP, LINE_START_COLON, COMPOUND_TAG]) {
 +    const match = pattern.exec(plain);
 +    if (match?.[1]) return match[1].toLowerCase();
 +  }
@@ -8073,35 +8135,122 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 +  return left.startsWith(right) || right.startsWith(left);
 +}
 +
++function isBotAuthor(author, authorType) {
++  return authorType === "Bot" || Boolean(author && /\[bot\]$/i.test(author));
++}
++
++function sameCommentNode(a, b, { fallbackContent = false } = {}) {
++  if (a === b) return true;
++  if (a.id && b.id) return a.id === b.id;
++  const aDb = a.fullDatabaseId ?? a.databaseId;
++  const bDb = b.fullDatabaseId ?? b.databaseId;
++  if (aDb && bDb) return String(aDb) === String(bDb);
++  if (!fallbackContent) return false;
++  return (a.createdAt ?? null) === (b.createdAt ?? null) &&
++    (a.author?.login ?? null) === (b.author?.login ?? null) &&
++    (a.body ?? "") === (b.body ?? "");
++}
++
++function mergeThreadComments(node) {
++  const rootNodes = node.rootComment?.nodes ?? [];
++  const tailNodes = node.comments?.nodes ?? [];
++  const merged = [];
++  for (const raw of rootNodes) {
++    if (!raw) continue;
++    if (merged.some((existing) => sameCommentNode(existing, raw))) continue;
++    merged.push(raw);
++  }
++  for (let i = 0; i < tailNodes.length; i++) {
++    const raw = tailNodes[i];
++    if (!raw) continue;
++    if (merged.some((existing) => sameCommentNode(existing, raw, { fallbackContent: i === 0 }))) continue;
++    merged.push(raw);
++  }
++  return merged;
++}
++
++/**
++ * Returns true when a resolved review thread has a newer reply (after the root
++ * comment) from someone other than the PR author that is either a human
++ * reviewer reply or a bot comment carrying a structured severity tag.
++ * A later PR-author reply makes the newest comment the PR author's, clearing it.
++ */
++export function hasResurfacedReply(thread, prAuthor = null) {
++  if (!thread?.isResolved) return false;
++  const comments = thread.comments ?? [];
++  if (comments.length <= 1) return false;
++  const latest = comments.at(-1);
++  if (!latest || !latest.author || !latest.body.trim()) return false;
++  if (prAuthor && login(latest.author) === login(prAuthor)) return false;
++  if (latest.isBot) return latest.severity !== null;
++  return Boolean(prAuthor);
++}
++
++/**
++ * Partitions all review threads into unresolved threads and re-surfaced
++ * resolved threads (resolved threads with a newer substantive/severity reply).
++ */
++export function actionableThreads(allThreads, { prAuthor = null } = {}) {
++  const unresolved = [];
++  const resurfaced = [];
++  for (const thread of allThreads ?? []) {
++    if (!thread.isResolved) {
++      unresolved.push(thread);
++    } else if (hasResurfacedReply(thread, prAuthor)) {
++      resurfaced.push(thread.hasNewReply ? thread : { ...thread, hasNewReply: true });
++    }
++  }
++  return { unresolved, resurfaced, all: [...unresolved, ...resurfaced] };
++}
++
 +/**
 + * Normalizes a GraphQL `PullRequestReviewThread` node into a flat record with
 + * commit SHA, head comparison, parsed severity, and comment metadata.
 + */
-+export function normalizeThread(node, headSha = null) {
-+  const rawComments = node.comments?.nodes ?? [];
-+  const comments = rawComments.map((comment) => ({
-+    id: comment.id ?? null,
-+    databaseId: comment.fullDatabaseId ?? comment.databaseId ?? null,
-+    commit: comment.commit?.oid ?? null,
-+    originalCommit: comment.originalCommit?.oid ?? null,
-+    author: comment.author?.login ?? null,
-+    body: comment.body ?? "",
-+    url: comment.url ?? null,
-+    createdAt: comment.createdAt ?? null,
-+    isOutdated: Boolean(comment.outdated ?? comment.isOutdated ?? false),
-+  }));
++export function normalizeThread(node, headSha = null, { prAuthor = null } = {}) {
++  const rawComments = mergeThreadComments(node);
++  const comments = rawComments.map((comment) => {
++    const author = comment.author?.login ?? null;
++    const authorType = comment.author?.__typename ?? null;
++    const body = comment.body ?? "";
++    const commit = comment.commit?.oid ?? null;
++    const originalCommit = comment.originalCommit?.oid ?? null;
++    const commitOid = originalCommit ?? commit ?? null;
++    return {
++      id: comment.id ?? null,
++      databaseId: comment.fullDatabaseId ?? comment.databaseId ?? null,
++      commit,
++      originalCommit,
++      commitOid,
++      shortCommit: commitOid ? commitOid.slice(0, 7) : null,
++      onHead: sameCommit(commitOid, headSha),
++      author,
++      authorType,
++      isBot: isBotAuthor(author, authorType),
++      body,
++      url: comment.url ?? null,
++      createdAt: comment.createdAt ?? null,
++      isOutdated: Boolean(comment.outdated ?? comment.isOutdated ?? false),
++      severity: parseSeverity(stripBlockquotes(body)),
++    };
++  });
 +  const first = comments[0];
++  const latest = comments.at(-1) ?? null;
 +  // Prefer originalCommit so an un-rebased comment still shows the commit it
 +  // was authored on rather than a newer commit the diff hunk slid onto.
 +  const commitOid = first?.originalCommit ?? first?.commit ?? null;
 +  let severity = null;
 +  for (const comment of comments) {
-+    severity = parseSeverity(comment.body);
-+    if (severity) break;
++    if (comment.severity) {
++      severity = comment.severity;
++      break;
++    }
 +  }
-+  return {
++  const isResolved = Boolean(node.isResolved);
++  const commentCount = Math.max(node.comments?.totalCount ?? 0, comments.length);
++  const normalized = {
 +    id: node.id ?? null,
-+    isResolved: Boolean(node.isResolved),
++    isResolved,
 +    isOutdated: Boolean(node.isOutdated ?? first?.isOutdated ?? false),
 +    path: node.path ?? null,
 +    line: node.line ?? node.originalLine ?? null,
@@ -8117,16 +8266,30 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 +    shortCommit: commitOid ? commitOid.slice(0, 7) : null,
 +    onHead: sameCommit(commitOid, headSha),
 +    severity,
-+    commentCount: comments.length,
++    commentCount,
++    latestComment: latest,
++    hasNewReply: false,
 +    comments,
 +  };
++  normalized.hasNewReply = hasResurfacedReply(normalized, prAuthor);
++  return normalized;
 +}
 +
 +/**
-+ * Formats one unresolved thread line for `watch-pr`'s compact 20-line verdict block.
++ * Formats one review thread line for `watch-pr`'s compact 20-line verdict block.
 + * Keeps metadata concise: `[<sha> head|older, <severity>]` when present.
++ * Re-surfaced resolved threads display the latest reply's context instead of the stale root.
 + */
 +export function formatVerdictThread(thread, maxExcerpt = 200) {
++  if (thread.hasNewReply && thread.latestComment) {
++    const latest = thread.latestComment;
++    const tags = [];
++    if (latest.shortCommit) tags.push(`${latest.shortCommit} ${latest.onHead ? "head" : "older"}`);
++    if (latest.createdAt) tags.push(latest.createdAt);
++    if (latest.severity) tags.push(latest.severity);
++    const meta = tags.length ? ` [${tags.join(", ")}]` : "";
++    return `  ${thread.path ?? "(no file)"}:${thread.line ?? "?"} @${latest.author ?? "unknown"} [resolved, new reply]${meta}: ${cleanSnippet(latest.body, maxExcerpt)}`;
++  }
 +  const tags = [];
 +  if (thread.shortCommit) tags.push(`${thread.shortCommit} ${thread.onHead ? "head" : "older"}`);
 +  if (thread.severity) tags.push(thread.severity);
@@ -8156,7 +8319,7 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 +  const isReviewFlag = Boolean(attribution || flagMatch);
 +  const author = node.author?.login ?? null;
 +  const authorType = node.author?.__typename ?? null;
-+  const isBot = authorType === "Bot" || Boolean(author && /\[bot\]$/i.test(author));
++  const isBot = isBotAuthor(author, authorType);
 +  return {
 +    id: node.id ?? null,
 +    databaseId: node.fullDatabaseId ?? node.databaseId ?? null,
@@ -8323,33 +8486,54 @@ index 0000000000000000000000000000000000000000..cc0fa7a15ffcc4f24d4d9d850558e70c
 +}
 +
 +/** Formats the detailed thread (and unaddressed PR comment) list for `pr-threads.mjs --list`. */
-+export function formatThreadList({ url, head, threads, comments = [], includeResolved = false }) {
++export function formatThreadList({
++  url,
++  head,
++  threads,
++  comments = [],
++  includeResolved = false,
++  unresolvedCount,
++  resurfacedCount,
++}) {
++  const resolvedWithReplies = resurfacedCount ?? threads.filter((thread) => thread.hasNewReply).length;
++  const openCount = unresolvedCount ?? threads.filter((thread) => !thread.isResolved).length;
++  const threadHeader = includeResolved
++    ? `threads: ${threads.length}`
++    : resolvedWithReplies > 0
++      ? `unresolved threads: ${openCount} (+${resolvedWithReplies} resolved with new ${resolvedWithReplies === 1 ? "reply" : "replies"})`
++      : `unresolved threads: ${threads.length}`;
 +  const lines = [
 +    `pr: ${url}`,
 +    `head: ${head}`,
-+    `${includeResolved ? "threads" : "unresolved threads"}: ${threads.length}`,
++    threadHeader,
 +  ];
 +  if (comments.length) {
 +    lines.push(`${includeResolved ? "PR comments" : "unaddressed PR comments"}: ${comments.length}`);
 +  }
 +  for (const thread of threads) {
 +    const location = `${thread.path ?? "(no file)"}:${thread.line ?? "?"}`;
-+    const commitLabel = thread.shortCommit
-+      ? `${thread.shortCommit} (${thread.onHead ? "head" : "older"}${thread.isOutdated ? ", outdated" : ""})`
-+      : thread.isOutdated ? "(outdated)" : "(no commit)";
++    const isResurfaced = Boolean(thread.hasNewReply && thread.latestComment);
++    const display = isResurfaced ? thread.latestComment : thread;
++    const isOutdated = isResurfaced ? Boolean(display.isOutdated) : Boolean(thread.isOutdated);
++    const commitLabel = display.shortCommit
++      ? `${display.shortCommit} (${display.onHead ? "head" : "older"}${isOutdated ? ", outdated" : ""})`
++      : isOutdated ? "(outdated)" : "(no commit)";
 +    const parts = [
 +      thread.id ?? "(no id)",
 +      location,
-+      `@${thread.author ?? "unknown"}`,
++      `@${display.author ?? "unknown"}`,
 +      commitLabel,
 +    ];
-+    if (thread.severity) parts.push(`[${thread.severity}]`);
-+    if (includeResolved && thread.isResolved) parts.push("[resolved]");
++    if (isResurfaced && display.createdAt) parts.push(display.createdAt);
++    if (display.severity) parts.push(`[${display.severity}]`);
++    if (isResurfaced) parts.push("[resolved, new reply]");
++    else if (includeResolved && thread.isResolved) parts.push("[resolved]");
 +    if (thread.commentCount > 1) parts.push(`(${thread.commentCount} comments)`);
 +    lines.push("");
 +    lines.push(parts.join("  "));
-+    if (thread.url) lines.push(`  url: ${thread.url}`);
-+    lines.push(`  snippet: ${cleanSnippet(thread.body, 240)}`);
++    const displayUrl = display.url ?? thread.url;
++    if (displayUrl) lines.push(`  url: ${displayUrl}`);
++    lines.push(`  snippet: ${cleanSnippet(display.body, 240)}`);
 +  }
 +  for (const comment of comments) {
 +    const parts = [
@@ -8629,16 +8813,16 @@ index 0000000000000000000000000000000000000000..7ee236a8170f556b38b8f46425174fa4
 +}
 diff --git a/skills/watch-pr/scripts/verdict.mjs b/skills/watch-pr/scripts/verdict.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbdcc0f2cee
+index 0000000000000000000000000000000000000000..0fc5a130466f2c44099f5bb0cd72013bbce902c1
 --- /dev/null
 +++ b/skills/watch-pr/scripts/verdict.mjs
-@@ -0,0 +1,426 @@
+@@ -0,0 +1,452 @@
 +// Turns one observation of a pull request into the merge-readiness verdict:
 +// what the watcher decides, and the short block it prints last.
 +
 +import { basename } from "node:path";
 +import { login } from "./gh-client.mjs";
-+import { formatVerdictComment, formatVerdictThread, unaddressedIssueComments } from "./threads.mjs";
++import { actionableThreads, formatVerdictComment, formatVerdictThread, unaddressedIssueComments } from "./threads.mjs";
 +import { classifyWorkflow } from "./triggers.mjs";
 +
 +/**
@@ -8758,7 +8942,7 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 + * `passed` is a sign-off on this commit. `pending` can still change without a
 + * new push. `rejected` cannot. `unknown` means the rule could not be evaluated.
 + *
-+ * @returns {{ name: string, state: "passed" | "pending" | "rejected" | "unknown", text: string }[]}
++ * @returns {{ name: string, state: "passed" | "pending" | "rejected" | "unknown", text: string, link?: string | null }[]}
 + */
 +export function reviewerStates(rules, { head, checks, texts }) {
 +  return rules.map((rule) => {
@@ -8767,10 +8951,10 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 +      const on = `on ${short(head)}`;
 +      if (matching.length === 0) return { name: rule.name, state: "pending", text: `not started ${on}` };
 +      const failed = matching.find((check) => check.state === "failed");
-+      if (failed) return { name: rule.name, state: "rejected", text: `${failed.detail} ${on}` };
++      if (failed) return { name: rule.name, state: "rejected", text: `${failed.detail} ${on}`, link: failed.link || null };
 +      if (matching.some((check) => check.state === "pending")) return { name: rule.name, state: "pending", text: `running ${on}` };
 +      const skipped = matching.find((check) => check.state === "skipped");
-+      if (skipped) return { name: rule.name, state: "rejected", text: `${skipped.detail} ${on}, not a sign-off` };
++      if (skipped) return { name: rule.name, state: "rejected", text: `${skipped.detail} ${on}, not a sign-off`, link: skipped.link || null };
 +      return { name: rule.name, state: "passed", text: `passed ${on}` };
 +    }
 +    for (const text of texts) {
@@ -8784,7 +8968,7 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 +      }
 +      return verdict === rule.pass
 +        ? { name: rule.name, state: "passed", text: `${verdict} on ${short(head)}` }
-+        : { name: rule.name, state: "rejected", text: `${verdict} on ${short(head)} (needs ${rule.pass})` };
++        : { name: rule.name, state: "rejected", text: `${verdict} on ${short(head)} (needs ${rule.pass})`, link: text.link || null };
 +    }
 +    return { name: rule.name, state: "pending", text: "no review found" };
 +  });
@@ -8824,18 +9008,34 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 +  if (facts.mergeable === "CONFLICTING" || facts.mergeState === "DIRTY") {
 +    return blocked(EXIT.conflicts, `merge conflicts with ${facts.baseRef}`);
 +  }
++  const threadState = actionableThreads(
++    facts.allThreads ?? [...(facts.threads ?? []), ...(facts.resurfacedThreads ?? [])],
++    { prAuthor: facts.author ?? null },
++  );
 +  const unaddressedComments = unaddressedIssueComments(facts.issueComments ?? [], {
 +    prAuthor: facts.author ?? null,
 +    textReviewerRules,
 +  });
-+  if (facts.threads.length && unaddressedComments.length) {
-+    return blocked(
-+      EXIT.threads,
-+      `${plural(facts.threads.length, "unresolved review thread")} and ${plural(unaddressedComments.length, "unaddressed PR comment")}`,
-+    );
++  if (threadState.all.length || unaddressedComments.length) {
++    const reasons = [];
++    if (threadState.unresolved.length) {
++      reasons.push(plural(threadState.unresolved.length, "unresolved review thread"));
++    }
++    if (threadState.resurfaced.length) {
++      reasons.push(
++        threadState.resurfaced.length === 1
++          ? "1 resolved review thread with a new reply"
++          : `${threadState.resurfaced.length} resolved review threads with new replies`,
++      );
++    }
++    if (unaddressedComments.length) {
++      reasons.push(plural(unaddressedComments.length, "unaddressed PR comment"));
++    }
++    const reason = reasons.length === 1
++      ? reasons[0]
++      : `${reasons.slice(0, -1).join(", ")} and ${reasons.at(-1)}`;
++    return blocked(EXIT.threads, reason);
 +  }
-+  if (facts.threads.length) return blocked(EXIT.threads, plural(facts.threads.length, "unresolved review thread"));
-+  if (unaddressedComments.length) return blocked(EXIT.threads, plural(unaddressedComments.length, "unaddressed PR comment"));
 +
 +  const enforceRequiredOnly = requiredChecksOnly && expected.required.length > 0;
 +  const buckets = partitionChecks(checks, {
@@ -9024,10 +9224,20 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 +    prAuthor: facts.author ?? null,
 +    textReviewerRules,
 +  });
++  const threadState = actionableThreads(
++    facts.allThreads ?? [...(facts.threads ?? []), ...(facts.resurfacedThreads ?? [])],
++    { prAuthor: facts.author ?? null },
++  );
++  const threadHeading = threadState.resurfaced.length
++    ? `unresolved review threads: ${threadState.unresolved.length} (+${threadState.resurfaced.length} resolved with new ${threadState.resurfaced.length === 1 ? "reply" : "replies"})`
++    : `unresolved review threads: ${threadState.unresolved.length}`;
 +  // Each part is a heading, then items that are shown while the block fits.
 +  const parts = [
 +    {
-+      items: reviewers.map((reviewer) => clip(`  ${reviewer.name}: ${reviewer.text}`, 200)),
++      items: reviewers.map((reviewer) => {
++        const base = clip(`  ${reviewer.name}: ${reviewer.text}`, 200);
++        return reviewer.state === "rejected" && reviewer.link ? `${base} ${reviewer.link}` : base;
++      }),
 +      before: [
 +        ...(pendingNames.length ? [clip(`  pending: ${some(pendingNames)}`, 300)] : []),
 +        ...(ignoredLabels.length ? [clip(`  optional (ignored): ${some(ignoredLabels)}`, 300)] : []),
@@ -9043,8 +9253,8 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 +      more: "failed checks",
 +    },
 +    {
-+      items: facts.threads.map((thread) => formatVerdictThread(thread, THREAD_EXCERPT)),
-+      before: [`unresolved review threads: ${facts.threads.length}`],
++      items: threadState.all.map((thread) => formatVerdictThread(thread, THREAD_EXCERPT)),
++      before: [threadHeading],
 +      more: "threads",
 +    },
 +    ...(unaddressedComments.length ? [{
@@ -9061,7 +9271,7 @@ index 0000000000000000000000000000000000000000..cf022f850215486678966e4fc0abacbd
 +}
 diff --git a/skills/watch-pr/scripts/watch-pr.mjs b/skills/watch-pr/scripts/watch-pr.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..6e6cfbe89445411c37e0e71169a3822b95e56e5b
+index 0000000000000000000000000000000000000000..181d65da745e1a313832672cbc0dc9d0672cc02f
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-pr.mjs
 @@ -0,0 +1,245 @@
@@ -9104,7 +9314,7 @@ index 0000000000000000000000000000000000000000..6e6cfbe89445411c37e0e71169a3822b
 +                          (requires branch protection or rulesets to declare required checks)
 +  --once                  print the verdict for the current state and exit
 +
-+Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved review threads or unaddressed PR comments,
++Exit: 0 ready or merged, 2 merge conflicts, 3 unresolved or re-surfaced review threads or unaddressed PR comments,
 +4 failed checks, 5 still waiting (timeout, --once, or a head that has not reached --sha), 6 draft,
 +closed, changes requested, approval required or behind base, 7 GitHub query failed, 8 a required
 +reviewer did not sign off, 9 unknown, 64 usage.

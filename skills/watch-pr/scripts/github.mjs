@@ -22,9 +22,15 @@ const PULL_REQUEST = `query($owner:String!,$repo:String!,$number:Int!,$endCursor
       pageInfo{hasNextPage endCursor}
       nodes{
         id isResolved isOutdated path line originalLine
-        comments(first:20){
+        rootComment:comments(first:1){
           nodes{
-            id fullDatabaseId commit{oid} originalCommit{oid} author{login} body url createdAt outdated
+            id fullDatabaseId commit{oid} originalCommit{oid} author{__typename login} body url createdAt outdated
+          }
+        }
+        comments(last:20){
+          totalCount
+          nodes{
+            id fullDatabaseId commit{oid} originalCommit{oid} author{__typename login} body url createdAt outdated
           }
         }
       }
@@ -82,9 +88,10 @@ export function createGitHub(executableOrClient, options) {
       const nodes = pages.map((page) => pullRequestNode(page, pr));
       const last = nodes.at(-1);
       const head = last.headRefOid;
+      const prAuthor = last.author?.login ?? null;
       const allThreads = nodes
         .flatMap((node) => node.reviewThreads.nodes)
-        .map((thread) => normalizeThread(thread, head));
+        .map((thread) => normalizeThread(thread, head, { prAuthor }));
       let rawIssueComments = last.comments?.nodes ?? [];
       if (last.comments?.pageInfo?.hasPreviousPage) {
         const commentPages = await client.graphql(ISSUE_COMMENTS, pr, { paginate: true });
@@ -100,10 +107,11 @@ export function createGitHub(executableOrClient, options) {
         mergeable: last.mergeable,
         mergeState: last.mergeStateStatus,
         reviewDecision: last.reviewDecision || null,
-        author: last.author?.login ?? null,
+        author: prAuthor,
         head,
         baseRef: last.baseRefName,
         threads: allThreads.filter((thread) => !thread.isResolved),
+        resurfacedThreads: allThreads.filter((thread) => thread.hasNewReply),
         allThreads,
         issueComments,
       };
@@ -234,9 +242,9 @@ export function createGitHub(executableOrClient, options) {
       ]);
       return [
         ...commentPages.flat().map((comment) => (
-          { author: login(comment.user?.login), body: comment.body ?? "", at: comment.updated_at, commit: null })),
+          { author: login(comment.user?.login), body: comment.body ?? "", at: comment.updated_at, commit: null, link: comment.html_url || null })),
         ...reviewPages.flat().map((review) => (
-          { author: login(review.user?.login), body: review.body ?? "", at: review.submitted_at, commit: review.commit_id })),
+          { author: login(review.user?.login), body: review.body ?? "", at: review.submitted_at, commit: review.commit_id, link: review.html_url || null })),
       ].sort((a, b) => (a.at < b.at ? 1 : -1));
     },
   };

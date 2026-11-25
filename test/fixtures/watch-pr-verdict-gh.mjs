@@ -85,6 +85,15 @@ if (argv[1] === "graphql") {
         },
       },
     });
+  } else if (query.includes("unresolveReviewThread")) {
+    const threadId = argv.find((arg) => arg.startsWith("threadId="))?.slice("threadId=".length) ?? "";
+    print({
+      data: {
+        unresolveReviewThread: {
+          thread: { id: threadId, isResolved: state.unresolveConfirmed === false ? true : false },
+        },
+      },
+    });
   } else if (query.includes("resolveReviewThread")) {
     const threadId = argv.find((arg) => arg.startsWith("threadId="))?.slice("threadId=".length) ?? "";
     print({
