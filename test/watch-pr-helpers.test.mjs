@@ -23,8 +23,10 @@ import {
   actionableThreads,
   formatVerdictThread,
   hasResurfacedReply,
+  normalizeIssueComment,
   normalizeThread,
   parseSeverity,
+  unaddressedIssueComments,
 } from "../skills/watch-pr/scripts/threads.mjs";
 import { partitionChecks, reviewerStates } from "../skills/watch-pr/scripts/verdict.mjs";
 
@@ -412,7 +414,7 @@ test("normalizeThread merges rootComment + comments(last:20) without dropping ro
     comments: {
       totalCount: 2,
       nodes: [
-        root,
+        { ...root },
         {
           id: "PRRC_2",
           fullDatabaseId: "1002",
@@ -431,6 +433,72 @@ test("normalizeThread merges rootComment + comments(last:20) without dropping ro
   assert.equal(shortThread.commentCount, 2);
   assert.equal(shortThread.hasNewReply, false);
   assert.deepEqual(actionableThreads([longThread, shortThread], { prAuthor: "fitchmultz" }).resurfaced.map((t) => t.id), ["PRRT_long"]);
+});
+
+test("unaddressedIssueComments skips automated Linear linkback and TARS summary bot comments", () => {
+  const head = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const linearLinkback = normalizeIssueComment({
+    id: "IC_linear_1",
+    fullDatabaseId: "8001",
+    author: { __typename: "Bot", login: "linear-code" },
+    body: "<!-- linear-linkback -->\n<p>Linked issue description mentioning `fix-if-cheap` follow-up.</p>",
+    url: "https://github.com/workos/tars/pull/2560#issuecomment-8001",
+    createdAt: "2026-11-21T01:00:00Z",
+    isMinimized: false,
+  }, head);
+  const tarsReviewSummary = normalizeIssueComment({
+    id: "IC_tars_summary_1",
+    fullDatabaseId: "8002",
+    author: { __typename: "Bot", login: "workos-tars" },
+    body: "<!-- tars-review:summary -->\n### Review summary\n- **blocks · medium** Check session token rotation",
+    url: "https://github.com/workos/tars/pull/2560#issuecomment-8002",
+    createdAt: "2026-11-21T01:01:00Z",
+    isMinimized: false,
+  }, head);
+  const piTarsSummary = normalizeIssueComment({
+    id: "IC_pi_tars_summary_1",
+    fullDatabaseId: "8003",
+    author: { __typename: "Bot", login: "workos-tars" },
+    body: "<!-- pi-tars:review -->\n**blocks · medium**\nSummary updated for latest push.",
+    url: "https://github.com/workos/tars/pull/2560#issuecomment-8003",
+    createdAt: "2026-11-21T01:02:00Z",
+    isMinimized: false,
+  }, head);
+  // Regular severity-tagged bot comments without those markers still block.
+  const realBotFinding = normalizeIssueComment({
+    id: "IC_real_bot_1",
+    fullDatabaseId: "8004",
+    author: { __typename: "Bot", login: "security-bot" },
+    body: "**blocks · medium**\nMissing CSRF check on webhook endpoint.",
+    url: "https://github.com/workos/tars/pull/2560#issuecomment-8004",
+    createdAt: "2026-11-21T01:03:00Z",
+    isMinimized: false,
+  }, head);
+  // Human comments mentioning a marker are still treated as human review comments.
+  const humanMentioningMarker = normalizeIssueComment({
+    id: "IC_human_marker_1",
+    fullDatabaseId: "8005",
+    author: { __typename: "User", login: "teammate" },
+    body: "Can we also filter `<!-- linear-linkback -->` comments?",
+    url: "https://github.com/workos/tars/pull/2560#issuecomment-8005",
+    createdAt: "2026-11-21T01:04:00Z",
+    isMinimized: false,
+  }, head);
+
+  assert.equal(linearLinkback.severity, "fix-if-cheap");
+  assert.equal(tarsReviewSummary.severity, "blocks");
+  assert.equal(piTarsSummary.severity, "blocks");
+  assert.deepEqual(
+    unaddressedIssueComments([linearLinkback, tarsReviewSummary, piTarsSummary], { prAuthor: "fitchmultz" }),
+    [],
+  );
+  assert.deepEqual(
+    unaddressedIssueComments(
+      [linearLinkback, tarsReviewSummary, piTarsSummary, realBotFinding, humanMentioningMarker],
+      { prAuthor: "fitchmultz" },
+    ).map((comment) => comment.id),
+    ["IC_real_bot_1", "IC_human_marker_1"],
+  );
 });
 
 test("reviewerStates preserves check run links on failed and skipped reviewer checks", () => {

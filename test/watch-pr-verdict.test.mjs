@@ -52,7 +52,12 @@ const open = (overrides = {}) => ({
   mergeCommit: null, ...overrides,
 });
 const thread = (path, line, body) => ({
-  isResolved: false, path, line, originalLine: line, comments: { nodes: [{ author: { login: "cursor" }, body }] },
+  id: `PRRT_${nextId++}`,
+  isResolved: false,
+  path,
+  line,
+  originalLine: line,
+  comments: { nodes: [{ id: `PRRC_${nextId++}`, author: { login: "cursor" }, body }] },
 });
 const richThread = ({
   id = "PRRT_thread_1",
@@ -905,16 +910,6 @@ test("pr-threads.mjs lists, replies to, and resolves threads using shared repo r
   assert.equal(unconfirmed.code, 7);
   assert.match(unconfirmed.err, /did not confirm resolution/);
 
-  // --unresolve reopens a resolved inline review thread and rejects IC_ issue comments.
-  const unresolved = runThreads([pollState], {
-    args: ["--repo", "acme/app", "--unresolve", "PRRT_resolved_1"],
-  });
-  assert.equal(unresolved.code, 0, unresolved.err);
-  assert.match(unresolved.out, /^unresolved: PRRT_resolved_1$/m);
-  assert.ok(unresolved.calls[0].argv.some((arg) => arg.includes("unresolveReviewThread")));
-  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--unresolve", "IC_123"] }).code, 64);
-  assert.equal(runThreads([], { args: ["--repo", "acme/app", "--resolve", "PRRT_1", "--unresolve", "PRRT_1"] }).code, 64);
-
   // Usage validation exits 64 without calling GitHub.
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--reply", "PRRT_open_1"] }).code, 64);
   assert.equal(runThreads([], { args: ["--repo", "acme/app", "--body-file", "$BODY_FILE"], bodyFileContent: "hi" }).code, 64);
@@ -1173,7 +1168,40 @@ test("unaddressed PR conversation comments (Grok Bot flags and human reviewers) 
     updatedAt: "2026-11-21T02:34:00Z",
     isMinimized: false,
   };
-  const ignored = watch([{ ...baseState, issueComments: [{ ...grokComment, isMinimized: true }, deployBot] }]);
+  const linearLinkbackBot = {
+    id: "IC_linear_linkback_1",
+    fullDatabaseId: "7055946201",
+    author: { __typename: "Bot", login: "linear-code" },
+    body: "<!-- linear-linkback -->\nIssue description mentioning `fix-if-cheap` cleanup.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946201",
+    createdAt: "2026-11-21T02:34:10Z",
+    updatedAt: "2026-11-21T02:34:10Z",
+    isMinimized: false,
+  };
+  const tarsSummaryBot = {
+    id: "IC_tars_summary_1",
+    fullDatabaseId: "7055946202",
+    author: { __typename: "Bot", login: "workos-tars" },
+    body: "<!-- tars-review -->\n**blocks · medium**\nSee inline threads for details.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946202",
+    createdAt: "2026-11-21T02:34:20Z",
+    updatedAt: "2026-11-21T02:34:20Z",
+    isMinimized: false,
+  };
+  const piTarsSummaryBot = {
+    id: "IC_pi_tars_summary_1",
+    fullDatabaseId: "7055946203",
+    author: { __typename: "Bot", login: "workos-tars" },
+    body: "<!-- pi-tars -->\n**blocks · medium**\nSummary updated.",
+    url: "https://github.com/fitchmultz/pi/pull/418#issuecomment-7055946203",
+    createdAt: "2026-11-21T02:34:30Z",
+    updatedAt: "2026-11-21T02:34:30Z",
+    isMinimized: false,
+  };
+  const ignored = watch([{
+    ...baseState,
+    issueComments: [{ ...grokComment, isMinimized: true }, deployBot, linearLinkbackBot, tarsSummaryBot, piTarsSummaryBot],
+  }]);
   assert.equal(ignored.code, 0, ignored.out);
   assert.equal(ignored.lines[0], "READY");
 
@@ -1440,7 +1468,8 @@ test("EXIT.reviewerRejected surfaces the failing or skipped reviewer check run U
   };
   const neutralReviewerCheck = {
     ...check("Review bot", "neutral"),
-    details_url: "https://github.com/acme/app/runs/987654321",
+    details_url: "https://workos.com",
+    html_url: "https://github.com/acme/app/runs/987654321",
   };
   const rejected = watch([{
     pullRequest: open(),

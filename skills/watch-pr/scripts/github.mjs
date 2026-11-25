@@ -170,7 +170,7 @@ export function createGitHub(executableOrClient, options) {
             workflow: run?.name ?? null,
             state: stateOf(check),
             detail: check.status !== "completed" ? check.status : check.conclusion,
-            link: check.details_url || check.html_url || "",
+            link: check.html_url || check.details_url || "",
             suite: check.check_suite?.id,
           };
         });
