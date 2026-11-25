@@ -27,7 +27,7 @@ jobs:
           package-manager-cache: false
       - name: Install worktree audit prerequisite
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
-      - run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.6.0
+      - run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent@1.6.1
       - run: npm run check:compat
       - name: Check standalone statechart runtime selection
         run: node --test --test-name-pattern=launcher skills/statechart/scripts/test/cli.test.ts
