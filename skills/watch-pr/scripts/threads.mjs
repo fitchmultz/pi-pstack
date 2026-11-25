@@ -87,31 +87,15 @@ function isBotAuthor(author, authorType) {
   return authorType === "Bot" || Boolean(author && /\[bot\]$/i.test(author));
 }
 
-function sameCommentNode(a, b, { fallbackContent = false } = {}) {
-  if (a === b) return true;
-  if (a.id && b.id) return a.id === b.id;
-  const aDb = a.fullDatabaseId ?? a.databaseId;
-  const bDb = b.fullDatabaseId ?? b.databaseId;
-  if (aDb && bDb) return String(aDb) === String(bDb);
-  if (!fallbackContent) return false;
-  return (a.createdAt ?? null) === (b.createdAt ?? null) &&
-    (a.author?.login ?? null) === (b.author?.login ?? null) &&
-    (a.body ?? "") === (b.body ?? "");
-}
-
 function mergeThreadComments(node) {
-  const rootNodes = node.rootComment?.nodes ?? [];
-  const tailNodes = node.comments?.nodes ?? [];
+  const seen = new Set();
   const merged = [];
-  for (const raw of rootNodes) {
+  for (const raw of [...(node.rootComment?.nodes ?? []), ...(node.comments?.nodes ?? [])]) {
     if (!raw) continue;
-    if (merged.some((existing) => sameCommentNode(existing, raw))) continue;
-    merged.push(raw);
-  }
-  for (let i = 0; i < tailNodes.length; i++) {
-    const raw = tailNodes[i];
-    if (!raw) continue;
-    if (merged.some((existing) => sameCommentNode(existing, raw, { fallbackContent: i === 0 }))) continue;
+    if (raw.id) {
+      if (seen.has(raw.id)) continue;
+      seen.add(raw.id);
+    }
     merged.push(raw);
   }
   return merged;
@@ -288,6 +272,8 @@ export function normalizeIssueComment(node, headSha = null) {
   };
 }
 
+const IGNORED_BOT_COMMENT_MARKER = /<!--\s*(?:linear-linkback|tars-review|pi-tars)(?![a-z0-9])/i;
+
 function isConfiguredTextReviewerComment(comment, textReviewerRules) {
   const author = login(comment.author);
   return textReviewerRules.some(
@@ -295,9 +281,14 @@ function isConfiguredTextReviewerComment(comment, textReviewerRules) {
   );
 }
 
+function isIgnoredBotStatusComment(comment) {
+  return comment.isBot && IGNORED_BOT_COMMENT_MARKER.test(comment.body);
+}
+
 function isActionableIssueComment(comment, prAuthor, textReviewerRules) {
   if (comment.isMinimized || !comment.body.trim()) return false;
   if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
+  if (isIgnoredBotStatusComment(comment)) return false;
   if (comment.isReviewFlag) return true;
   if (!comment.author) return false;
   if (comment.isBot) return comment.severity !== null;

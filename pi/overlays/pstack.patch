@@ -6828,10 +6828,10 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..a2c2e5ab6897fecc0efb2f0071b59b1863a659ac
+index 0000000000000000000000000000000000000000..8416eedc89018b96c465bc96132d04fbb51409d1
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
-@@ -0,0 +1,139 @@
+@@ -0,0 +1,136 @@
 +---
 +name: watch-pr
 +description: "Wait for a GitHub PR's checks, reviews, or merge readiness with one background watcher, not a hand-written loop."
@@ -6886,7 +6886,7 @@ index 0000000000000000000000000000000000000000..a2c2e5ab6897fecc0efb2f0071b59b18
 +| --- | --- | --- |
 +| 0 | `READY` or `MERGED` | Every rule passed on the named commit, or the pull request is merged. |
 +| 2 | `BLOCKED: merge conflicts ...` | Resolve the conflicts. |
-+| 3 | `BLOCKED: N unresolved review threads`, `BLOCKED: N resolved review threads with new replies`, or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve open inline threads (`pr-threads.mjs --resolve PRRT_...`); for a resolved thread re-surfaced by a newer reply (`[resolved, new reply]`), post a PR-author reply (`pr-threads.mjs --reply PRRT_... --body-file ...`) to clear it automatically (or reopen it with `--unresolve PRRT_...`). Minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
++| 3 | `BLOCKED: N unresolved review threads`, `BLOCKED: N resolved review threads with new replies`, or `BLOCKED: N unaddressed PR comments` | Fix or rebut each inline thread or PR conversation comment. Resolve open inline threads (`pr-threads.mjs --resolve PRRT_...`); for a resolved thread re-surfaced by a newer reply (`[resolved, new reply]`), post a PR-author reply (`pr-threads.mjs --reply PRRT_... --body-file ...`) to clear it automatically. Minimize attributed review flags (`pr-threads.mjs --resolve IC_...`), or for human reviewer and severity-tagged bot comments either minimize (`IC_...`) or post a PR-author reply that links the comment (`#issuecomment-<id>` / URL) or uniquely quotes it (`> ...`). |
 +| 4 | `BLOCKED: N checks failed` | The block links each failed check. |
 +| 5 | `BLOCKED: timed out ...` or `BLOCKED: not ready ...` | The watch ran out of time or the pull request is not ready. The line says what the watcher was waiting for, including a GitHub rate limit. |
 +| 6 | `BLOCKED: ...` | Draft, closed, changes requested, behind the base branch, or GitHub requires an approving review. |
@@ -6907,11 +6907,11 @@ index 0000000000000000000000000000000000000000..a2c2e5ab6897fecc0efb2f0071b59b18
 +- **Optional checks.** With `--required-checks-only`, non-required checks settle without blocking when `pending` or `cancelled`, and appear in the verdict summary as `optional (ignored)`. Explicit failures (`failure`, `timed_out`, etc.) still block with exit 4. Required status checks declared by branch protection/rulesets and configured reviewer checks are never ignored. If GitHub declares no required status checks for the base branch, `--required-checks-only` fails closed with `UNKNOWN` (exit 9).
 +- **Checks that have not started.** A commit with no failed and no pending check is not ready while an expected check is absent. Expected checks are the status checks that the base branch requires, and each workflow that every push to the pull request starts. A workflow with a path or branch filter and no run is unknown, unless another run of the same event exists on the commit. A commit with no checks and no expected check is unknown.
 +- **Reviewers.** Only rules from the configuration count. A sign-off counts only on the head commit. Without a rule, the block says `reviewers: no rule for OWNER/REPO`.
-+- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks, and so does any **resolved** inline thread whose newest reply is from a non-author human reviewer or from a bot carrying a structured severity tag (such as `blocks · high` or a Greptile `P0`–`P3` badge), marked `[resolved, new reply]` with the latest reply's author, commit/timestamp context, severity, and snippet instead of the stale root comment. Polite bot confirmations without a severity tag do not re-surface resolved threads, and a later PR-author reply on that thread makes the newest comment the PR author's and clears the re-surfaced status automatically. The GraphQL query fetches both the root comment and the newest 20 replies (`rootComment` + `comments(last: 20)`) so long threads (>20 comments) preserve root metadata and always inspect the latest reply. The watcher also reads PR conversation comments in the same GraphQL query (paginating automatically when a PR has >100 comments) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / leading `Review flag` comments, even when posted under the PR author's login) until minimized as resolved (e.g. `pr-threads.mjs --resolve IC_...`), plus human reviewer comments from someone other than the PR author and bot comments carrying a structured severity tag until minimized or explicitly referenced (linked via `#issuecomment-<id>` / URL or quoted with `> ...`) by a later non-flag PR-author reply. Comments already consumed by a configured text reviewer rule (such as Greptile verdicts) and informational deploy bots (GraphQL `Bot` accounts without a severity tag) do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`, `p0`–`p3`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
++- **Threads, PR comments, and merge state.** Every unresolved inline review thread blocks, and so does any **resolved** inline thread whose newest reply is from a non-author human reviewer or from a bot carrying a structured severity tag (such as `blocks · high` or a Greptile `P0`–`P3` badge), marked `[resolved, new reply]` with the latest reply's author, commit/timestamp context, severity, and snippet instead of the stale root comment. Polite bot confirmations without a severity tag do not re-surface resolved threads, and a later PR-author reply on that thread makes the newest comment the PR author's and clears the re-surfaced status automatically. The GraphQL query fetches both the root comment and the newest 20 replies (`rootComment` + `comments(last: 20)`) so long threads (>20 comments) preserve root metadata and always inspect the latest reply. The watcher also reads PR conversation comments in the same GraphQL query (paginating automatically when a PR has >100 comments) and blocks on unaddressed attributed review flags (such as Grok Bot `— Attributed to ...` / leading `Review flag` comments, even when posted under the PR author's login) until minimized as resolved (e.g. `pr-threads.mjs --resolve IC_...`), plus human reviewer comments from someone other than the PR author and bot comments carrying a structured severity tag until minimized or explicitly referenced (linked via `#issuecomment-<id>` / URL or quoted with `> ...`) by a later non-flag PR-author reply. Comments already consumed by a configured text reviewer rule (such as Greptile verdicts), automated bot linkback/summary comments (`<!-- linear-linkback -->`, `<!-- tars-review`, `<!-- pi-tars`), and informational deploy bots (GraphQL `Bot` accounts without a severity tag) do not block. Each thread includes its short commit SHA (`head` vs `older`), author, `path:line`, parsed severity tag (`blocks`, `fix-if-cheap`, `next-action`, `critical`, `high`, `medium`, `low`, `nit`, `p0`–`p3`) when present, and concise snippet. Conflicts, a draft, requested changes and a head behind its base block.
 +
 +## Manage review threads and PR comments (`pr-threads.mjs`)
 +
-+Use `scripts/pr-threads.mjs` to inspect unresolved inline review threads (`PRRT_...`), resolved threads with newer non-author replies (`[resolved, new reply]`), and unaddressed PR conversation comments (`IC_...`) with their GraphQL IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply to inline threads or resolve/unresolve threads and minimize PR comments safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
++Use `scripts/pr-threads.mjs` to inspect unresolved inline review threads (`PRRT_...`), resolved threads with newer non-author replies (`[resolved, new reply]`), and unaddressed PR conversation comments (`IC_...`) with their GraphQL IDs, commit SHAs, parsed severities, URLs, and snippets, and to reply to inline threads, resolve threads, and minimize PR comments safely through the repository's configured GitHub CLI (`gh-work` / `gh-personal`, with `GH_TOKEN`/`GITHUB_TOKEN` stripped).
 +
 +```bash
 +# List unresolved threads, resolved threads with new replies, and unaddressed PR comments (add --json for JSON, --all for all resolved threads too)
@@ -6919,9 +6919,6 @@ index 0000000000000000000000000000000000000000..a2c2e5ab6897fecc0efb2f0071b59b18
 +
 +# Reply to an inline thread from a file (or "-" for stdin) without shell interpolation, then resolve
 +node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --reply PRRT_... --body-file reply.md --resolve PRRT_...
-+
-+# Reopen a resolved inline thread if you want GitHub to track it as unresolved again
-+node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --unresolve PRRT_...
 +
 +# Minimize an addressed PR conversation comment (e.g. an attributed review flag) as resolved
 +node SKILL_DIRECTORY/scripts/pr-threads.mjs --repo OWNER/REPO --resolve IC_...
@@ -7329,7 +7326,7 @@ index 0000000000000000000000000000000000000000..f98869b2be6d87ad7d6b1ddf5d6e7faa
 +}
 diff --git a/skills/watch-pr/scripts/github.mjs b/skills/watch-pr/scripts/github.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f28075451ceb688e24b67ff559ac7d3a410dd41a
+index 0000000000000000000000000000000000000000..8974da3d3055944a4b7635954d508062c30c62f2
 --- /dev/null
 +++ b/skills/watch-pr/scripts/github.mjs
 @@ -0,0 +1,251 @@
@@ -7505,7 +7502,7 @@ index 0000000000000000000000000000000000000000..f28075451ceb688e24b67ff559ac7d3a
 +            workflow: run?.name ?? null,
 +            state: stateOf(check),
 +            detail: check.status !== "completed" ? check.status : check.conclusion,
-+            link: check.details_url || check.html_url || "",
++            link: check.html_url || check.details_url || "",
 +            suite: check.check_suite?.id,
 +          };
 +        });
@@ -7586,10 +7583,10 @@ index 0000000000000000000000000000000000000000..f28075451ceb688e24b67ff559ac7d3a
 +}
 diff --git a/skills/watch-pr/scripts/pr-threads.mjs b/skills/watch-pr/scripts/pr-threads.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437391165e4
+index 0000000000000000000000000000000000000000..d8aa309a951a8e193129d10c1ee4eedaccb408f5
 --- /dev/null
 +++ b/skills/watch-pr/scripts/pr-threads.mjs
-@@ -0,0 +1,275 @@
+@@ -0,0 +1,243 @@
 +#!/usr/bin/env node
 +// Lists, replies to, and resolves GitHub pull request review threads using the
 +// shared watch-pr repository config and gh-client routing.
@@ -7615,7 +7612,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
 +       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --reply <threadId> --body-file <path>
 +       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadOrCommentId>
-+       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --unresolve <threadId>
 +
 +Lists unresolved PR review threads and unaddressed PR conversation comments, or
 +replies to / resolves them through the repository's configured GitHub CLI
@@ -7632,7 +7628,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +  --body-file PATH    UTF-8 file containing the reply body (use "-" to read stdin)
 +  --resolve ID        resolve an inline review thread (PRRT_...) or minimize a PR comment
 +                      (IC_...) as resolved
-+  --unresolve ID      reopen a resolved inline review thread (PRRT_...)
 +
 +Exit: 0 success, 7 GitHub query failed, 64 usage or configuration error.
 +`;
@@ -7645,12 +7640,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +
 +const RESOLVE_MUTATION = `mutation($threadId:ID!){
 +  resolveReviewThread(input:{threadId:$threadId}){
-+    thread{id isResolved}
-+  }
-+}`;
-+
-+const UNRESOLVE_MUTATION = `mutation($threadId:ID!){
-+  unresolveReviewThread(input:{threadId:$threadId}){
 +    thread{id isResolved}
 +  }
 +}`;
@@ -7690,7 +7679,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +        reply: { type: "string" },
 +        "body-file": { type: "string" },
 +        resolve: { type: "string" },
-+        unresolve: { type: "string" },
 +        help: { type: "boolean", short: "h", default: false },
 +      },
 +    });
@@ -7705,23 +7693,15 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +
 +  const replyId = values.reply?.trim();
 +  const resolveId = values.resolve?.trim();
-+  const unresolveId = values.unresolve?.trim();
 +  if (values.reply !== undefined && !replyId) throw new UsageError("--reply requires a non-empty thread ID");
 +  if (values.resolve !== undefined && !resolveId) throw new UsageError("--resolve requires a non-empty thread ID");
-+  if (values.unresolve !== undefined && !unresolveId) throw new UsageError("--unresolve requires a non-empty thread ID");
-+  if (unresolveId?.startsWith("IC_")) {
-+    throw new UsageError("--unresolve only supports inline review threads (PRRT_...)");
-+  }
-+  if (resolveId && unresolveId && resolveId === unresolveId) {
-+    throw new UsageError("cannot both --resolve and --unresolve the same thread");
-+  }
 +  if (replyId && !values["body-file"]) throw new UsageError("--reply requires --body-file <path>");
 +  if (!replyId && values["body-file"] !== undefined) throw new UsageError("--body-file can only be used with --reply");
 +
-+  const hasMutation = Boolean(replyId || resolveId || unresolveId);
++  const hasMutation = Boolean(replyId || resolveId);
 +  const doList = values.list || (!hasMutation && target !== undefined);
 +  if (!doList && !hasMutation) {
-+    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, --resolve <threadId>, or --unresolve <threadId>");
++    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, or --resolve <threadId>");
 +  }
 +  if (doList && target === undefined) throw new UsageError("--list requires a pull request number or URL");
 +
@@ -7746,7 +7726,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +    replyId: replyId ?? null,
 +    bodyFile: values["body-file"] ?? null,
 +    resolveId: resolveId ?? null,
-+    unresolveId: unresolveId ?? null,
 +  };
 +}
 +
@@ -7776,16 +7755,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +  return thread;
 +}
 +
-+/** Marks one resolved review thread (`PRRT_...`) unresolved via GraphQL. */
-+export async function unresolveThread(client, threadId) {
-+  const result = await client.graphql(UNRESOLVE_MUTATION, { threadId });
-+  const thread = result?.data?.unresolveReviewThread?.thread;
-+  if (!thread || thread.isResolved !== false) {
-+    throw new QueryError(`GitHub did not confirm unresolving thread ${threadId}`);
-+  }
-+  return thread;
-+}
-+
 +async function main(argv, env) {
 +  const options = await parse(argv);
 +  if (options === null) {
@@ -7807,10 +7776,6 @@ index 0000000000000000000000000000000000000000..e1247313ead489391b544e3cf97f5437
 +    if (options.resolveId) {
 +      await resolveThread(client, options.resolveId);
 +      process.stdout.write(`resolved: ${options.resolveId}\n`);
-+    }
-+    if (options.unresolveId) {
-+      await unresolveThread(client, options.unresolveId);
-+      process.stdout.write(`unresolved: ${options.unresolveId}\n`);
 +    }
 +    if (options.list) {
 +      const facts = await github.pullRequest(options.pr);
@@ -8046,10 +8011,10 @@ index 0000000000000000000000000000000000000000..16f8199712624824b759024b59b6163b
 +}
 diff --git a/skills/watch-pr/scripts/threads.mjs b/skills/watch-pr/scripts/threads.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..241639867b278e0ab7526199309091e20aa4fbb1
+index 0000000000000000000000000000000000000000..e6f97fbb0d58fa9233790aef321703a8a84d43a6
 --- /dev/null
 +++ b/skills/watch-pr/scripts/threads.mjs
-@@ -0,0 +1,500 @@
+@@ -0,0 +1,491 @@
 +// Review thread normalization, severity tag parsing, and formatting shared by
 +// `github.mjs`, `verdict.mjs`, and `pr-threads.mjs`.
 +
@@ -8139,31 +8104,15 @@ index 0000000000000000000000000000000000000000..241639867b278e0ab7526199309091e2
 +  return authorType === "Bot" || Boolean(author && /\[bot\]$/i.test(author));
 +}
 +
-+function sameCommentNode(a, b, { fallbackContent = false } = {}) {
-+  if (a === b) return true;
-+  if (a.id && b.id) return a.id === b.id;
-+  const aDb = a.fullDatabaseId ?? a.databaseId;
-+  const bDb = b.fullDatabaseId ?? b.databaseId;
-+  if (aDb && bDb) return String(aDb) === String(bDb);
-+  if (!fallbackContent) return false;
-+  return (a.createdAt ?? null) === (b.createdAt ?? null) &&
-+    (a.author?.login ?? null) === (b.author?.login ?? null) &&
-+    (a.body ?? "") === (b.body ?? "");
-+}
-+
 +function mergeThreadComments(node) {
-+  const rootNodes = node.rootComment?.nodes ?? [];
-+  const tailNodes = node.comments?.nodes ?? [];
++  const seen = new Set();
 +  const merged = [];
-+  for (const raw of rootNodes) {
++  for (const raw of [...(node.rootComment?.nodes ?? []), ...(node.comments?.nodes ?? [])]) {
 +    if (!raw) continue;
-+    if (merged.some((existing) => sameCommentNode(existing, raw))) continue;
-+    merged.push(raw);
-+  }
-+  for (let i = 0; i < tailNodes.length; i++) {
-+    const raw = tailNodes[i];
-+    if (!raw) continue;
-+    if (merged.some((existing) => sameCommentNode(existing, raw, { fallbackContent: i === 0 }))) continue;
++    if (raw.id) {
++      if (seen.has(raw.id)) continue;
++      seen.add(raw.id);
++    }
 +    merged.push(raw);
 +  }
 +  return merged;
@@ -8340,6 +8289,8 @@ index 0000000000000000000000000000000000000000..241639867b278e0ab7526199309091e2
 +  };
 +}
 +
++const IGNORED_BOT_COMMENT_MARKER = /<!--\s*(?:linear-linkback|tars-review|pi-tars)(?![a-z0-9])/i;
++
 +function isConfiguredTextReviewerComment(comment, textReviewerRules) {
 +  const author = login(comment.author);
 +  return textReviewerRules.some(
@@ -8347,9 +8298,14 @@ index 0000000000000000000000000000000000000000..241639867b278e0ab7526199309091e2
 +  );
 +}
 +
++function isIgnoredBotStatusComment(comment) {
++  return comment.isBot && IGNORED_BOT_COMMENT_MARKER.test(comment.body);
++}
++
 +function isActionableIssueComment(comment, prAuthor, textReviewerRules) {
 +  if (comment.isMinimized || !comment.body.trim()) return false;
 +  if (isConfiguredTextReviewerComment(comment, textReviewerRules)) return false;
++  if (isIgnoredBotStatusComment(comment)) return false;
 +  if (comment.isReviewFlag) return true;
 +  if (!comment.author) return false;
 +  if (comment.isBot) return comment.severity !== null;

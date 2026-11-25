@@ -23,7 +23,6 @@ import { EXIT } from "./verdict.mjs";
 const USAGE = `Usage: pr-threads.mjs [<number|url>] [--repo OWNER/NAME] [--list] [--all] [--json]
        pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --reply <threadId> --body-file <path>
        pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --resolve <threadOrCommentId>
-       pr-threads.mjs [<number|url>] [--repo OWNER/NAME] --unresolve <threadId>
 
 Lists unresolved PR review threads and unaddressed PR conversation comments, or
 replies to / resolves them through the repository's configured GitHub CLI
@@ -40,7 +39,6 @@ replies to / resolves them through the repository's configured GitHub CLI
   --body-file PATH    UTF-8 file containing the reply body (use "-" to read stdin)
   --resolve ID        resolve an inline review thread (PRRT_...) or minimize a PR comment
                       (IC_...) as resolved
-  --unresolve ID      reopen a resolved inline review thread (PRRT_...)
 
 Exit: 0 success, 7 GitHub query failed, 64 usage or configuration error.
 `;
@@ -53,12 +51,6 @@ const REPLY_MUTATION = `mutation($threadId:ID!,$body:String!){
 
 const RESOLVE_MUTATION = `mutation($threadId:ID!){
   resolveReviewThread(input:{threadId:$threadId}){
-    thread{id isResolved}
-  }
-}`;
-
-const UNRESOLVE_MUTATION = `mutation($threadId:ID!){
-  unresolveReviewThread(input:{threadId:$threadId}){
     thread{id isResolved}
   }
 }`;
@@ -98,7 +90,6 @@ async function parse(argv) {
         reply: { type: "string" },
         "body-file": { type: "string" },
         resolve: { type: "string" },
-        unresolve: { type: "string" },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -113,23 +104,15 @@ async function parse(argv) {
 
   const replyId = values.reply?.trim();
   const resolveId = values.resolve?.trim();
-  const unresolveId = values.unresolve?.trim();
   if (values.reply !== undefined && !replyId) throw new UsageError("--reply requires a non-empty thread ID");
   if (values.resolve !== undefined && !resolveId) throw new UsageError("--resolve requires a non-empty thread ID");
-  if (values.unresolve !== undefined && !unresolveId) throw new UsageError("--unresolve requires a non-empty thread ID");
-  if (unresolveId?.startsWith("IC_")) {
-    throw new UsageError("--unresolve only supports inline review threads (PRRT_...)");
-  }
-  if (resolveId && unresolveId && resolveId === unresolveId) {
-    throw new UsageError("cannot both --resolve and --unresolve the same thread");
-  }
   if (replyId && !values["body-file"]) throw new UsageError("--reply requires --body-file <path>");
   if (!replyId && values["body-file"] !== undefined) throw new UsageError("--body-file can only be used with --reply");
 
-  const hasMutation = Boolean(replyId || resolveId || unresolveId);
+  const hasMutation = Boolean(replyId || resolveId);
   const doList = values.list || (!hasMutation && target !== undefined);
   if (!doList && !hasMutation) {
-    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, --resolve <threadId>, or --unresolve <threadId>");
+    throw new UsageError("specify --list <number|url>, --reply <threadId> --body-file <path>, or --resolve <threadId>");
   }
   if (doList && target === undefined) throw new UsageError("--list requires a pull request number or URL");
 
@@ -154,7 +137,6 @@ async function parse(argv) {
     replyId: replyId ?? null,
     bodyFile: values["body-file"] ?? null,
     resolveId: resolveId ?? null,
-    unresolveId: unresolveId ?? null,
   };
 }
 
@@ -184,16 +166,6 @@ export async function resolveThread(client, targetId) {
   return thread;
 }
 
-/** Marks one resolved review thread (`PRRT_...`) unresolved via GraphQL. */
-export async function unresolveThread(client, threadId) {
-  const result = await client.graphql(UNRESOLVE_MUTATION, { threadId });
-  const thread = result?.data?.unresolveReviewThread?.thread;
-  if (!thread || thread.isResolved !== false) {
-    throw new QueryError(`GitHub did not confirm unresolving thread ${threadId}`);
-  }
-  return thread;
-}
-
 async function main(argv, env) {
   const options = await parse(argv);
   if (options === null) {
@@ -215,10 +187,6 @@ async function main(argv, env) {
     if (options.resolveId) {
       await resolveThread(client, options.resolveId);
       process.stdout.write(`resolved: ${options.resolveId}\n`);
-    }
-    if (options.unresolveId) {
-      await unresolveThread(client, options.unresolveId);
-      process.stdout.write(`unresolved: ${options.unresolveId}\n`);
     }
     if (options.list) {
       const facts = await github.pullRequest(options.pr);
