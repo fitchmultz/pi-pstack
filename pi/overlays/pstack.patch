@@ -6828,7 +6828,7 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..e50939db6a4fb9f18a9eeb33ac9dba0abd11b88b
+index 0000000000000000000000000000000000000000..ddd05bc8a539f887f5d3d15fc749cbc416a293a7
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
 @@ -0,0 +1,142 @@
@@ -6944,7 +6944,7 @@ index 0000000000000000000000000000000000000000..e50939db6a4fb9f18a9eeb33ac9dba0a
 +
 +By default the watcher exits `6` when deployment approval is required. The non-zero exit includes the verdict in the background completion notice. An automatic deployment timer without required reviewers keeps polling. So does a run that still shows `waiting` after GitHub cleared its pending deployments.
 +
-+For a concurrency wait, the watcher uses [GitHub's concurrency queue](https://docs.github.com/en/rest/actions/concurrency-groups) to identify the holder. It keeps polling if the holder is running or GitHub does not expose enough information to confirm its approval gate. If other jobs are still active, it checks the queue only for pending `--until-job` targets.
++For a concurrency wait, the watcher uses [GitHub's concurrency queue](https://docs.github.com/en/rest/actions/concurrency-groups) to identify the holder. It keeps polling if the holder is running or GitHub does not expose enough information to confirm its approval gate. With `--until-job`, it checks the queue for pending targets and for locks that block the whole workflow. It ignores unrelated job queues.
 +
 +The last output has at most 20 lines and 2048 bytes. It includes the run URL, head commit, and job counts. `active` includes queued and running jobs; `pending` means waiting for a concurrency slot. An own-run gate shows `environment: NAME (current_user_can_approve: true|false)` and links the waiting jobs. If GitHub withholds approval details, the watcher still reports the visible waiting status. For a concurrency blocker, each `blocking run:` line includes the holder's URL, commit, environment, and approval eligibility.
 +
@@ -9485,7 +9485,7 @@ index 0000000000000000000000000000000000000000..181d65da745e1a313832672cbc0dc9d0
 +}
 diff --git a/skills/watch-pr/scripts/watch-run.mjs b/skills/watch-pr/scripts/watch-run.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..274e25254103638b67ed51a3a054e2c6ed469020
+index 0000000000000000000000000000000000000000..46ba8b7ae0e0577464ecae5349c1c597a2e2ac8d
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-run.mjs
 @@ -0,0 +1,603 @@
@@ -9817,14 +9817,14 @@ index 0000000000000000000000000000000000000000..274e25254103638b67ed51a3a054e2c6
 +  return deployments.filter((deployment) => deployment.reviewers.length > 0 || deployment.wait_timer === 0);
 +}
 +
-+async function concurrencyBlockers(client, base, runId, targetJobIds) {
++async function concurrencyBlockers(client, base, runId, { targetJobIds, active }) {
 +  const groups = await optionalRest(client, `${base}/runs/${runId}/concurrency_groups?per_page=100`, { paginate: true });
 +  const blockers = new Map();
 +  for (const { concurrency_groups: page } of groups ?? []) {
 +    for (const { group_name: name, group_members: members } of page) {
 +      for (const member of members) {
 +        if (String(member.run_id) !== runId || member.status !== "pending") continue;
-+        if (targetJobIds && !targetJobIds.has(member.job_id)) continue;
++        if (member.job_id == null ? active : targetJobIds && !targetJobIds.has(member.job_id)) continue;
 +        const filter = member.job_id == null ? `ahead_of_run=${runId}` : `ahead_of_job=${member.job_id}`;
 +        // GitHub returns the watched member last, or 422 if it already left the queue.
 +        const queue = await optionalRest(client, `${base}/concurrency_groups/${encodeURIComponent(name)}?${filter}`,
@@ -9855,8 +9855,8 @@ index 0000000000000000000000000000000000000000..274e25254103638b67ed51a3a054e2c6
 +  const ownWaiting = run.status === "waiting" || buckets.waiting.length > 0;
 +  const checkOwnGate = ownWaiting && (!active || (untilJobs.length ? outcome.waitingTarget : !stopAtWaiting));
 +  const onlyPending = !ownWaiting && !active && (buckets.pending.length > 0 || run.status === "pending");
-+  const targetJobIds = active ? outcome.pendingTargetIds : undefined;
-+  let checkConcurrency = targetJobIds?.size > 0;
++  const targetJobIds = outcome.pendingTargetIds;
++  let checkConcurrency = active && targetJobIds?.size > 0;
 +  if (checkOwnGate || onlyPending) {
 +    const deployments = await optionalRest(client, `${base}/runs/${target.runId}/pending_deployments`);
 +    const approvals = manualApprovals(deployments ?? []);
@@ -9875,7 +9875,7 @@ index 0000000000000000000000000000000000000000..274e25254103638b67ed51a3a054e2c6
 +    checkConcurrency ||= onlyPending && deployments?.length === 0;
 +  }
 +  if (checkConcurrency) {
-+    const blockers = await concurrencyBlockers(client, base, target.runId, targetJobIds);
++    const blockers = await concurrencyBlockers(client, base, target.runId, { targetJobIds, active });
 +    if (blockers.length) return {
 +      kind: "blocked", exitCode: EXIT.blocked, blockers,
 +      reason: "concurrency is held by a run awaiting deployment approval",

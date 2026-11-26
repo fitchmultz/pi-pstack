@@ -475,7 +475,7 @@ test("keeps polling when waiting status lags after GitHub clears the pending dep
   }
 });
 
-test("checks only the pending target's concurrency queue while another job runs", () => {
+test("checks the pending target's concurrency queue and ignores unrelated queues", () => {
   const pending = concurrencyPoll("waiting");
   pending.run.status = "in_progress";
   pending.jobs.push(makeJob("Other Job", "in_progress"));
@@ -485,15 +485,17 @@ test("checks only the pending target's concurrency queue while another job runs"
   assert.deepEqual(blocked.sleeps, []);
   assert.ok(blocked.verdict.some((line) => line.includes(`blocking run: ${pending.holder.html_url}`)));
 
-  const unrelated = concurrencyPoll("waiting");
-  unrelated.run.status = "in_progress";
-  unrelated.jobs[1].name = "Unrelated Deploy";
-  unrelated.jobs.push(makeJob("Deploy to Production", "pending"), makeJob("Other Job", "in_progress"));
-  const result = watchRun([unrelated, finishedPoll()], { args: [RUN_URL, ...target] });
-  assert.equal(result.code, 0, result.out + result.err);
-  assert.equal(result.verdict[0], "PASSED");
-  assert.equal(result.sleeps.length, 1);
-  assert.ok(!result.calls.some(({ argv }) => argv[1].includes("ahead_of_job=")));
+  for (const otherJobStatus of ["in_progress", "pending"]) {
+    const unrelated = concurrencyPoll("waiting");
+    unrelated.run.status = "in_progress";
+    unrelated.jobs[1].name = "Unrelated Deploy";
+    unrelated.jobs.push(makeJob("Deploy to Production", "pending"), makeJob("Other Job", otherJobStatus));
+    const result = watchRun([unrelated, finishedPoll()], { args: [RUN_URL, ...target] });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.equal(result.verdict[0], "PASSED");
+    assert.equal(result.sleeps.length, 1);
+    assert.ok(!result.calls.some(({ argv }) => argv[1].includes("ahead_of_job=")));
+  }
 });
 
 test("--stop-at-waiting settles only when all non-waiting jobs passed and fails closed on any failure", () => {

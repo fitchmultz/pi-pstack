@@ -110,7 +110,7 @@ Use `scripts/watch-run.mjs` with `background_command` to wait on one GitHub Acti
 
 By default the watcher exits `6` when deployment approval is required. The non-zero exit includes the verdict in the background completion notice. An automatic deployment timer without required reviewers keeps polling. So does a run that still shows `waiting` after GitHub cleared its pending deployments.
 
-For a concurrency wait, the watcher uses [GitHub's concurrency queue](https://docs.github.com/en/rest/actions/concurrency-groups) to identify the holder. It keeps polling if the holder is running or GitHub does not expose enough information to confirm its approval gate. If other jobs are still active, it checks the queue only for pending `--until-job` targets.
+For a concurrency wait, the watcher uses [GitHub's concurrency queue](https://docs.github.com/en/rest/actions/concurrency-groups) to identify the holder. It keeps polling if the holder is running or GitHub does not expose enough information to confirm its approval gate. With `--until-job`, it checks the queue for pending targets and for locks that block the whole workflow. It ignores unrelated job queues.
 
 The last output has at most 20 lines and 2048 bytes. It includes the run URL, head commit, and job counts. `active` includes queued and running jobs; `pending` means waiting for a concurrency slot. An own-run gate shows `environment: NAME (current_user_can_approve: true|false)` and links the waiting jobs. If GitHub withholds approval details, the watcher still reports the visible waiting status. For a concurrency blocker, each `blocking run:` line includes the holder's URL, commit, environment, and approval eligibility.
 

@@ -326,14 +326,14 @@ function manualApprovals(deployments) {
   return deployments.filter((deployment) => deployment.reviewers.length > 0 || deployment.wait_timer === 0);
 }
 
-async function concurrencyBlockers(client, base, runId, targetJobIds) {
+async function concurrencyBlockers(client, base, runId, { targetJobIds, active }) {
   const groups = await optionalRest(client, `${base}/runs/${runId}/concurrency_groups?per_page=100`, { paginate: true });
   const blockers = new Map();
   for (const { concurrency_groups: page } of groups ?? []) {
     for (const { group_name: name, group_members: members } of page) {
       for (const member of members) {
         if (String(member.run_id) !== runId || member.status !== "pending") continue;
-        if (targetJobIds && !targetJobIds.has(member.job_id)) continue;
+        if (member.job_id == null ? active : targetJobIds && !targetJobIds.has(member.job_id)) continue;
         const filter = member.job_id == null ? `ahead_of_run=${runId}` : `ahead_of_job=${member.job_id}`;
         // GitHub returns the watched member last, or 422 if it already left the queue.
         const queue = await optionalRest(client, `${base}/concurrency_groups/${encodeURIComponent(name)}?${filter}`,
@@ -364,8 +364,8 @@ async function assessApproval(client, base, { run, target, buckets }, outcome, {
   const ownWaiting = run.status === "waiting" || buckets.waiting.length > 0;
   const checkOwnGate = ownWaiting && (!active || (untilJobs.length ? outcome.waitingTarget : !stopAtWaiting));
   const onlyPending = !ownWaiting && !active && (buckets.pending.length > 0 || run.status === "pending");
-  const targetJobIds = active ? outcome.pendingTargetIds : undefined;
-  let checkConcurrency = targetJobIds?.size > 0;
+  const targetJobIds = outcome.pendingTargetIds;
+  let checkConcurrency = active && targetJobIds?.size > 0;
   if (checkOwnGate || onlyPending) {
     const deployments = await optionalRest(client, `${base}/runs/${target.runId}/pending_deployments`);
     const approvals = manualApprovals(deployments ?? []);
@@ -384,7 +384,7 @@ async function assessApproval(client, base, { run, target, buckets }, outcome, {
     checkConcurrency ||= onlyPending && deployments?.length === 0;
   }
   if (checkConcurrency) {
-    const blockers = await concurrencyBlockers(client, base, target.runId, targetJobIds);
+    const blockers = await concurrencyBlockers(client, base, target.runId, { targetJobIds, active });
     if (blockers.length) return {
       kind: "blocked", exitCode: EXIT.blocked, blockers,
       reason: "concurrency is held by a run awaiting deployment approval",
