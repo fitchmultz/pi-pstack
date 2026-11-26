@@ -97,22 +97,28 @@ Exit codes for `pr-threads.mjs`: `0` success, `7` GitHub query failed, `64` usag
 Use `scripts/watch-run.mjs` with `background_command` to wait on one GitHub Actions workflow run without writing a custom polling loop. It reuses `watch-pr.json` / `WATCH_PR_GH` CLI routing, strips ambient `GH_TOKEN`/`GITHUB_TOKEN`, and applies the same primary/secondary rate-limit backoff as `watch-pr.mjs`.
 
 ```json
-{"action":"start","command":"node SKILL_DIRECTORY/scripts/watch-run.mjs https://github.com/OWNER/REPO/actions/runs/123456789 --stop-at-waiting"}
+{"action":"start","command":"node SKILL_DIRECTORY/scripts/watch-run.mjs https://github.com/OWNER/REPO/actions/runs/123456789"}
 ```
 
 - Name the run by URL (`https://github.com/OWNER/REPO/actions/runs/<id>`) or by numeric ID with `--repo OWNER/NAME` (defaults to the `origin` remote of the current directory).
 - `--interval SECONDS` sets the ordinary polling interval. The default is 60 and the minimum is 30 (lower positive values are clamped to 30 without error).
 - `--timeout SECONDS` ends the watch after that time. The default is 3600; `0` waits without limit.
-- `--until-job NAME` (repeatable) matches a job name (or `"Workflow / Job"`) and settles with exit `0` (`SETTLED` or `PASSED`) once all named jobs succeed, even while downstream manual-approval or other jobs remain `waiting` or `in_progress`. If any named job fails, is cancelled, times out, or is skipped, the watcher exits `4` immediately.
-- `--stop-at-waiting` settles with exit `0` (`SETTLED`) once all active non-waiting jobs have succeeded and the only remaining incomplete job(s) are in `waiting` status (GitHub Actions deployment environment approval gate). If any job fails or is cancelled, it fails closed immediately with exit `4`.
+- `--until-job NAME` (repeatable) matches a job name or `"Workflow / Job"`. Once all targets pass, it exits `0` even if a downstream deployment still needs approval. While a target is blocked at or behind an approval gate, it exits `6`. If any target fails, is cancelled, times out, or is skipped, it exits `4`.
+- `--stop-at-waiting` exits `0` with `SETTLED: waiting at deployment gate (...)` once only this run's own approval jobs remain. Any failed or cancelled job still exits `4`. A gate on another run still exits `6`. With `--until-job`, a gate does not count as target success.
+- `--wait-for-approval` keeps polling across approval gates until the run or targets finish or the watch times out. If you also pass `--stop-at-waiting`, `--wait-for-approval` takes precedence.
 - `--once` evaluates the current state and exits without polling (run with `bash`).
 
-The last output is a bounded summary (at most 20 lines and 2048 bytes) naming the run URL, workflow name and status, head commit SHA, job counts (`passed`, `failed`, `waiting`, `pending`, `skipped`), failed job URLs, and waiting deployment-gate jobs.
+By default the watcher exits `6` when deployment approval is required. The non-zero exit includes the verdict in the background completion notice. An automatic deployment timer without required reviewers keeps polling. So does a run that still shows `waiting` after GitHub cleared its pending deployments.
+
+For a concurrency wait, the watcher uses [GitHub's concurrency queue](https://docs.github.com/en/rest/actions/concurrency-groups) to identify the holder. It keeps polling if the holder is running or GitHub does not expose enough information to confirm its approval gate. With `--until-job`, it checks the queue for pending targets and for locks that block the whole workflow. It ignores unrelated job queues.
+
+The last output has at most 20 lines and 2048 bytes. It includes the run URL, head commit, and job counts. `active` includes queued and running jobs; `pending` means waiting for a concurrency slot. An own-run gate shows `environment: NAME (current_user_can_approve: true|false)` and links the waiting jobs. If GitHub withholds approval details, the watcher still reports the visible waiting status. For a concurrency blocker, each `blocking run:` line includes the holder's URL, commit, environment, and approval eligibility.
 
 | Exit | First line | Meaning |
 | --- | --- | --- |
-| 0 | `PASSED` or `SETTLED` | The workflow run succeeded, all `--until-job` targets passed, or only `waiting` deployment-gate jobs remain under `--stop-at-waiting`. |
+| 0 | `PASSED` or `SETTLED: ...` | The workflow run succeeded, all `--until-job` targets passed, or `--stop-at-waiting` reached this run's own approval gate. |
 | 4 | `FAILED` or `CANCELLED` | The workflow run or a job (or `--until-job` target) failed, timed out, was cancelled, or was skipped. |
+| 6 | `BLOCKED: deployment approval required`, `BLOCKED: waiting at deployment gate (approval details unavailable)`, or `BLOCKED: concurrency is held by a run awaiting deployment approval` | Open the run named in the verdict to review the deployment. |
 | 7 | `UNKNOWN: ...` | GitHub query failed, a `--until-job` target never appeared in a completed run, or the run ended in an unexpected non-success conclusion (`skipped` / `neutral`). |
 | 8 | `TIMEOUT: ...` or `PENDING: ...` | The watch reached `--timeout`, or `--once` saw the run still in progress. |
 | 64 | none | Wrong arguments or an invalid configuration file. The message is on stderr. |

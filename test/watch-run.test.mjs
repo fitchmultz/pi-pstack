@@ -81,6 +81,7 @@ function watchRun(polls, {
       env: {
         PATH: `${temp}:${process.env.PATH}`,
         WATCH_PR_CONFIG: configFile,
+        WATCH_RUN_ID: RUN_ID,
         WATCH_RUN_SCENARIO: scenario,
         WATCH_RUN_FIXTURE_LOG: log,
         ...(useFastClock ? { WATCH_PR_SLEEP_LOG: sleepLog } : {}),
@@ -200,10 +201,10 @@ test("handles normal run completion, paginated jobs, failure, cancellation, fail
     `run: ${RUN_URL}`,
     "workflow: Build & Deploy (completed/success)",
     `commit: ${HEAD}`,
-    "jobs: 2 passed, 0 failed, 0 waiting, 0 pending, 1 skipped",
+    "jobs: 2 passed, 0 failed, 0 waiting, 0 active, 0 pending, 1 skipped",
   ]);
   assert.ok(watched.lines.some((line) => line.includes(`waiting on ${HEAD.slice(0, 7)}: workflow run is queued`)));
-  assert.ok(watched.lines.some((line) => line.includes("1 job pending (Test)")));
+  assert.ok(watched.lines.some((line) => line.includes("1 job active (Test)")));
 
   // Completed failure exits 4 and includes failed job name and URL.
   const failedJob = makeJob("Test Suite", "completed", "failure");
@@ -213,7 +214,7 @@ test("handles normal run completion, paginated jobs, failure, cancellation, fail
   }]);
   assert.equal(failed.code, 4, failed.out);
   assert.equal(failed.verdict[0], "FAILED: workflow run completed as failure");
-  assert.ok(failed.verdict.includes("jobs: 1 passed, 1 failed, 0 waiting, 0 pending, 0 skipped"));
+  assert.ok(failed.verdict.includes("jobs: 1 passed, 1 failed, 0 waiting, 0 active, 0 pending, 0 skipped"));
   assert.ok(failed.verdict.includes(`  failed: Test Suite (failure) ${failedJob.html_url}`));
 
   // Completed cancelled run exits 4 with CANCELLED headline.
@@ -276,8 +277,9 @@ test("--until-job settles when target jobs succeed while downstream deploy waits
   });
   assert.equal(settled.code, 0, settled.out + settled.err);
   assert.equal(settled.verdict[0], "SETTLED: 2 target jobs passed (Build, Build & Deploy / Deploy Staging)");
-  assert.ok(settled.verdict.includes("jobs: 2 passed, 0 failed, 1 waiting, 0 pending, 0 skipped"));
+  assert.ok(settled.verdict.includes("jobs: 2 passed, 0 failed, 1 waiting, 0 active, 0 pending, 0 skipped"));
   assert.ok(settled.verdict.includes(`  waiting: Deploy to Production ${prodWaiting.html_url}`));
+  assert.ok(!settled.calls.some(({ argv }) => argv[1].includes("pending_deployments")));
 
   // Target job failure exits 4 immediately even while other jobs are still running.
   const failedStaging = makeJob("Deploy Staging", "completed", "timed_out");
@@ -321,6 +323,181 @@ test("--until-job settles when target jobs succeed while downstream deploy waits
   assert.equal(missingTarget.verdict[0], "UNKNOWN: 1 target job not found in completed run (Nonexistent Job)");
 });
 
+const DEPLOYMENTS = `runs/${RUN_ID}/pending_deployments`;
+const PRODUCTION_GATE = {
+  environment: { name: "production" },
+  reviewers: [{ type: "Team", reviewer: { slug: "release-reviewers" } }],
+  wait_timer: 0,
+  wait_timer_started_at: null,
+  current_user_can_approve: false,
+};
+
+function waitingPoll(deployment = PRODUCTION_GATE) {
+  return {
+    run: makeRun({ status: "waiting", conclusion: null }),
+    jobs: [makeJob("Build", "completed", "success"), makeJob("Deploy to Production", "waiting")],
+    diagnostics: { [DEPLOYMENTS]: [deployment] },
+  };
+}
+
+function finishedPoll() {
+  return {
+    run: makeRun(),
+    jobs: [makeJob("Build", "completed", "success"), makeJob("Deploy to Production", "completed", "success")],
+  };
+}
+
+test("reports the run's manual deployment approval before sleeping, including for a waiting target", () => {
+  const alongsideActive = waitingPoll();
+  alongsideActive.run.status = "in_progress";
+  alongsideActive.jobs.push(makeJob("Other Job", "in_progress"));
+  for (const [waiting, flags] of [
+    [waitingPoll({ ...PRODUCTION_GATE, reviewers: [] }), []],
+    [waitingPoll({ ...PRODUCTION_GATE, wait_timer: 30, wait_timer_started_at: new Date().toISOString() }),
+      ["--until-job", "Deploy to Production"]],
+    [alongsideActive, ["--until-job", "Deploy to Production", "--stop-at-waiting"]],
+  ]) {
+    const blocked = watchRun([waiting, finishedPoll()], { args: [RUN_URL, ...flags] });
+    assert.equal(blocked.code, 6, blocked.out + blocked.err);
+    assert.deepEqual(blocked.sleeps, []);
+    assert.equal(blocked.verdict[0], "BLOCKED: deployment approval required");
+    assert.ok(blocked.verdict.includes("  environment: production (current_user_can_approve: false)"));
+    assert.ok(blocked.verdict.includes(`  waiting: Deploy to Production ${waiting.jobs[1].html_url}`));
+  }
+});
+
+test("keeps polling across a timer-only gate or an explicitly opted-in manual gate", () => {
+  const timer = waitingPoll({
+    ...PRODUCTION_GATE, reviewers: [], wait_timer: 30, wait_timer_started_at: new Date().toISOString(),
+  });
+  for (const [waiting, flags] of [[timer, []], [timer, ["--stop-at-waiting"]], [waitingPoll(), ["--wait-for-approval"]]]) {
+    const result = watchRun([waiting, finishedPoll()], { args: [RUN_URL, ...flags] });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.equal(result.verdict[0], "PASSED");
+    assert.equal(result.sleeps.length, 1);
+  }
+});
+
+function concurrencyPoll(holderJobStatus, { workflowLevel = false } = {}) {
+  const holder = makeRun({ id: Number(RUN_ID) - 1, status: holderJobStatus, conclusion: null, head_sha: "c".repeat(40) });
+  const holderJob = { ...makeJob("Deploy to Production", holderJobStatus), run_id: holder.id };
+  const pending = makeJob("Deploy to Production", "pending");
+  const member = { status: "pending", run_id: Number(RUN_ID), job_id: workflowLevel ? null : pending.id };
+  const group = "release/production";
+  const filter = workflowLevel ? `ahead_of_run=${RUN_ID}` : `ahead_of_job=${pending.id}`;
+  return {
+    run: makeRun({ status: "pending", conclusion: null }),
+    jobs: workflowLevel ? [] : [makeJob("Build", "completed", "success"), pending],
+    diagnostics: {
+      [DEPLOYMENTS]: [],
+      [`runs/${RUN_ID}/concurrency_groups?per_page=100`]: {
+        concurrency_groups: [{ group_name: group, group_members: [{ ...member, position: 1 }] }],
+      },
+      [`concurrency_groups/release%2Fproduction?${filter}`]: {
+        group_members: [{ status: "in_progress", run_id: holder.id, job_id: workflowLevel ? null : holderJob.id }, member],
+      },
+      [`jobs/${holderJob.id}`]: holderJob,
+      [`runs/${holder.id}`]: holder,
+      [`runs/${holder.id}/pending_deployments`]: [{ ...PRODUCTION_GATE, current_user_can_approve: true }],
+    },
+    holder,
+  };
+}
+
+test("reports the exact concurrency holder awaiting approval in default, settle, and target modes", () => {
+  for (const [pending, flags] of [
+    [concurrencyPoll("waiting"), []],
+    [concurrencyPoll("waiting"), ["--stop-at-waiting"]],
+    [concurrencyPoll("waiting"), ["--until-job", "Deploy to Production"]],
+    [concurrencyPoll("waiting", { workflowLevel: true }), ["--until-job", "Deploy to Production"]],
+  ]) {
+    const blocked = watchRun([pending, finishedPoll()], { args: [RUN_URL, ...flags] });
+    assert.equal(blocked.code, 6, blocked.out + blocked.err);
+    assert.deepEqual(blocked.sleeps, []);
+    assert.equal(blocked.verdict[0], "BLOCKED: concurrency is held by a run awaiting deployment approval");
+    assert.ok(blocked.verdict.includes(`  blocking run: ${pending.holder.html_url} (commit ${pending.holder.head_sha}); environment: production (current_user_can_approve: true)`));
+    assert.ok(blocked.verdict.length <= 20);
+    assert.ok(Buffer.byteLength(blocked.out) <= 2048);
+  }
+});
+
+test("keeps polling while the exact concurrency holder's job runs, even if its run has a separate approval", () => {
+  const pending = concurrencyPoll("in_progress");
+  const active = {
+    run: makeRun({ status: "in_progress", conclusion: null }),
+    jobs: [makeJob("Deploy to Production", "in_progress"), makeJob("Another deploy", "pending")],
+  };
+  const result = watchRun([pending, active, finishedPoll()], { args: [RUN_URL] });
+  assert.equal(result.code, 0, result.out + result.err);
+  assert.equal(result.verdict[0], "PASSED");
+  assert.equal(result.sleeps.length, 2);
+  assert.equal(result.calls.filter(({ argv }) => argv[1].endsWith(DEPLOYMENTS)).length, 1);
+});
+
+test("keeps polling when concurrency groups or holder job details cannot be read", () => {
+  for (const endpoint of [`runs/${RUN_ID}/concurrency_groups`, "/actions/jobs/"]) {
+    for (const status of [403, 404]) {
+      const pending = concurrencyPoll("waiting");
+      pending.fail = { endpoint, status, body: { message: "Resource not available" } };
+      const result = watchRun([pending, finishedPoll()], { args: [RUN_URL] });
+      assert.equal(result.code, 0, result.out + result.err);
+      assert.equal(result.verdict[0], "PASSED");
+      assert.equal(result.sleeps.length, 1);
+      assert.ok(result.calls.some(({ argv }) => argv[1].includes(endpoint)));
+    }
+  }
+});
+
+test("uses waiting job status when the pending deployments endpoint denies access", () => {
+  const waiting = waitingPoll();
+  waiting.run.status = "in_progress";
+  waiting.fail = {
+    endpoint: DEPLOYMENTS,
+    status: 403,
+    body: { message: "Resource not accessible by integration" },
+    stderr: "gh: Resource not accessible by integration (HTTP 403)",
+  };
+  const result = watchRun([waiting, finishedPoll()], { args: [RUN_URL] });
+  assert.equal(result.code, 6, result.out + result.err);
+  assert.deepEqual(result.sleeps, []);
+  assert.equal(result.verdict[0], "BLOCKED: waiting at deployment gate (approval details unavailable)");
+  assert.ok(result.verdict.includes(`  waiting: Deploy to Production ${waiting.jobs[1].html_url}`));
+});
+
+test("keeps polling when waiting status lags after GitHub clears the pending deployment", () => {
+  const waiting = waitingPoll();
+  waiting.diagnostics[DEPLOYMENTS] = [];
+  for (const flags of [[], ["--stop-at-waiting"]]) {
+    const result = watchRun([waiting, finishedPoll()], { args: [RUN_URL, ...flags] });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.equal(result.verdict[0], "PASSED");
+    assert.equal(result.sleeps.length, 1);
+  }
+});
+
+test("checks the pending target's concurrency queue and ignores unrelated queues", () => {
+  const pending = concurrencyPoll("waiting");
+  pending.run.status = "in_progress";
+  pending.jobs.push(makeJob("Other Job", "in_progress"));
+  const target = ["--until-job", "Deploy to Production"];
+  const blocked = watchRun([pending, finishedPoll()], { args: [RUN_URL, ...target] });
+  assert.equal(blocked.code, 6, blocked.out + blocked.err);
+  assert.deepEqual(blocked.sleeps, []);
+  assert.ok(blocked.verdict.some((line) => line.includes(`blocking run: ${pending.holder.html_url}`)));
+
+  for (const otherJobStatus of ["in_progress", "pending"]) {
+    const unrelated = concurrencyPoll("waiting");
+    unrelated.run.status = "in_progress";
+    unrelated.jobs[1].name = "Unrelated Deploy";
+    unrelated.jobs.push(makeJob("Deploy to Production", "pending"), makeJob("Other Job", otherJobStatus));
+    const result = watchRun([unrelated, finishedPoll()], { args: [RUN_URL, ...target] });
+    assert.equal(result.code, 0, result.out + result.err);
+    assert.equal(result.verdict[0], "PASSED");
+    assert.equal(result.sleeps.length, 1);
+    assert.ok(!result.calls.some(({ argv }) => argv[1].includes("ahead_of_job=")));
+  }
+});
+
 test("--stop-at-waiting settles only when all non-waiting jobs passed and fails closed on any failure", () => {
   const prodWaiting = makeJob("Deploy to Production", "waiting", null);
 
@@ -342,11 +519,14 @@ test("--stop-at-waiting settles only when all non-waiting jobs passed and fails 
         prodWaiting,
       ],
     },
-  ], { args: [RUN_URL, "--interval", "0.02", "--stop-at-waiting"] });
+  ].map((poll) => ({ ...poll, diagnostics: { [DEPLOYMENTS]: [PRODUCTION_GATE] } })), {
+    args: [RUN_URL, "--interval", "0.02", "--stop-at-waiting"],
+  });
   assert.equal(settled.code, 0, settled.out + settled.err);
   assert.equal(settled.verdict[0], "SETTLED: waiting at deployment gate (1 waiting job)");
-  assert.ok(settled.verdict.includes("jobs: 2 passed, 0 failed, 1 waiting, 0 pending, 0 skipped"));
+  assert.ok(settled.verdict.includes("jobs: 2 passed, 0 failed, 1 waiting, 0 active, 0 pending, 0 skipped"));
   assert.ok(settled.verdict.includes(`  waiting: Deploy to Production ${prodWaiting.html_url}`));
+  assert.ok(settled.verdict.includes("  environment: production (current_user_can_approve: false)"));
   assert.equal(settled.calls.filter(({ argv }) => /\/actions\/runs\/\d+$/.test(argv[1])).length, 2);
 
   // Fails closed immediately if any job failed before/alongside the waiting gate.
@@ -465,8 +645,8 @@ test("handles non-200 query errors, transient recovery, timeouts, --once, and bo
     jobs: [makeJob("Long Job", "in_progress", null)],
   }], { args: [RUN_URL, "--timeout", "0.15", "--interval", "0.03"] });
   assert.equal(timed.code, 8, timed.out);
-  assert.match(timed.verdict[0], /^TIMEOUT: timed out after 0\.15 s; waiting for: 1 job pending \(Long Job\)/);
-  assert.ok(timed.verdict.includes("  pending: Long Job"));
+  assert.match(timed.verdict[0], /^TIMEOUT: timed out after 0\.15 s; waiting for: 1 job active \(Long Job\)/);
+  assert.ok(timed.verdict.includes("  active: Long Job"));
 
   // --once while run is in progress exits 8 without polling again.
   const glance = watchRun([{
@@ -474,7 +654,7 @@ test("handles non-200 query errors, transient recovery, timeouts, --once, and bo
     jobs: [makeJob("Long Job", "in_progress", null)],
   }], { args: [RUN_URL, "--once"] });
   assert.equal(glance.code, 8, glance.out);
-  assert.match(glance.verdict[0], /^PENDING: not finished; waiting for: 1 job pending \(Long Job\)/);
+  assert.match(glance.verdict[0], /^PENDING: not finished; waiting for: 1 job active \(Long Job\)/);
 
   // Large failure + waiting set still fits <= 20 lines and <= 2048 bytes.
   const manyFailed = Array.from({ length: 30 }, (_, i) =>

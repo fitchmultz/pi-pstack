@@ -6828,10 +6828,10 @@ index 583fe48499c8f8f71bd2deef4228d1f0129c03c7..3437467331de58a0f302b977c940eaf0
  Rule numbers are stable ids that other skills cite. A removed rule leaves a gap.
 diff --git a/skills/watch-pr/SKILL.md b/skills/watch-pr/SKILL.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..8416eedc89018b96c465bc96132d04fbb51409d1
+index 0000000000000000000000000000000000000000..ddd05bc8a539f887f5d3d15fc749cbc416a293a7
 --- /dev/null
 +++ b/skills/watch-pr/SKILL.md
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,142 @@
 +---
 +name: watch-pr
 +description: "Wait for a GitHub PR's checks, reviews, or merge readiness with one background watcher, not a hand-written loop."
@@ -6931,22 +6931,28 @@ index 0000000000000000000000000000000000000000..8416eedc89018b96c465bc96132d04fb
 +Use `scripts/watch-run.mjs` with `background_command` to wait on one GitHub Actions workflow run without writing a custom polling loop. It reuses `watch-pr.json` / `WATCH_PR_GH` CLI routing, strips ambient `GH_TOKEN`/`GITHUB_TOKEN`, and applies the same primary/secondary rate-limit backoff as `watch-pr.mjs`.
 +
 +```json
-+{"action":"start","command":"node SKILL_DIRECTORY/scripts/watch-run.mjs https://github.com/OWNER/REPO/actions/runs/123456789 --stop-at-waiting"}
++{"action":"start","command":"node SKILL_DIRECTORY/scripts/watch-run.mjs https://github.com/OWNER/REPO/actions/runs/123456789"}
 +```
 +
 +- Name the run by URL (`https://github.com/OWNER/REPO/actions/runs/<id>`) or by numeric ID with `--repo OWNER/NAME` (defaults to the `origin` remote of the current directory).
 +- `--interval SECONDS` sets the ordinary polling interval. The default is 60 and the minimum is 30 (lower positive values are clamped to 30 without error).
 +- `--timeout SECONDS` ends the watch after that time. The default is 3600; `0` waits without limit.
-+- `--until-job NAME` (repeatable) matches a job name (or `"Workflow / Job"`) and settles with exit `0` (`SETTLED` or `PASSED`) once all named jobs succeed, even while downstream manual-approval or other jobs remain `waiting` or `in_progress`. If any named job fails, is cancelled, times out, or is skipped, the watcher exits `4` immediately.
-+- `--stop-at-waiting` settles with exit `0` (`SETTLED`) once all active non-waiting jobs have succeeded and the only remaining incomplete job(s) are in `waiting` status (GitHub Actions deployment environment approval gate). If any job fails or is cancelled, it fails closed immediately with exit `4`.
++- `--until-job NAME` (repeatable) matches a job name or `"Workflow / Job"`. Once all targets pass, it exits `0` even if a downstream deployment still needs approval. While a target is blocked at or behind an approval gate, it exits `6`. If any target fails, is cancelled, times out, or is skipped, it exits `4`.
++- `--stop-at-waiting` exits `0` with `SETTLED: waiting at deployment gate (...)` once only this run's own approval jobs remain. Any failed or cancelled job still exits `4`. A gate on another run still exits `6`. With `--until-job`, a gate does not count as target success.
++- `--wait-for-approval` keeps polling across approval gates until the run or targets finish or the watch times out. If you also pass `--stop-at-waiting`, `--wait-for-approval` takes precedence.
 +- `--once` evaluates the current state and exits without polling (run with `bash`).
 +
-+The last output is a bounded summary (at most 20 lines and 2048 bytes) naming the run URL, workflow name and status, head commit SHA, job counts (`passed`, `failed`, `waiting`, `pending`, `skipped`), failed job URLs, and waiting deployment-gate jobs.
++By default the watcher exits `6` when deployment approval is required. The non-zero exit includes the verdict in the background completion notice. An automatic deployment timer without required reviewers keeps polling. So does a run that still shows `waiting` after GitHub cleared its pending deployments.
++
++For a concurrency wait, the watcher uses [GitHub's concurrency queue](https://docs.github.com/en/rest/actions/concurrency-groups) to identify the holder. It keeps polling if the holder is running or GitHub does not expose enough information to confirm its approval gate. With `--until-job`, it checks the queue for pending targets and for locks that block the whole workflow. It ignores unrelated job queues.
++
++The last output has at most 20 lines and 2048 bytes. It includes the run URL, head commit, and job counts. `active` includes queued and running jobs; `pending` means waiting for a concurrency slot. An own-run gate shows `environment: NAME (current_user_can_approve: true|false)` and links the waiting jobs. If GitHub withholds approval details, the watcher still reports the visible waiting status. For a concurrency blocker, each `blocking run:` line includes the holder's URL, commit, environment, and approval eligibility.
 +
 +| Exit | First line | Meaning |
 +| --- | --- | --- |
-+| 0 | `PASSED` or `SETTLED` | The workflow run succeeded, all `--until-job` targets passed, or only `waiting` deployment-gate jobs remain under `--stop-at-waiting`. |
++| 0 | `PASSED` or `SETTLED: ...` | The workflow run succeeded, all `--until-job` targets passed, or `--stop-at-waiting` reached this run's own approval gate. |
 +| 4 | `FAILED` or `CANCELLED` | The workflow run or a job (or `--until-job` target) failed, timed out, was cancelled, or was skipped. |
++| 6 | `BLOCKED: deployment approval required`, `BLOCKED: waiting at deployment gate (approval details unavailable)`, or `BLOCKED: concurrency is held by a run awaiting deployment approval` | Open the run named in the verdict to review the deployment. |
 +| 7 | `UNKNOWN: ...` | GitHub query failed, a `--until-job` target never appeared in a completed run, or the run ended in an unexpected non-success conclusion (`skipped` / `neutral`). |
 +| 8 | `TIMEOUT: ...` or `PENDING: ...` | The watch reached `--timeout`, or `--once` saw the run still in progress. |
 +| 64 | none | Wrong arguments or an invalid configuration file. The message is on stderr. |
@@ -6995,10 +7001,10 @@ index 0000000000000000000000000000000000000000..c8760d677a95d1b6bf40fd16ba391eb8
 +}
 diff --git a/skills/watch-pr/scripts/gh-client.mjs b/skills/watch-pr/scripts/gh-client.mjs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f98869b2be6d87ad7d6b1ddf5d6e7faa0dd11120
+index 0000000000000000000000000000000000000000..0ff0108300f00a46fc5cace315fc132806532d13
 --- /dev/null
 +++ b/skills/watch-pr/scripts/gh-client.mjs
-@@ -0,0 +1,325 @@
+@@ -0,0 +1,326 @@
 +// Shared zero-dependency GitHub CLI client, environment sanitizer, and
 +// rate-limit backoff helpers for watch-pr tools (`watch-pr.mjs`, `pr-threads.mjs`,
 +// and future `watch-run.mjs`).
@@ -7019,11 +7025,12 @@ index 0000000000000000000000000000000000000000..f98869b2be6d87ad7d6b1ddf5d6e7faa
 +
 +/** A GitHub CLI request that failed. `retryable` is false when repeating it cannot help. */
 +export class QueryError extends Error {
-+  constructor(message, { retryable = true, rateLimit } = {}) {
++  constructor(message, { retryable = true, rateLimit, status } = {}) {
 +    super(message);
 +    this.name = "QueryError";
 +    this.retryable = retryable;
 +    this.rateLimit = rateLimit;
++    this.status = status;
 +  }
 +}
 +
@@ -7284,7 +7291,7 @@ index 0000000000000000000000000000000000000000..f98869b2be6d87ad7d6b1ddf5d6e7faa
 +      const retryable = code !== 4 && response?.status !== 401 &&
 +        !graphqlErrors.some((error) => ["NOT_FOUND", "FORBIDDEN", "UNAUTHORIZED"].includes(error.type));
 +      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} exited ${code}${detail ? `: ${detail}` : ""}`,
-+        { retryable, rateLimit: retryable ? rateLimit : undefined });
++        { retryable, rateLimit: retryable ? rateLimit : undefined, status: response?.status });
 +    }
 +    if (!pages.length || pages.some((page) => page.body === undefined)) {
 +      throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);
@@ -9478,14 +9485,13 @@ index 0000000000000000000000000000000000000000..181d65da745e1a313832672cbc0dc9d0
 +}
 diff --git a/skills/watch-pr/scripts/watch-run.mjs b/skills/watch-pr/scripts/watch-run.mjs
 new file mode 100755
-index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc2f75be42
+index 0000000000000000000000000000000000000000..46ba8b7ae0e0577464ecae5349c1c597a2e2ac8d
 --- /dev/null
 +++ b/skills/watch-pr/scripts/watch-run.mjs
-@@ -0,0 +1,485 @@
+@@ -0,0 +1,603 @@
 +#!/usr/bin/env node
-+// Waits for a GitHub Actions workflow run to pass, settle at a target job or
-+// deployment-approval gate, or fail, then prints a bounded verdict as the last
-+// output. See ../SKILL.md for flags and exit codes.
++// Watches a GitHub Actions workflow run and prints a bounded verdict.
++// See ../SKILL.md for flags and exit codes.
 +
 +import { basename, resolve } from "node:path";
 +import { pathToFileURL } from "node:url";
@@ -9512,6 +9518,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +const EXIT = {
 +  passed: 0,
 +  failed: 4,
++  blocked: 6,
 +  queryFailed: 7,
 +  unknown: 7,
 +  timeout: 8,
@@ -9526,7 +9533,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +  "startup_failure",
 +]);
 +
-+const USAGE = `Usage: watch-run.mjs <run-id|url> [--repo OWNER/NAME] [--interval SECONDS] [--timeout SECONDS] [--until-job NAME]... [--stop-at-waiting] [--once]
++const USAGE = `Usage: watch-run.mjs <run-id|url> [--repo OWNER/NAME] [--interval SECONDS] [--timeout SECONDS] [--until-job NAME]... [--stop-at-waiting] [--wait-for-approval] [--once]
 +
 +Waits for a GitHub Actions workflow run to finish or settle, then prints a concise verdict.
 +
@@ -9536,12 +9543,14 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +  --timeout          give up after this many seconds; default 3600, 0 waits without limit
 +  --until-job        repeatable job name (or "Workflow / Job") to wait for; settles with exit 0
 +                     once all named jobs succeed, even if downstream jobs are still waiting/running
-+  --stop-at-waiting  settle with exit 0 once all active non-waiting jobs succeed and only
-+                     waiting deployment-gate job(s) remain (fails closed if any job failed)
++  --stop-at-waiting  settle with exit 0 when only this run's own deployment approval jobs
++                     remain (fails closed if any job failed); does not settle another run's gate
++  --wait-for-approval  keep polling across approval gates (overrides --stop-at-waiting)
 +  --once             evaluate the current run state and exit without polling
 +
-+Exit: 0 passed or settled, 4 failed or cancelled, 7 unknown or GitHub query failed,
-+8 timeout (or still running with --once), 64 usage or configuration error.
++Exit: 0 passed or settled, 4 failed or cancelled, 6 blocked on deployment approval,
++7 unknown or GitHub query failed, 8 timeout (or still running with --once),
++64 usage or configuration error.
 +`;
 +
 +class UsageError extends Error {}
@@ -9581,6 +9590,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +        timeout: { type: "string", default: "3600" },
 +        "until-job": { type: "string", multiple: true, default: [] },
 +        "stop-at-waiting": { type: "boolean", default: false },
++        "wait-for-approval": { type: "boolean", default: false },
 +        once: { type: "boolean", default: false },
 +        help: { type: "boolean", short: "h", default: false },
 +      },
@@ -9606,7 +9616,8 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    interval: clampInterval(seconds("interval", values.interval, { zero: false })),
 +    timeout: seconds("timeout", values.timeout, { zero: true }),
 +    untilJobs,
-+    stopAtWaiting: values["stop-at-waiting"],
++    stopAtWaiting: values["stop-at-waiting"] && !values["wait-for-approval"],
++    waitForApproval: values["wait-for-approval"],
 +    once: values.once,
 +  };
 +}
@@ -9619,7 +9630,8 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    return { name: job.name, bucket: "waiting", status, conclusion, detail: "waiting", link };
 +  }
 +  if (status !== "completed") {
-+    return { name: job.name, bucket: "pending", status, conclusion, detail: status, link };
++    const bucket = status === "pending" ? "pending" : "active";
++    return { id: job.id, name: job.name, bucket, status, conclusion, detail: status, link };
 +  }
 +  if (conclusion === "success") {
 +    return { name: job.name, bucket: "passed", status, conclusion, detail: "success", link };
@@ -9638,7 +9650,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +}
 +
 +function partitionJobs(jobs) {
-+  const buckets = { passed: [], failed: [], waiting: [], pending: [], skipped: [] };
++  const buckets = { passed: [], failed: [], waiting: [], active: [], pending: [], skipped: [] };
 +  for (const raw of jobs) {
 +    const item = classifyJob(raw);
 +    buckets[item.bucket].push(item);
@@ -9690,6 +9702,9 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +  if (pendingTargets.length) {
 +    parts.push(`${plural(pendingTargets.length, "target job")} not passed (${some(pendingTargets)})`);
 +  }
++  if (buckets.active.length) {
++    parts.push(`${plural(buckets.active.length, "job")} active (${some(buckets.active.map((j) => j.name))})`);
++  }
 +  if (buckets.pending.length) {
 +    parts.push(`${plural(buckets.pending.length, "job")} pending (${some(buckets.pending.map((j) => j.name))})`);
 +  }
@@ -9708,6 +9723,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    ...buckets.passed,
 +    ...buckets.failed,
 +    ...buckets.waiting,
++    ...buckets.active,
 +    ...buckets.pending,
 +    ...buckets.skipped,
 +  ];
@@ -9716,8 +9732,10 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    const failedTargetJobs = [];
 +    const skippedTargets = [];
 +    const pendingTargets = [];
++    const pendingTargetIds = new Set();
 +    const missingTargets = [];
 +    let passedTargets = 0;
++    let waitingTarget = false;
 +
 +    for (const target of untilJobs) {
 +      const matching = allJobs.filter((job) => matchesJobTarget(job, workflowName, target));
@@ -9731,6 +9749,10 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +        passedTargets++;
 +      } else {
 +        pendingTargets.push(target);
++        waitingTarget ||= matching.some((job) => job.bucket === "waiting");
++        for (const job of matching) {
++          if (job.bucket === "pending") pendingTargetIds.add(job.id);
++        }
 +        if (!matching.length) missingTargets.push(target);
 +      }
 +    }
@@ -9770,7 +9792,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +        reason: `${plural(missing.length, "target job")} not found in completed run (${some(missing)})`,
 +      };
 +    }
-+    return { kind: "waiting", waiting: waitingSummary(buckets, run, pendingTargets) };
++    return { kind: "waiting", waiting: waitingSummary(buckets, run, pendingTargets), waitingTarget, pendingTargetIds };
 +  }
 +
 +  if (run.status === "completed") {
@@ -9779,14 +9801,87 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +  if (buckets.failed.length) {
 +    return failureOutcome(buckets.failed);
 +  }
-+  if (stopAtWaiting && buckets.waiting.length > 0 && buckets.pending.length === 0) {
-+    return {
-+      kind: "settled",
-+      exitCode: EXIT.passed,
-+      reason: `waiting at deployment gate (${plural(buckets.waiting.length, "waiting job")})`,
++  return { kind: "waiting", waiting: waitingSummary(buckets, run) };
++}
++
++async function optionalRest(client, path, { paginate = false, missing = [403, 404] } = {}) {
++  try {
++    return await client.rest(path, { paginate });
++  } catch (error) {
++    if (!(error instanceof QueryError) || error.rateLimit || !missing.includes(error.status)) throw error;
++    return null;
++  }
++}
++
++function manualApprovals(deployments) {
++  return deployments.filter((deployment) => deployment.reviewers.length > 0 || deployment.wait_timer === 0);
++}
++
++async function concurrencyBlockers(client, base, runId, { targetJobIds, active }) {
++  const groups = await optionalRest(client, `${base}/runs/${runId}/concurrency_groups?per_page=100`, { paginate: true });
++  const blockers = new Map();
++  for (const { concurrency_groups: page } of groups ?? []) {
++    for (const { group_name: name, group_members: members } of page) {
++      for (const member of members) {
++        if (String(member.run_id) !== runId || member.status !== "pending") continue;
++        if (member.job_id == null ? active : targetJobIds && !targetJobIds.has(member.job_id)) continue;
++        const filter = member.job_id == null ? `ahead_of_run=${runId}` : `ahead_of_job=${member.job_id}`;
++        // GitHub returns the watched member last, or 422 if it already left the queue.
++        const queue = await optionalRest(client, `${base}/concurrency_groups/${encodeURIComponent(name)}?${filter}`,
++          { missing: [403, 404, 422] });
++        const queued = queue?.group_members.at(-1);
++        if (queued?.status !== "pending" || queued.run_id !== member.run_id ||
++            (queued.job_id ?? null) !== (member.job_id ?? null)) continue;
++        const holder = queue.group_members.find((item) => item.status === "in_progress");
++        if (!holder || String(holder.run_id) === runId || blockers.has(holder.run_id)) continue;
++
++        // A run can have a pending deployment while an unrelated job holds the lock.
++        const holderPath = `${base}/runs/${holder.run_id}`;
++        const lease = await optionalRest(client, holder.job_id == null ? holderPath : `${base}/jobs/${holder.job_id}`);
++        if (lease?.status !== "waiting") continue;
++        const deployments = await optionalRest(client, `${holderPath}/pending_deployments`);
++        const approvals = manualApprovals(deployments ?? []);
++        if (!approvals.length) continue;
++        const run = holder.job_id == null ? lease : await optionalRest(client, holderPath);
++        if (run && run.status !== "completed") blockers.set(holder.run_id, { run, id: holder.run_id, approvals });
++      }
++    }
++  }
++  return [...blockers.values()];
++}
++
++async function assessApproval(client, base, { run, target, buckets }, outcome, { untilJobs, stopAtWaiting }) {
++  const active = buckets.active.length > 0;
++  const ownWaiting = run.status === "waiting" || buckets.waiting.length > 0;
++  const checkOwnGate = ownWaiting && (!active || (untilJobs.length ? outcome.waitingTarget : !stopAtWaiting));
++  const onlyPending = !ownWaiting && !active && (buckets.pending.length > 0 || run.status === "pending");
++  const targetJobIds = outcome.pendingTargetIds;
++  let checkConcurrency = active && targetJobIds?.size > 0;
++  if (checkOwnGate || onlyPending) {
++    const deployments = await optionalRest(client, `${base}/runs/${target.runId}/pending_deployments`);
++    const approvals = manualApprovals(deployments ?? []);
++    if (approvals.length || (checkOwnGate && deployments === null)) {
++      if (stopAtWaiting && !untilJobs.length && !buckets.pending.length && buckets.waiting.length) {
++        return {
++          kind: "settled", exitCode: EXIT.passed, approvals,
++          reason: `waiting at deployment gate (${plural(buckets.waiting.length, "waiting job")})`,
++        };
++      }
++      return {
++        kind: "blocked", exitCode: EXIT.blocked, approvals,
++        reason: approvals.length ? "deployment approval required" : "waiting at deployment gate (approval details unavailable)",
++      };
++    }
++    checkConcurrency ||= onlyPending && deployments?.length === 0;
++  }
++  if (checkConcurrency) {
++    const blockers = await concurrencyBlockers(client, base, target.runId, { targetJobIds, active });
++    if (blockers.length) return {
++      kind: "blocked", exitCode: EXIT.blocked, blockers,
++      reason: "concurrency is held by a run awaiting deployment approval",
 +    };
 +  }
-+  return { kind: "waiting", waiting: waitingSummary(buckets, run) };
++  return outcome;
 +}
 +
 +function headline(outcome) {
@@ -9795,6 +9890,7 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    settled: "SETTLED",
 +    failed: "FAILED",
 +    cancelled: "CANCELLED",
++    blocked: "BLOCKED",
 +    unknown: "UNKNOWN",
 +    timeout: "TIMEOUT",
 +    pending: "PENDING",
@@ -9802,8 +9898,15 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +  return clip(outcome.reason ? `${prefix}: ${outcome.reason}` : prefix, 400);
 +}
 +
++function runUrl(target, runId = target.runId) {
++  return `https://github.com/${target.owner}/${target.repo}/actions/runs/${runId}`;
++}
++
++function approvalDetail(deployment) {
++  return `environment: ${clip(deployment.environment.name, 120)} (current_user_can_approve: ${deployment.current_user_can_approve})`;
++}
++
 +function renderRun({ target, run, buckets }, outcome) {
-+  const runUrl = run.html_url || `https://github.com/${target.owner}/${target.repo}/actions/runs/${target.runId}`;
 +  const workflowName = run.name || (run.path ? basename(run.path) : `run ${target.runId}`);
 +  const runState = run.status === "completed" && run.conclusion
 +    ? `${run.status}/${run.conclusion}`
@@ -9813,19 +9916,31 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    `${buckets.passed.length} passed`,
 +    `${buckets.failed.length} failed`,
 +    `${buckets.waiting.length} waiting`,
++    `${buckets.active.length} active`,
 +    `${buckets.pending.length} pending`,
 +    `${buckets.skipped.length} skipped`,
 +  ].join(", ");
 +
 +  const top = [
 +    headline(outcome),
-+    `run: ${runUrl}`,
++    `run: ${run.html_url || runUrl(target)}`,
 +    `workflow: ${clip(workflowName, 120)} (${runState})`,
 +    `commit: ${headSha}`,
 +    `jobs: ${counts}`,
 +  ];
 +
 +  const parts = [
++    {
++      items: (outcome.approvals ?? []).map((deployment) => `  ${approvalDetail(deployment)}`),
++      before: [],
++      more: "environments",
++    },
++    {
++      items: (outcome.blockers ?? []).flatMap(({ run: blocker, id, approvals }) => approvals.map((deployment) =>
++        `  blocking run: ${blocker.html_url || runUrl(target, id)} (commit ${blocker.head_sha}); ${approvalDetail(deployment)}`)),
++      before: [],
++      more: "blocking approvals",
++    },
 +    {
 +      items: buckets.failed.map((job) =>
 +        `  failed: ${clip(job.name, 80)} (${job.detail})${job.link ? ` ${job.link}` : ""}`),
@@ -9840,6 +9955,13 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    },
 +    {
 +      items: [],
++      before: buckets.active.length
++        ? [clip(`  active: ${some(buckets.active.map((job) => job.name))}`, 300)]
++        : [],
++      more: "active jobs",
++    },
++    {
++      items: [],
 +      before: buckets.pending.length
 +        ? [clip(`  pending: ${some(buckets.pending.map((job) => job.name))}`, 300)]
 +        : [],
@@ -9850,21 +9972,20 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +}
 +
 +function renderQueryError(target, executable, source, prefix, reason) {
-+  const runUrl = `https://github.com/${target.owner}/${target.repo}/actions/runs/${target.runId}`;
 +  return formatBoundedBlock([
 +    clip(`${prefix}: ${reason}`, 400),
-+    `run: ${runUrl}`,
++    `run: ${runUrl(target)}`,
 +    clip(`github cli: ${executable} (${source})`, 300),
 +  ], []);
 +}
 +
-+async function fetchRunState(client, target) {
-+  const base = `repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/actions/runs/${target.runId}`;
-+  const run = await client.rest(base, { paginate: false });
++async function fetchRunState(client, base, target) {
++  const path = `${base}/runs/${target.runId}`;
++  const run = await client.rest(path, { paginate: false });
 +  if (!run || typeof run !== "object" || typeof run.status !== "string") {
 +    throw new QueryError(`GitHub returned no workflow run for ${target.owner}/${target.repo} run ${target.runId}`);
 +  }
-+  const jobPages = await client.rest(`${base}/jobs?per_page=100`, { paginate: true });
++  const jobPages = await client.rest(`${path}/jobs?per_page=100`, { paginate: true });
 +  const jobs = [];
 +  for (const page of jobPages) {
 +    if (!Array.isArray(page?.jobs)) {
@@ -9881,11 +10002,12 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    process.stdout.write(USAGE);
 +    return 0;
 +  }
-+  const { target, interval, timeout, untilJobs, stopAtWaiting, once } = options;
++  const { target, interval, timeout, waitForApproval, once } = options;
 +  const settingsPath = configPath(env);
 +  const settings = settingsFor(loadConfig(settingsPath), target.owner, target.repo);
 +  const { executable, source } = resolveGitHubCli(settings, { env, settingsPath });
 +  const client = createGhClient(executable, { env });
++  const base = `repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/actions`;
 +
 +  const started = performance.now() / 1000;
 +  const elapsed = () => performance.now() / 1000 - started;
@@ -9900,8 +10022,11 @@ index 0000000000000000000000000000000000000000..06a18b810fb2872741694c1eb618a9dc
 +    let view;
 +    let outcome;
 +    try {
-+      view = await fetchRunState(client, target);
-+      outcome = assessRun(view, { untilJobs, stopAtWaiting });
++      view = await fetchRunState(client, base, target);
++      outcome = assessRun(view, options);
++      if (outcome.kind === "waiting" && !waitForApproval) {
++        outcome = await assessApproval(client, base, view, outcome, options);
++      }
 +      backoff.reset();
 +    } catch (error) {
 +      if (!(error instanceof QueryError)) throw error;
