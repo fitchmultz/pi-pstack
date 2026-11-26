@@ -18,11 +18,12 @@ export const clampInterval = (seconds) => Math.max(MIN_INTERVAL_SECONDS, seconds
 
 /** A GitHub CLI request that failed. `retryable` is false when repeating it cannot help. */
 export class QueryError extends Error {
-  constructor(message, { retryable = true, rateLimit } = {}) {
+  constructor(message, { retryable = true, rateLimit, status } = {}) {
     super(message);
     this.name = "QueryError";
     this.retryable = retryable;
     this.rateLimit = rateLimit;
+    this.status = status;
   }
 }
 
@@ -283,7 +284,7 @@ export function createGhClient(executable, { env = process.env } = {}) {
       const retryable = code !== 4 && response?.status !== 401 &&
         !graphqlErrors.some((error) => ["NOT_FOUND", "FORBIDDEN", "UNAUTHORIZED"].includes(error.type));
       throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} exited ${code}${detail ? `: ${detail}` : ""}`,
-        { retryable, rateLimit: retryable ? rateLimit : undefined });
+        { retryable, rateLimit: retryable ? rateLimit : undefined, status: response?.status });
     }
     if (!pages.length || pages.some((page) => page.body === undefined)) {
       throw new QueryError(`${executable} ${args.slice(0, 2).join(" ")} did not return JSON`);

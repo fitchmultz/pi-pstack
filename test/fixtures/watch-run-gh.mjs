@@ -1,6 +1,6 @@
 // Offline GitHub CLI for watch-run.test.mjs. Answers `gh api` REST calls from
 // WATCH_RUN_SCENARIO JSON (`{ polls: [state, ...], fail? }`). Each call to the
-// workflow run endpoint (without `/jobs`) advances the poll index.
+// watched workflow run endpoint (without `/jobs`) advances the poll index.
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const argv = process.argv.slice(2);
@@ -43,16 +43,12 @@ function failWith({ stderr = "gh: HTTP error", body, status, headers, exitCode =
 if (fail) failWith(fail);
 
 const path = argv[1];
-const isJobs = /\/actions\/runs\/\d+\/jobs\b/.test(path);
-const isRun = /\/actions\/runs\/\d+$/.test(path);
-if (!isRun && !isJobs) {
-  throw new Error(`Unexpected REST path: ${path}`);
-}
-if (isJobs && !argv.includes("--paginate")) {
-  throw new Error(`Jobs endpoint must be paginated: ${path}`);
-}
-if (isRun && argv.includes("--paginate")) {
-  throw new Error(`Run endpoint should not use --paginate: ${path}`);
+const endpoint = path.split("/actions/")[1];
+const runPath = `runs/${process.env.WATCH_RUN_ID}`;
+const isJobs = endpoint === `${runPath}/jobs?per_page=100`;
+const isRun = endpoint === runPath;
+if (argv.includes("--paginate") !== (isJobs || endpoint === `${runPath}/concurrency_groups?per_page=100`)) {
+  throw new Error(`Unexpected pagination for ${path}`);
 }
 
 const counterFile = `${process.env.WATCH_RUN_SCENARIO}.poll`;
@@ -69,9 +65,13 @@ if (state.fail && (!state.fail.endpoint || path.includes(state.fail.endpoint))) 
 
 if (isRun) {
   printPage(state.run);
-} else {
+} else if (isJobs) {
   const pages = state.jobPages ?? [{ total_count: (state.jobs ?? []).length, jobs: state.jobs ?? [] }];
   for (const page of pages) {
     printPage(page);
   }
+} else if (endpoint in (state.diagnostics ?? {})) {
+  printPage(state.diagnostics[endpoint]);
+} else {
+  throw new Error(`Unexpected REST path: ${path}`);
 }
