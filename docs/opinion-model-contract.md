@@ -6,7 +6,7 @@
 
 The line references below point to the [audited tool registration in `extensions/index.js`][call]. The card renderer affects only display. On Fitch Pi, deferred exposure controls how the parent model reaches the tool. It does not add tools to the opinion request.
 
-Host contracts were checked against official Pi **1.6.1** and fork **5c5202a664e7492ab01908cf4c37cd05b3f7c694**, matching the exact official release and fork revision enforced by `scripts/qualify-hosts.mjs`. A registered provider can have its own server-side behavior. Omitting Pi tools is not a sandbox around provider code or its service.
+The exact hosts for qualification are official Pi **1.7.0** and Fitch Pi **91b90ac7dbd18f530d413b5b5f0a1768693cf5c8**, as pinned by `package.json` and `scripts/qualify-hosts.mjs`, respectively. A registered provider can have its own server-side behavior. Omitting Pi tools is not a sandbox around provider code or its service.
 
 ## Limit inventory
 
@@ -55,12 +55,12 @@ Custom-message cards cap collapsed body previews at **5 visual lines** via the p
 Only presentation is shortened. The original custom-message content remains unchanged in the journal and model context. Ctrl+O uses Pi's native `app.tools.expand` action, including remapped key hints. Left-clicking an opinion card toggles only that card. On Fitch Pi, which passes a boolean `options.compactView`, the [custom message component][fork-message] handles the click in every view. On official Pi, the [custom message component][official-message] inherits `Container.handleMouse`, which forwards clicks to the renderer's `MouseRegion`. The region toggles per-message state in a `WeakMap`. A change in global expansion resets that state. There is no new keyboard parser or stored opinion copy.
 
 [call]: https://github.com/fitchmultz/pi-pstack/blob/881d81a40a5eb2418e83120afb39e2b1cdd1aed7/extensions/index.js#L224-L278
-[normalize]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/ai/src/utils/transcript.ts
-[registry]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/coding-agent/src/core/model-registry.ts
-[simple-options]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/ai/src/types.ts
-[thinking-levels]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/ai/src/providers/model-schema.ts
-[background]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/coding-agent/docs/extensions.md#background-tool-runs
-[official-renderer]: https://github.com/earendil-works/pi/blob/v1.6.1/packages/coding-agent/src/core/extensions/types.ts
-[fork-renderer]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/coding-agent/src/core/extensions/types.ts
-[official-message]: https://github.com/earendil-works/pi/blob/v1.6.1/packages/coding-agent/src/modes/interactive/components/custom-message.ts
-[fork-message]: https://github.com/fitchmultz/pi/blob/5c5202a664e7492ab01908cf4c37cd05b3f7c694/packages/coding-agent/src/modes/interactive/components/custom-message.ts#L116-L129
+[normalize]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/ai/src/utils/transcript.ts
+[registry]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/coding-agent/src/core/model-registry.ts
+[simple-options]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/ai/src/types.ts
+[thinking-levels]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/ai/src/providers/model-schema.ts
+[background]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/coding-agent/docs/extensions.md#background-tool-runs
+[official-renderer]: https://github.com/earendil-works/pi/blob/v1.7.0/packages/coding-agent/src/core/extensions/types.ts
+[fork-renderer]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/coding-agent/src/core/extensions/types.ts
+[official-message]: https://github.com/earendil-works/pi/blob/v1.7.0/packages/coding-agent/src/modes/interactive/components/custom-message.ts
+[fork-message]: https://github.com/fitchmultz/pi/blob/91b90ac7dbd18f530d413b5b5f0a1768693cf5c8/packages/coding-agent/src/modes/interactive/components/custom-message.ts#L116-L129

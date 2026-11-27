@@ -236,7 +236,6 @@ test("packed pstack loads and routes workflows with or without delegation", asyn
       PATH: `${dirname(process.execPath)}:/opt/homebrew/bin:/usr/bin:/bin`,
       PI_CODING_AGENT_DIR: agentDir,
       PI_OFFLINE: "1",
-      PI_TELEMETRY: "0",
       PI_PACKAGE_DIR: packageDir,
     };
     const cli = join(packageDir, "dist/bundle/cli.js");

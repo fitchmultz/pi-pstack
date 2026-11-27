@@ -101,7 +101,7 @@ Set `PI_HOST_INDEX=/absolute/path/to/pi-coding-agent/dist/index.js` to qualify a
 CI's `exact-hosts` job runs `node scripts/qualify-hosts.mjs`. The upstream sync runs the same script on the candidate before opening a PR, so a failure opens its sync-failure issue instead. Both runs qualify these sources:
 
 - the exact official Pi version declared in `devDependencies` in `package.json`;
-- `fitchmultz/pi` commit `5c5202a66`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
+- `fitchmultz/pi` commit `91b90ac7d`, built and validated by that fork's documented staged release installer (`scripts/install-fork.mjs --stage`), which never selects the build;
 - `@fitchmultz/pi-subagents` commit `6c1bf456` (version 0.52.61), installed by Pi's own `pi install git:…`, which runs the provider's pinned `prepare` build;
 - the profile-based `pi-subagents` npm package **0.86.0**, in a separate install prefix that contains no second Pi because its Pi peers are optional.
 
