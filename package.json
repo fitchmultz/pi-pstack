@@ -67,6 +67,6 @@
     "node": "^24.22.3 || >=26.13.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "1.6.1"
+    "@earendil-works/pi-coding-agent": "1.7.0"
   }
 }

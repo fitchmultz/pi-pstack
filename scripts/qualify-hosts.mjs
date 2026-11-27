@@ -19,7 +19,7 @@ import { delimiter, dirname, join, resolve } from "node:path";
 const root = join(import.meta.dirname, "..");
 const { devDependencies } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const officialVersion = devDependencies["@earendil-works/pi-coding-agent"];
-const forkCommit = "5c5202a664e7492ab01908cf4c37cd05b3f7c694";
+const forkCommit = "91b90ac7dbd18f530d413b5b5f0a1768693cf5c8";
 const provider = "git:github.com/fitchmultz/pi-subagents@6c1bf456a0acf01c94335e70f2290cca24c52f92";
 // The profile-based provider's existing regression also runs on these hosts.
 const profileProvider = "pi-subagents@0.86.0";
@@ -126,7 +126,7 @@ function buildHosts(dir) {
   run(process.execPath, [join(piPackage(fork), "dist/bundle/cli.js"), "install", provider], {
     cwd: home,
     env: { ...process.env, HOME: home, PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH}`,
-      PI_CODING_AGENT_DIR: join(home, "agent"), PI_PACKAGE_DIR: piPackage(fork), PI_TELEMETRY: "0" },
+      PI_CODING_AGENT_DIR: join(home, "agent"), PI_PACKAGE_DIR: piPackage(fork) },
   });
   const providerIndex = join(home, "agent/git/github.com/fitchmultz/pi-subagents/dist/index.js");
   const profileIndex = join(profiles, "node_modules/pi-subagents/bundle/index.js");
